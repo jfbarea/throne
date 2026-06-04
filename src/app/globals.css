@@ -1,20 +1,322 @@
 @import "tailwindcss";
 
-/* Dark mode hard-coded — no OS media query */
+/* ============================================================
+   throne — Design System
+   Based on Strategium Design System visual language.
+   Adapted to throne identity (wargaming league manager).
+   Dark mode hard-coded, no toggle, no prefers-color-scheme.
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   DESIGN TOKENS — Color, Type, Spacing, Radius, Shadow, Motion
+   ------------------------------------------------------------ */
+
 :root {
-  --background: #09090b;
-  --foreground: #f4f4f5;
-  --muted: #3f3f46;
-  --accent: #a78bfa;
+  /* Ink — surfaces & structure */
+  --ink-900: #0f0e0c; /* deepest bg */
+  --ink-800: #161410; /* primary surface */
+  --ink-700: #1f1c17; /* raised surface — card */
+  --ink-600: #2a261f; /* hover / pressed surface */
+  --ink-500: #3d372e; /* heavy border */
+  --ink-400: #5a5247; /* standard border */
+
+  /* Paper — text on dark surfaces (cream tones) */
+  --paper-50:  #f5f0e6; /* primary text */
+  --paper-100: #e8e1d1; /* secondary text */
+  --paper-200: #c9bfa8; /* tertiary / metadata */
+  --paper-300: #9a907c; /* disabled / faint */
+
+  /* Brass — primary accent (aged gilt) */
+  --brass-600: #6f5524;
+  --brass-500: #c9a66b; /* primary brass */
+  --brass-400: #b8924e; /* pressed brass */
+  --brass-300: #8e6f38; /* deep brass */
+  --brass-200: #ddc18e; /* light brass — hover on dark */
+
+  /* Semantic — muted, period-correct */
+  --ember-500: #b85c3c; /* destructive / warning */
+  --ember-400: #8e4128;
+  --ember-100: #2a1612;
+
+  --moss-500:  #6b7a4e; /* success / valid */
+  --moss-400:  #4f5c36;
+  --moss-100:  #161a11;
+
+  --ash-500:   #7a8b99; /* info / neutral system */
+  --ash-400:   #5a6975;
+  --ash-100:   #14171a;
+
+  /* Semantic roles */
+  --bg:            var(--ink-900);
+  --bg-raised:     var(--ink-800);
+  --surface:       var(--ink-700);
+  --surface-hover: var(--ink-600);
+
+  --fg:          var(--paper-50);
+  --fg-muted:    var(--paper-100);
+  --fg-faint:    var(--paper-200);
+  --fg-disabled: var(--paper-300);
+
+  --border:        var(--ink-500);
+  --border-strong: var(--ink-400);
+
+  --accent:       var(--brass-500);
+  --accent-hover: var(--brass-200);
+  --accent-press: var(--brass-400);
+  --accent-deep:  var(--brass-300);
+
+  --danger:  var(--ember-500);
+  --success: var(--moss-500);
+  --info:    var(--ash-500);
+
+  /* Typography — loaded via next/font in layout.tsx */
+  --font-display: var(--font-cormorant), 'EB Garamond', Georgia, serif;
+  --font-sans:    var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono:    var(--font-jetbrains), ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Type scale — rulebook-generous */
+  --type-display-size: 56px;  --type-display-line: 60px;
+  --type-h1-size:      40px;  --type-h1-line:      48px;
+  --type-h2-size:      28px;  --type-h2-line:      36px;
+  --type-h3-size:      20px;  --type-h3-line:      28px;
+  --type-eyebrow-size: 12px;  --type-eyebrow-line: 16px;
+  --type-body-size:    16px;  --type-body-line:    26px;
+  --type-ui-size:      14px;  --type-ui-line:      20px;
+  --type-meta-size:    12px;  --type-meta-line:    16px;
+  --type-stat-size:    32px;  --type-stat-line:    32px;
+
+  --tracking-tight:   -0.01em;
+  --tracking-normal:   0;
+  --tracking-wide:     0.04em;
+  --tracking-eyebrow:  0.16em;
+
+  /* Spacing — 4/8 grid */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-7:  32px;
+  --space-8:  40px;
+  --space-9:  56px;
+  --space-10: 80px;
+  --space-11: 120px;
+
+  /* Radius — square corners; pills only exception */
+  --radius-none: 0;
+  --radius-sm:   2px;
+  --radius-md:   4px;
+  --radius-pill: 999px;
+
+  /* Shadows — restrained */
+  --shadow-1: 0 1px 0 rgba(0, 0, 0, 0.4) inset;
+  --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-3: 0 24px 48px rgba(0, 0, 0, 0.5);
+
+  /* Icons */
+  --icon-xs: 12px;
+  --icon-sm: 16px;
+  --icon-md: 20px;
+  --icon-lg: 24px;
+  --icon-xl: 32px;
+
+  /* Motion — slow, considered, like turning a page */
+  --ease-page:    cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-system:  cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-micro:    120ms;
+  --dur-standard: 220ms;
+  --dur-page:     360ms;
+
+  /* Layout */
+  --measure-reading: 680px;
+  --gutter-mobile:   16px;
+  --gutter-desktop:  56px;
+  --bar-height:      56px;
 }
+
+/* ------------------------------------------------------------
+   TAILWIND v4 THEME EXTENSION
+   Maps design tokens into Tailwind utilities.
+   ------------------------------------------------------------ */
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  /* Colors */
+  --color-ink-900: var(--ink-900);
+  --color-ink-800: var(--ink-800);
+  --color-ink-700: var(--ink-700);
+  --color-ink-600: var(--ink-600);
+  --color-ink-500: var(--ink-500);
+  --color-ink-400: var(--ink-400);
+
+  --color-paper-50:  var(--paper-50);
+  --color-paper-100: var(--paper-100);
+  --color-paper-200: var(--paper-200);
+  --color-paper-300: var(--paper-300);
+
+  --color-brass-600: var(--brass-600);
+  --color-brass-500: var(--brass-500);
+  --color-brass-400: var(--brass-400);
+  --color-brass-300: var(--brass-300);
+  --color-brass-200: var(--brass-200);
+
+  --color-ember-500: var(--ember-500);
+  --color-ember-400: var(--ember-400);
+  --color-ember-100: var(--ember-100);
+
+  --color-moss-500:  var(--moss-500);
+  --color-moss-400:  var(--moss-400);
+  --color-moss-100:  var(--moss-100);
+
+  --color-ash-500:   var(--ash-500);
+  --color-ash-400:   var(--ash-400);
+  --color-ash-100:   var(--ash-100);
+
+  /* Semantic aliases */
+  --color-bg:            var(--bg);
+  --color-bg-raised:     var(--bg-raised);
+  --color-surface:       var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-fg:            var(--fg);
+  --color-fg-muted:      var(--fg-muted);
+  --color-fg-faint:      var(--fg-faint);
+  --color-fg-disabled:   var(--fg-disabled);
+  --color-border:        var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-accent:        var(--accent);
+  --color-accent-hover:  var(--accent-hover);
+  --color-accent-press:  var(--accent-press);
+  --color-accent-deep:   var(--accent-deep);
+  --color-danger:        var(--danger);
+  --color-success:       var(--success);
+  --color-info:          var(--info);
+
+  /* Fonts */
+  --font-display: var(--font-display);
+  --font-sans:    var(--font-sans);
+  --font-mono:    var(--font-mono);
+
+  /* Border radius */
+  --radius-none: var(--radius-none);
+  --radius-sm:   var(--radius-sm);
+  --radius-md:   var(--radius-md);
+  --radius-pill: var(--radius-pill);
 }
 
+/* ------------------------------------------------------------
+   BASE RESET & GLOBAL STYLES
+   ------------------------------------------------------------ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--brass-300);
+  color: var(--paper-50);
+}
+
+/* Headings default to display serif */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: var(--tracking-tight);
+  margin: 0;
+  color: var(--fg);
+  text-wrap: balance;
+}
+
+h1 { font-size: var(--type-h1-size); line-height: var(--type-h1-line); }
+h2 { font-size: var(--type-h2-size); line-height: var(--type-h2-line); }
+h3 { font-size: var(--type-h3-size); line-height: var(--type-h3-line); font-weight: 600; }
+
+p {
+  margin: 0;
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line);
+  color: var(--fg-muted);
+  text-wrap: pretty;
+  hyphens: auto;
+}
+
+p + p {
+  margin-top: var(--space-4);
+}
+
+small {
+  font-size: var(--type-meta-size);
+  line-height: var(--type-meta-line);
+  color: var(--fg-faint);
+}
+
+code,
+kbd,
+pre {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--dur-micro) var(--ease-system);
+}
+
+a:hover {
+  border-bottom-color: var(--accent);
+}
+
+hr {
+  border: 0;
+  height: 1px;
+  background: var(--border);
+  margin: var(--space-7) 0;
+}
+
+/* Focus ring — brass, always visible */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Scrollbar — thin, subtle */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-500) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--ink-500);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
 }

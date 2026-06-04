@@ -55,13 +55,66 @@ ejemplo (una liga en SETUP + ~12 jugadores ficticios).
 
 ---
 
-## Hito 3 — `auth-sesion`
+## Hito 3 — `sistema-diseno-ui`
+
+**Objetivo:** establecer el **sistema de diseño visual base** de throne a partir
+de un fichero de diseño de Anthropic, antes de construir las vistas reales, para
+que login, paneles, calendario, standings y bracket nazcan ya sobre una capa de
+estilo coherente y se evite re-estilar cada vista al final.
+
+**Posición y justificación:** se inserta deliberadamente **después del modelo de
+datos (Hito 2) y antes del primer hito con UI real (`auth-sesion`)**. No depende
+de la DB, así que no necesita ir más tarde; y aplicarlo aquí —como sistema de
+diseño que guía las vistas posteriores— ahorra el retrabajo de re-maquetar todo
+en `pulido-responsive-e2e`. No va antes porque el Hito 2 ya está en curso
+(`current`) y no se reordena trabajo en marcha.
+
+**Alcance (instrucción literal para el builder, ejecutar tal cual):**
+
+> Fetch this design file, read its readme, and implement the relevant aspects of
+> the design.
+> https://api.anthropic.com/v1/design/h/ckbrsCRFDbBIYnbIF6xNwA
+> Implement: the designs in this project
+
+Es decir: descargar ese fichero de diseño, **leer su README** y **aplicar los
+aspectos relevantes del diseño a este proyecto (throne)**. En concreto, traducir
+el diseño a la capa base de UI: tokens de color/espaciado/tipografía en la config
+de Tailwind y/o `globals.css`, primitivos reutilizables en `src/components/`
+(p. ej. botón, input, card, tabla/lista, badge de estado) y la página índice
+existente como demostración del sistema.
+
+**Conciliación con las preferencias del proyecto (obligatoria):**
+
+- **Dark mode** es la base fija del proyecto (ADR-006 + preferencias del usuario).
+  Si el diseño descargado viene en light mode o trae light/dark, se **adapta a
+  dark mode hard-coded**: no se añade toggle ni `prefers-color-scheme`; la paleta
+  oscura vive en `:root`/config de Tailwind.
+- **Mobile-first**: los primitivos y la demostración deben verse bien en viewport
+  móvil primero; nada de asumir desktop.
+- No se implementan aún las vistas de negocio (login, standings, etc.): esto es
+  solo la **capa de diseño base** que esas vistas consumirán en hitos siguientes.
+
+**Criterios de aceptación:**
+
+- El fichero de diseño de la URL se ha descargado y su **README se ha leído**
+  (queda constancia de qué aspectos del diseño se han considerado relevantes y
+  cuáles se han descartado/adaptado).
+- Los aspectos relevantes del diseño están aplicados a la UI: tokens en Tailwind/
+  `globals.css` y primitivos en `src/components/`, demostrados en la página índice.
+- **Dark mode** sigue siendo la base; si el diseño traía light mode, se ha
+  adaptado a dark sin toggle ni dependencia del SO. Mobile-first respetado.
+- `npm run lint`, `npm run test` y `npm run build` siguen en verde.
+
+---
+
+## Hito 4 — `auth-sesion`
 
 **Objetivo:** autenticación de admin y jugadores según sección 6 del SPEC.
 
 **Alcance:** login admin (passcode env), login jugador (nombre + passcode →
 verificación de `passcodeHash`), cookie de sesión firmada (HttpOnly), middleware
-de autorización por rol, helper `getSession()`. Logout.
+de autorización por rol, helper `getSession()`. Logout. La pantalla de login usa
+los primitivos del sistema de diseño del Hito 3.
 
 **Criterios de aceptación:**
 
@@ -72,7 +125,7 @@ de autorización por rol, helper `getSession()`. Logout.
 
 ---
 
-## Hito 4 — `admin-liga-jugadores`
+## Hito 5 — `admin-liga-jugadores`
 
 **Objetivo:** panel de admin para configurar la liga y gestionar jugadores.
 
@@ -90,7 +143,7 @@ facción. Validación con Zod.
 
 ---
 
-## Hito 5 — `emparejamientos-y-fechas`
+## Hito 6 — `emparejamientos-y-fechas`
 
 **Objetivo:** generación de los emparejamientos round-robin y agendado por fecha
 libre (sección 7.2).
@@ -120,7 +173,7 @@ fechas previas).
 
 ---
 
-## Hito 6 — `reportar-confirmar-resultados`
+## Hito 7 — `reportar-confirmar-resultados`
 
 **Objetivo:** flujo de apuntar y confirmar resultados (sección 7.5).
 
@@ -142,7 +195,7 @@ partida tenga o no fecha, y tener fecha no cambia el `status`.
 
 ---
 
-## Hito 7 — `standings`
+## Hito 8 — `standings`
 
 **Objetivo:** clasificación con desempates (sección 7.3).
 
@@ -159,7 +212,7 @@ zona de playoffs. Aplica cadena de desempates configurable.
 
 ---
 
-## Hito 8 — `playoffs-bracket`
+## Hito 9 — `playoffs-bracket`
 
 **Objetivo:** transición a playoffs y bracket de eliminatoria simple
 (sección 7.4).
@@ -179,14 +232,14 @@ Vista de bracket. Empate inválido en playoffs.
 
 ---
 
-## Hito 9 — `pulido-responsive-e2e`
+## Hito 10 — `pulido-responsive-e2e`
 
 **Objetivo:** acabado mobile-first y tests end-to-end del recorrido completo.
 
 **Alcance:** revisión responsive de todas las vistas (especialmente "Mis
 partidas" para uso con una mano en la mesa), estados vacíos y de error, dark
-mode coherente. Playwright e2e: login → fijar fecha → reportar → confirmar →
-standings → playoffs. Repaso de README.
+mode coherente con el sistema de diseño del Hito 3. Playwright e2e: login →
+fijar fecha → reportar → confirmar → standings → playoffs. Repaso de README.
 
 **Criterios de aceptación:**
 

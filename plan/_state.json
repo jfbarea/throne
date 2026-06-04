@@ -1,5 +1,5 @@
 {
-  "current": "modelo-datos-prisma",
+  "current": "sistema-diseno-ui",
   "milestones": [
     {
       "slug": "scaffold-minimo",
@@ -40,7 +40,7 @@
     {
       "slug": "modelo-datos-prisma",
       "title": "Modelo de datos en schema.prisma + seed (sin Round; Match con scheduledAt/location)",
-      "status": "READY_FOR_REVIEW",
+      "status": "DONE",
       "commit_sha": "e4f8666",
       "review_feedback": null,
       "files_changed": [
@@ -51,9 +51,29 @@
         "package.json",
         "package-lock.json"
       ],
-      "notes": "Correcciones post-review (CHANGES_REQUESTED): (B1) eliminado BracketSlot.matchId (String? huerfano sin @relation ni FK) — la partida del slot se obtiene via la relacion inversa BracketSlot.match[] ya existente en Match.bracketSlotId; nueva migracion remove_bracketslot_matchid elimina la columna del SQL. (S1) conteo creados/actualizados ahora usa findUnique previo al upsert en lugar de comparar timestamps createdAt/updatedAt — 1a ejecucion sobre BD limpia: 12 creados / 0 actualizados; 2a ejecucion: 0 creados / 12 actualizados. (S2) DUMMY_HASH invalido reemplazado por SEED_PASSCODE_HASH, hash bcrypt real de '1234' generado con bcryptjs (cost=10); compareSync('1234', hash) === true verificado; bcryptjs instalado como dependencia produccion (adelanta la dependencia del Hito 4 - auth). npm run lint/test/build en verde."
+      "notes": "APPROVED por Notum en re-review 2026-06-04. Verificaciones: (B1) BracketSlot.matchId ausente del schema y de la DB — migración remove_bracketslot_matchid recrea la tabla sin esa columna via RedefineTables. Relación inversa BracketSlot.match[] correcta vía Match.bracketSlotId FK. (S1) Seed idempotente verificado sobre DB limpia: 1ª ejecución → 12 creados, 0 actualizados; 2ª ejecución → 0 creados, 12 actualizados. Conteo robusto via findUnique previo a upsert. (S2) Hash bcrypt '$2b$10$4EDHVVhvPoBe7l47tWuXRe2fPNXyFJT/gB1KlkmGHEGh3xa.OgSvm' verificado: compareSync('1234', hash) === true, compareSync('wrongpass', hash) === false; bcryptjs en dependencias de producción. npm run lint/test/build en verde; prisma migrate status limpio; .db y .env no trackeados."
     },
-    { "slug": "sistema-diseno-ui", "title": "Sistema de diseno base de UI desde fichero de diseno de Anthropic (dark mode, mobile-first)", "status": "PENDING", "commit_sha": null },
+    {
+      "slug": "sistema-diseno-ui",
+      "title": "Sistema de diseno base de UI desde fichero de diseno de Anthropic (dark mode, mobile-first)",
+      "status": "READY_FOR_REVIEW",
+      "commit_sha": null,
+      "files_changed": [
+        "src/app/globals.css",
+        "src/app/layout.tsx",
+        "src/app/page.tsx",
+        "src/components/Button.tsx",
+        "src/components/Card.tsx",
+        "src/components/Badge.tsx",
+        "src/components/Divider.tsx",
+        "src/components/Eyebrow.tsx",
+        "src/components/Input.tsx",
+        "src/components/index.ts",
+        "package.json",
+        "package-lock.json"
+      ],
+      "notes": "Bundle leido completo: README, chat1.md, project/README.md, colors_and_type.css, SKILL.md, ui_kits/web y ui_kits/mobile (css + html + components.jsx). Implementado: (1) Tokens completos en globals.css — paleta ink/paper/brass + semanticos ember/moss/ash, escala tipografica, espaciado 4/8, radios (2px sm / 999px pill), sombras, motion tokens; mapeados a @theme inline de Tailwind v4. (2) Fuentes cargadas con next/font/google: Cormorant Garamond (display), Inter (sans), JetBrains Mono (mono) — sin CDN. (3) Iconos via paquete @phosphor-icons/react SSR (no CDN). (4) Primitivos en src/components/: Button (primary/secondary/ghost/danger, sm/md, fullWidth, icon), Input (label/helper/error/leadingIcon), Card + CardEyebrow + CardTitle (default + featured con borde brass superior), Badge + StatusBadge (pill 999px, variantes neutral/brass/ember/moss/ash), Divider (plain + ornamental con glífo ✦ brass), Eyebrow (label small-caps). (5) Showcase en page.tsx: paleta, escala tipografica, botones, inputs, cards, badges, iconos, dividers — identidad throne (nunca el wordmark Strategium). Adaptaciones: modo dark hard-coded en :root sin toggle ni prefers-color-scheme (canonico en el sistema); mobile-first; copy del showcase en espanol. Descartado: light-mode mirror del design (ADR throne dark-only), logo SVG Strategium (sustituido por glífo ✦ + wordmark throne), copy en ingles del prototipo (reescrito en espanol). npm run lint/test/build en verde."
+    },
     { "slug": "auth-sesion", "title": "Auth de admin y jugadores con sesion firmada", "status": "PENDING", "commit_sha": null },
     { "slug": "admin-liga-jugadores", "title": "Panel admin: config de liga y jugadores", "status": "PENDING", "commit_sha": null },
     { "slug": "emparejamientos-y-fechas", "title": "Generacion de emparejamientos round-robin y agendado por fecha libre", "status": "PENDING", "commit_sha": null },
