@@ -202,6 +202,44 @@ describe("validateOutcomeVsVP", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 2b. deriveOutcome — outcome inferred from VP (SPEC §4.5)
+// ---------------------------------------------------------------------------
+
+describe("deriveOutcome", () => {
+  async function getDerive() {
+    const { deriveOutcome } = await import("@/server/result-logic");
+    return deriveOutcome;
+  }
+
+  it("returns HOME_WIN when home VP are higher", async () => {
+    const d = await getDerive();
+    expect(d(60, 40)).toBe("HOME_WIN");
+    expect(d(1, 0)).toBe("HOME_WIN");
+  });
+
+  it("returns AWAY_WIN when away VP are higher", async () => {
+    const d = await getDerive();
+    expect(d(30, 70)).toBe("AWAY_WIN");
+    expect(d(0, 1)).toBe("AWAY_WIN");
+  });
+
+  it("returns DRAW when VP are equal", async () => {
+    const d = await getDerive();
+    expect(d(50, 50)).toBe("DRAW");
+    expect(d(0, 0)).toBe("DRAW");
+  });
+
+  it("is consistent with validateOutcomeVsVP (no advisory warning for derived outcome)", async () => {
+    const d = await getDerive();
+    const { validateOutcomeVsVP } = await import("@/server/result-logic");
+    // The derived outcome should never trigger a VP/outcome mismatch warning.
+    expect(validateOutcomeVsVP(60, 40, d(60, 40))).toBeNull();
+    expect(validateOutcomeVsVP(30, 70, d(30, 70))).toBeNull();
+    expect(validateOutcomeVsVP(50, 50, d(50, 50))).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 3. Authorization: canReport, canConfirmOrDispute
 // ---------------------------------------------------------------------------
 

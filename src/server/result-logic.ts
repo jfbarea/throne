@@ -107,6 +107,27 @@ export function validateOutcomeVsVP(
 }
 
 // ---------------------------------------------------------------------------
+// deriveOutcome — infer the outcome from the VP scores (SPEC §4.5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive the match outcome purely from the victory points.
+ *
+ * In the common case the result is fully implied by the VP: whoever scores more
+ * wins, equal VP is a draw. Reporting no longer asks the player to pick the
+ * outcome — it is computed here from the numbers they enter.
+ *
+ * The rare W40k case of a mission-rules draw despite unequal VP is handled
+ * explicitly upstream (a "force draw" flag at report time, or admin override),
+ * not by this function.
+ */
+export function deriveOutcome(homeVP: number, awayVP: number): Outcome {
+  if (homeVP > awayVP) return "HOME_WIN";
+  if (awayVP > homeVP) return "AWAY_WIN";
+  return "DRAW";
+}
+
+// ---------------------------------------------------------------------------
 // Authorization helpers (pure — receive data, return boolean)
 // ---------------------------------------------------------------------------
 

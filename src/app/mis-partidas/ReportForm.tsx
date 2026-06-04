@@ -1,6 +1,7 @@
 "use client";
 
-// ReportForm — inline form to report a match result (VP + outcome).
+// ReportForm — inline form to report a match result (VP + optional forceDraw).
+// The outcome is derived from the VP on the server (SPEC §4.5), not chosen here.
 // SPEC §7.5: only participants; identity from server cookie, not client.
 
 import { useState, useTransition } from "react";
@@ -8,8 +9,6 @@ import { Button } from "@/components";
 import { Input } from "@/components";
 import { reportResult } from "@/server/result-actions";
 import { Check, X } from "@phosphor-icons/react";
-
-type Outcome = "HOME_WIN" | "AWAY_WIN" | "DRAW";
 
 interface ReportFormProps {
   matchId: string;
@@ -26,24 +25,27 @@ export function ReportForm({
 }: ReportFormProps) {
   const [homeVP, setHomeVP] = useState("");
   const [awayVP, setAwayVP] = useState("");
-  const [outcome, setOutcome] = useState<Outcome | "">("");
+  // Mission-rules draw despite unequal VP — the rare explicit case (SPEC §4.5).
+  const [missionDraw, setMissionDraw] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  const home = parseInt(homeVP, 10);
+  const away = parseInt(awayVP, 10);
+  const vpReady = !isNaN(home) && !isNaN(away);
+
+  // Outcome preview, derived from the VP (matches the server's deriveOutcome).
+  let derivedLabel = "";
+  if (vpReady) {
+    if (missionDraw || home === away) derivedLabel = "Empate";
+    else if (home > away) derivedLabel = `Victoria ${playerHomeName}`;
+    else derivedLabel = `Victoria ${playerAwayName}`;
+  }
 
   function handleSubmit() {
     setError(null);
-    setWarning(null);
 
-    if (!outcome) {
-      setError("Selecciona el resultado (victoria local, visitante o empate)");
-      return;
-    }
-
-    const home = parseInt(homeVP, 10);
-    const away = parseInt(awayVP, 10);
-
-    if (isNaN(home) || isNaN(away)) {
+    if (!vpReady) {
       setError("Los VP deben ser números enteros");
       return;
     }
@@ -52,13 +54,11 @@ export function ReportForm({
       const res = await reportResult(matchId, {
         homeVictoryPoints: home,
         awayVictoryPoints: away,
-        outcome: outcome as Outcome,
+        // Equal VP is already a draw; the flag only matters when VP differ.
+        forceDraw: missionDraw,
       });
 
       if (res.ok) {
-        if (res.warning) {
-          setWarning(res.warning);
-        }
         onDone?.();
       } else {
         setError(res.error);
@@ -107,7 +107,7 @@ export function ReportForm({
         </div>
       </div>
 
-      {/* Outcome selector */}
+      {/* Derived result preview — the outcome is inferred from the VP (SPEC §4.5). */}
       <div className="space-y-1">
         <span
           className="block text-[12px] font-semibold"
@@ -115,59 +115,29 @@ export function ReportForm({
         >
           Resultado
         </span>
-        <div className="flex flex-wrap gap-2">
-          {(
-            [
-              {
-                value: "HOME_WIN",
-                label: `Victoria ${playerHomeName}`,
-              },
-              {
-                value: "AWAY_WIN",
-                label: `Victoria ${playerAwayName}`,
-              },
-              { value: "DRAW", label: "Empate" },
-            ] as { value: Outcome; label: string }[]
-          ).map((opt) => {
-            const selected = outcome === opt.value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setOutcome(opt.value)}
-                className="px-3 py-[7px] rounded text-[13px] font-semibold border transition-all duration-[120ms] cursor-pointer"
-                style={{
-                  fontFamily: "var(--font-sans)",
-                  background: selected
-                    ? "var(--accent)"
-                    : "var(--surface)",
-                  color: selected ? "var(--ink-900)" : "var(--fg-muted)",
-                  borderColor: selected
-                    ? "var(--accent)"
-                    : "var(--border-strong)",
-                }}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Warning (VP vs outcome mismatch advisory) */}
-      {warning && (
         <p
-          className="text-[12px] rounded p-2"
+          className="text-[14px] font-semibold"
           style={{
-            background: "rgba(201,166,107,0.10)",
-            border: "1px solid rgba(201,166,107,0.25)",
-            color: "var(--accent)",
+            color: derivedLabel ? "var(--fg)" : "var(--fg-faint)",
             fontFamily: "var(--font-sans)",
           }}
         >
-          {warning}
+          {derivedLabel || "Introduce los VP para ver el resultado"}
         </p>
-      )}
+      </div>
+
+      {/* Optional: mission-rules draw despite unequal VP (rare). */}
+      <label
+        className="flex items-center gap-2 text-[13px] cursor-pointer select-none"
+        style={{ color: "var(--fg-muted)", fontFamily: "var(--font-sans)" }}
+      >
+        <input
+          type="checkbox"
+          checked={missionDraw}
+          onChange={(e) => setMissionDraw(e.target.checked)}
+        />
+        Empate por reglas de misión (aunque los VP difieran)
+      </label>
 
       {/* Error */}
       {error && (

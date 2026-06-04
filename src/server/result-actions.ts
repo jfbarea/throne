@@ -15,7 +15,7 @@ import {
   canReportInStatus,
   canConfirmInStatus,
   canDisputeInStatus,
-  validateOutcomeVsVP,
+  deriveOutcome,
 } from "@/server/result-logic";
 import { advancePlayoffWinner } from "@/server/playoff-actions";
 
@@ -33,7 +33,7 @@ export type ActionResult<T = void> =
 
 const outcomeEnum = z.enum(["HOME_WIN", "AWAY_WIN", "DRAW"]);
 
-const reportResultSchema = z.object({
+const victoryPointsShape = {
   homeVictoryPoints: z
     .number({ error: "Los VP del local son requeridos" })
     .int("Los VP deben ser un número entero")
@@ -42,6 +42,20 @@ const reportResultSchema = z.object({
     .number({ error: "Los VP del visitante son requeridos" })
     .int("Los VP deben ser un número entero")
     .min(0, "Los VP no pueden ser negativos"),
+};
+
+// Player report: the outcome is no longer chosen — it is derived from the VP
+// (SPEC §4.5). `forceDraw` covers the rare mission-rules draw despite unequal VP.
+const playerReportSchema = z.object({
+  ...victoryPointsShape,
+  forceDraw: z.boolean().optional(),
+});
+
+export type PlayerReportInput = z.infer<typeof playerReportSchema>;
+
+// Admin override keeps an explicit outcome (dispute resolution, mission rulings).
+const reportResultSchema = z.object({
+  ...victoryPointsShape,
   outcome: outcomeEnum,
 });
 
@@ -86,19 +100,25 @@ async function writeAuditLog(
  */
 export async function reportResult(
   matchId: string,
-  input: ReportResultInput
-): Promise<ActionResult<{ resultId: string; warning?: string }>> {
+  input: PlayerReportInput
+): Promise<ActionResult<{ resultId: string }>> {
   const session = await requireAuth();
 
   // Validate input.
-  const parsed = reportResultSchema.safeParse(input);
+  const parsed = playerReportSchema.safeParse(input);
   if (!parsed.success) {
     const flat = parsed.error.flatten();
     const firstErr =
       Object.values(flat.fieldErrors).flat()[0] ?? flat.formErrors[0];
     return { ok: false, error: firstErr ?? "Datos inválidos" };
   }
-  const { homeVictoryPoints, awayVictoryPoints, outcome } = parsed.data;
+  const { homeVictoryPoints, awayVictoryPoints, forceDraw } = parsed.data;
+
+  // Outcome is derived from the VP (SPEC §4.5); forceDraw covers the rare
+  // mission-rules draw despite unequal VP.
+  const outcome = forceDraw
+    ? "DRAW"
+    : deriveOutcome(homeVictoryPoints, awayVictoryPoints);
 
   // Load match + league config in one query.
   const match = await prisma.match.findUnique({
@@ -140,9 +160,6 @@ export async function reportResult(
       error: "Los empates no están permitidos en partidas de playoffs. Se requiere un ganador.",
     };
   }
-
-  // Advisory VP/outcome consistency check.
-  const warning = validateOutcomeVsVP(homeVictoryPoints, awayVictoryPoints, outcome) ?? undefined;
 
   // Calculate bonus at report time (SPEC §7.1, §9).
   const { bonusHome, bonusAway } = calculateBonus(
@@ -236,8 +253,7 @@ export async function reportResult(
 
   return {
     ok: true,
-    data: { resultId: resultId!, warning },
-    warning,
+    data: { resultId: resultId! },
   };
 }
 
