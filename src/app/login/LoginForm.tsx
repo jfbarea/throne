@@ -5,6 +5,7 @@
 // Uses design-system primitives: Button, Input, Card, CardTitle, CardEyebrow, Eyebrow.
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
@@ -224,6 +225,15 @@ export function LoginForm() {
             : "La clave de administrador está configurada en el servidor."}
         </p>
       </Card>
+
+      {/* Public link to the league rules — no login required */}
+      <Link
+        href="/bases"
+        className="mt-6 text-[13px] font-semibold no-underline"
+        style={{ color: "var(--accent)", fontFamily: "var(--font-sans)" }}
+      >
+        Ver las bases de la liga
+      </Link>
 
       {/* Footer */}
       <div className="mt-8">
