@@ -1,5 +1,5 @@
 {
-  "current": "sistema-diseno-ui",
+  "current": "auth-sesion",
   "milestones": [
     {
       "slug": "scaffold-minimo",
@@ -56,8 +56,9 @@
     {
       "slug": "sistema-diseno-ui",
       "title": "Sistema de diseno base de UI desde fichero de diseno de Anthropic (dark mode, mobile-first)",
-      "status": "READY_FOR_REVIEW",
+      "status": "DONE",
       "commit_sha": "c09edefc25faa5478e7883614a651f4535818a12",
+      "review_feedback": null,
       "files_changed": [
         "src/app/globals.css",
         "src/app/layout.tsx",
@@ -72,14 +73,36 @@
         "package.json",
         "package-lock.json"
       ],
-      "notes": "Bundle leido completo: README, chat1.md, project/README.md, colors_and_type.css, SKILL.md, ui_kits/web y ui_kits/mobile (css + html + components.jsx). Implementado: (1) Tokens completos en globals.css — paleta ink/paper/brass + semanticos ember/moss/ash, escala tipografica, espaciado 4/8, radios (2px sm / 999px pill), sombras, motion tokens; mapeados a @theme inline de Tailwind v4. (2) Fuentes cargadas con next/font/google: Cormorant Garamond (display), Inter (sans), JetBrains Mono (mono) — sin CDN. (3) Iconos via paquete @phosphor-icons/react SSR (no CDN). (4) Primitivos en src/components/: Button (primary/secondary/ghost/danger, sm/md, fullWidth, icon), Input (label/helper/error/leadingIcon), Card + CardEyebrow + CardTitle (default + featured con borde brass superior), Badge + StatusBadge (pill 999px, variantes neutral/brass/ember/moss/ash), Divider (plain + ornamental con glífo ✦ brass), Eyebrow (label small-caps). (5) Showcase en page.tsx: paleta, escala tipografica, botones, inputs, cards, badges, iconos, dividers — identidad throne (nunca el wordmark Strategium). Adaptaciones: modo dark hard-coded en :root sin toggle ni prefers-color-scheme (canonico en el sistema); mobile-first; copy del showcase en espanol. Descartado: light-mode mirror del design (ADR throne dark-only), logo SVG Strategium (sustituido por glífo ✦ + wordmark throne), copy en ingles del prototipo (reescrito en espanol). npm run lint/test/build en verde."
+      "notes": "APPROVED por Notum 2026-06-04. Bundle leido completo: README, chat1.md, project/README.md, colors_and_type.css, SKILL.md, ui_kits/web y ui_kits/mobile (css + html + components.jsx). Implementado: (1) Tokens completos en globals.css — paleta ink/paper/brass + semanticos ember/moss/ash, escala tipografica, espaciado 4/8, radios (2px sm / 999px pill), sombras, motion tokens; mapeados a @theme inline de Tailwind v4. (2) Fuentes cargadas con next/font/google: Cormorant Garamond (display), Inter (sans), JetBrains Mono (mono) — sin CDN. (3) Iconos via paquete @phosphor-icons/react SSR (no CDN). (4) Primitivos en src/components/: Button (primary/secondary/ghost/danger, sm/md, fullWidth, icon), Input (label/helper/error/leadingIcon), Card + CardEyebrow + CardTitle (default + featured con borde brass superior), Badge + StatusBadge (pill 999px, variantes neutral/brass/ember/moss/ash), Divider (plain + ornamental con glífo ✦ brass), Eyebrow (label small-caps). (5) Showcase en page.tsx: paleta, escala tipografica, botones, inputs, cards, badges, iconos, dividers — identidad throne (nunca el wordmark Strategium). Dark mode hard-coded en :root sin toggle ni prefers-color-scheme; mobile-first; copy del showcase en español. npm run lint/test/build en verde. Nota menor: comentario de atribución en globals.css línea 5 menciona 'Strategium Design System visual language' — solo en comentario de código, no visible en UI; aceptable como atribución interna. Sugerencia: en futuras vistas considerar propiedad 'font-variant-numeric: tabular-nums' en celdas de stats."
     },
-    { "slug": "auth-sesion", "title": "Auth de admin y jugadores con sesion firmada", "status": "PENDING", "commit_sha": null },
+    {
+      "slug": "auth-sesion",
+      "title": "Auth de admin y jugadores con sesion firmada",
+      "status": "READY_FOR_REVIEW",
+      "commit_sha": null,
+      "files_changed": [
+        "package.json",
+        "package-lock.json",
+        "vitest.config.ts",
+        "src/lib/session.ts",
+        "src/lib/auth.ts",
+        "src/lib/guards.ts",
+        "src/app/api/auth/login-admin/route.ts",
+        "src/app/api/auth/login-player/route.ts",
+        "src/app/api/auth/logout/route.ts",
+        "src/app/login/page.tsx",
+        "src/app/login/LoginForm.tsx",
+        "src/app/unauthorized/page.tsx",
+        "tests/auth.test.ts"
+      ],
+      "notes": "Mecanismo: JWT HS256 firmado con SESSION_SECRET (lib jose), almacenado en cookie HttpOnly SameSite=Lax Secure-en-prod. Sin tabla Session en DB. src/lib/session.ts: signSession/verifySession/getSession/setSessionCookie/clearSessionCookie. src/lib/auth.ts: verifyAdminPasscode (timingSafeEqual de node:crypto, padding a 64 chars para evitar leak de longitud), verifyPlayerPasscode (bcrypt.compare). src/lib/guards.ts: requireAuth/requireAdmin/requirePlayer (redirect) y apiRequireAuth/apiRequireAdmin (Response). Route handlers: POST /api/auth/login-admin, POST /api/auth/login-player, POST /api/auth/logout. UI: /login con LoginForm (client component, mode player/admin, primitivos Button+Input+Card+Eyebrow), /unauthorized (page estatica). Tests: 20 tests en verde — verifyAdminPasscode (4 casos), bcrypt seed hash (3), JWT round-trip y tampering (5), identity-from-cookie invariant (2), guards de rol (4). vitest.config.ts inyecta SESSION_SECRET y ADMIN_PASSCODE en test env sin depender de .env real. .env no leido ni modificado."
+    },
     { "slug": "admin-liga-jugadores", "title": "Panel admin: config de liga y jugadores", "status": "PENDING", "commit_sha": null },
     { "slug": "emparejamientos-y-fechas", "title": "Generacion de emparejamientos round-robin y agendado por fecha libre", "status": "PENDING", "commit_sha": null },
     { "slug": "reportar-confirmar-resultados", "title": "Flujo de reportar y confirmar resultados", "status": "PENDING", "commit_sha": null },
     { "slug": "standings", "title": "Clasificacion con desempates", "status": "PENDING", "commit_sha": null },
     { "slug": "playoffs-bracket", "title": "Transicion a playoffs y bracket de eliminatoria", "status": "PENDING", "commit_sha": null },
-    { "slug": "pulido-responsive-e2e", "title": "Pulido mobile-first y tests e2e", "status": "PENDING", "commit_sha": null }
+    { "slug": "pulido-responsive-e2e", "title": "Pulido mobile-first y tests e2e", "status": "PENDING", "commit_sha": null },
+    { "slug": "documentacion-y-guion-pruebas", "title": "Documentacion de uso y configuracion + guion de pruebas manual (espanol)", "status": "PENDING", "commit_sha": null }
   ]
 }

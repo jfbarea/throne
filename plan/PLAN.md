@@ -249,6 +249,73 @@ fijar fecha → reportar → confirmar → standings → playoffs. Repaso de REA
 
 ---
 
+## Hito 11 — `documentacion-y-guion-pruebas`
+
+**Objetivo:** producir la documentación de usuario y configuración de throne (en
+**español**, según convención del repo) más un guión de pruebas manual, para que
+el admin de la liga sepa usar y configurar bien la app y disponga de un walkthrough
+reproducible para probarla de extremo a extremo. Es documentación: no introduce ni
+cambia lógica de la aplicación.
+
+**Posición y justificación:** va el **último** porque documenta el producto ya
+completo (flujo terminado en Hitos 6-9 y pulido en el Hito 10). Documentar antes
+correría riesgo de quedar desactualizado respecto a vistas, comandos y variables
+que aún cambian.
+
+**Alcance:**
+
+- **Guía de uso** (manual de usuario) en `docs/` (español): cómo funciona la app de
+  principio a fin, diferenciando rol **admin** y rol **jugador**, con la terminología
+  de dominio del SPEC. Flujo completo:
+  - El admin crea la liga y la configura (Hito 5); la deja en `SETUP`.
+  - El admin da de alta a los jugadores y reparte sus passcodes (mostrados una vez).
+  - Cómo entra un jugador (login por nombre + passcode) frente al login admin.
+  - Generar los emparejamientos round-robin (`C(n,2)` partidas, sin rondas ni byes).
+  - Fijar/editar/limpiar la **fecha** de las partidas (fecha libre, `scheduledAt`),
+    por cualquiera de los dos participantes o el admin, sin aceptación del rival.
+  - Reportar resultado (VP + outcome) y confirmar/disputar por el rival; override y
+    resolución de disputa por el admin.
+  - Consultar la clasificación (standings con desempates y zona de playoffs).
+  - Transición a playoffs e interpretación del bracket hasta el campeón.
+- **Guía de configuración** en `docs/` (español):
+  - Variables de entorno (`DATABASE_URL`, `ADMIN_PASSCODE`, `SESSION_SECRET`): qué
+    son y **cómo generarlas** (p. ej. secreto aleatorio para `SESSION_SECRET`),
+    partiendo de `.env.example`.
+  - Configuración de la liga: sistema de puntos (`pointsWin/Draw/Loss`), bonus,
+    `playoffSize` y tiebreakers (cadena de desempates configurable).
+  - Comandos reales del proyecto de arranque, seed y migración (`npm run dev`,
+    `npm run seed`, `npx prisma migrate dev`, etc.).
+  - Nota breve sobre el despliegue **futuro**: ahora corre en local con SQLite y el
+    diseño es Postgres-ready (portabilidad ADR/transversal), sin entrar en pipeline
+    cloud ni proveedor concreto.
+- **Guión de pruebas** (`docs/` o `TESTING.md`, español): walkthrough paso a paso
+  para **probar manualmente** la app de extremo a extremo con la app corriendo en
+  local, con el **resultado esperado** en cada paso. Puede apoyarse en el seed de
+  ejemplo (liga en `SETUP` + ~12 jugadores). Recorrido: login admin → crear/configurar
+  liga → alta de varios jugadores → generar emparejamientos → fijar fechas → reportar
+  y confirmar resultados → ver standings → iniciar playoffs → resolver bracket →
+  campeón.
+- **README**: revisar/actualizar `README.md` para que **enlace** a estos documentos
+  de `docs/` (uso, configuración y guión de pruebas).
+
+**Criterios de aceptación:**
+
+- Existen en `docs/` (o, para el guión, en `docs/`/`TESTING.md`) los tres documentos
+  —guía de uso, guía de configuración y guión de pruebas—, todos en **español**.
+- La guía de uso cubre **ambos roles** (admin y jugador) y el **flujo de dominio
+  completo**: liga, jugadores/passcodes, emparejamientos, fechas, reporte/confirmación,
+  standings, playoffs y campeón, con la terminología del SPEC.
+- Las variables de entorno (`DATABASE_URL`, `ADMIN_PASSCODE`, `SESSION_SECRET`) y los
+  comandos documentados **coinciden con los reales** del proyecto (`.env.example`,
+  `package.json`, migraciones Prisma).
+- El guión de pruebas es un recorrido paso a paso, seguible con la app en local, con
+  resultados esperados en cada paso, y se apoya en el seed de ejemplo donde aplique.
+- El `README.md` enlaza la documentación de `docs/`.
+- `npm run lint`, `npm run test` y `npm run build` siguen en verde (la documentación
+  no debe romper nada).
+
+---
+
 ## Notas de portabilidad (transversal a todos los hitos)
 
 - Toda regla de negocio (standings, pairings, bracket, bonus) vive en funciones
