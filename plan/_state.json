@@ -57,7 +57,7 @@
       "slug": "sistema-diseno-ui",
       "title": "Sistema de diseno base de UI desde fichero de diseno de Anthropic (dark mode, mobile-first)",
       "status": "READY_FOR_REVIEW",
-      "commit_sha": null,
+      "commit_sha": "c09edefc25faa5478e7883614a651f4535818a12",
       "files_changed": [
         "src/app/globals.css",
         "src/app/layout.tsx",
