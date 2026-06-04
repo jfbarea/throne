@@ -41,16 +41,17 @@
       "slug": "modelo-datos-prisma",
       "title": "Modelo de datos en schema.prisma + seed (sin Round; Match con scheduledAt/location)",
       "status": "READY_FOR_REVIEW",
-      "commit_sha": "6867f28e2feaede9d398198a679339c91c16e60a",
+      "commit_sha": "e4f8666",
       "review_feedback": null,
       "files_changed": [
         "prisma/schema.prisma",
         "prisma/migrations/20260604123748_modelo_datos_dominio/migration.sql",
+        "prisma/migrations/20260604125058_remove_bracketslot_matchid/migration.sql",
         "prisma/seed.ts",
         "package.json",
         "package-lock.json"
       ],
-      "notes": "Modelos: League, Player, Match, Result, Bracket, BracketSlot, AuditLog. Enums: LeagueStatus, Role, MatchStatus, MatchPhase, Outcome. Sin entidad Round (ADR-007): Match.leagueId FK directa. Match.scheduledAt y Match.location nullable. tiebreakers almacenado como String JSON (SQLite no tiene arrays escalares; migracion a String[] en Postgres es trivial). isBye solo true en playoffs. Seed idempotente via upsert con id semilla determinista: 1 liga SETUP + 12 jugadores W40k (1 ADMIN + 11 PLAYER). npm run lint/test/build en verde; doble ejecucion del seed verificada (1a: 12 creados, 0 actualizados; 2a: 0 creados, 12 actualizados)."
+      "notes": "Correcciones post-review (CHANGES_REQUESTED): (B1) eliminado BracketSlot.matchId (String? huerfano sin @relation ni FK) — la partida del slot se obtiene via la relacion inversa BracketSlot.match[] ya existente en Match.bracketSlotId; nueva migracion remove_bracketslot_matchid elimina la columna del SQL. (S1) conteo creados/actualizados ahora usa findUnique previo al upsert en lugar de comparar timestamps createdAt/updatedAt — 1a ejecucion sobre BD limpia: 12 creados / 0 actualizados; 2a ejecucion: 0 creados / 12 actualizados. (S2) DUMMY_HASH invalido reemplazado por SEED_PASSCODE_HASH, hash bcrypt real de '1234' generado con bcryptjs (cost=10); compareSync('1234', hash) === true verificado; bcryptjs instalado como dependencia produccion (adelanta la dependencia del Hito 4 - auth). npm run lint/test/build en verde."
     },
     { "slug": "sistema-diseno-ui", "title": "Sistema de diseno base de UI desde fichero de diseno de Anthropic (dark mode, mobile-first)", "status": "PENDING", "commit_sha": null },
     { "slug": "auth-sesion", "title": "Auth de admin y jugadores con sesion firmada", "status": "PENDING", "commit_sha": null },
