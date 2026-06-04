@@ -1,5 +1,5 @@
 // /login — Server Component shell for the login page.
-// If the user already has a valid session, redirect to home.
+// If the user already has a valid session, redirect to their role's landing page.
 
 import { getSession } from "@/lib/session";
 import { redirect } from "next/navigation";
@@ -13,7 +13,8 @@ export const metadata: Metadata = {
 export default async function LoginPage() {
   const session = await getSession();
   if (session) {
-    redirect("/");
+    // Send authenticated users to a useful landing, not the design showcase at "/".
+    redirect(session.role === "ADMIN" ? "/admin" : "/mis-partidas");
   }
 
   return <LoginForm />;

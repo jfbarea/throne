@@ -45,7 +45,8 @@ export function LoginForm() {
           setError(data.error ?? "Error al iniciar sesión");
           return;
         }
-        router.push("/");
+        // Players land on their own matches, not the design showcase at "/".
+        router.push("/mis-partidas");
       } else {
         const res = await fetch("/api/auth/login-admin", {
           method: "POST",
@@ -57,7 +58,8 @@ export function LoginForm() {
           setError(data.error ?? "Error al iniciar sesión");
           return;
         }
-        router.push("/");
+        // Admins land on the admin panel, not the design showcase at "/".
+        router.push("/admin");
       }
     } catch {
       setError("Error de red. Inténtalo de nuevo.");
