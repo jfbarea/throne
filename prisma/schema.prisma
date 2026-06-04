@@ -1,6 +1,8 @@
 // Prisma schema — throne
-// Full domain models are added in milestone 2 (modelo-datos-prisma).
-// This initial schema is a placeholder to validate Prisma + SQLite setup.
+// Milestone 2: modelo-datos-prisma
+// Full domain model replacing the initial Placeholder.
+// ADR-002: SQLite in dev, Postgres-ready (no engine-specific SQL in app logic).
+// ADR-007: No Round entity; Matches hang directly from League ordered by scheduledAt.
 
 generator client {
   provider = "prisma-client"
@@ -11,8 +13,247 @@ datasource db {
   provider = "sqlite"
 }
 
-// Placeholder model — replaced by full domain model in milestone 2
-model Placeholder {
-  id        String   @id @default(cuid())
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+// LeagueStatus: lifecycle of the league edition.
+enum LeagueStatus {
+  SETUP     // League is being configured; pairings not yet generated.
+  LEAGUE    // Active league phase (round-robin matches in progress).
+  PLAYOFFS  // Playoff bracket phase.
+  FINISHED  // League concluded.
+}
+
+// Role: player access level.
+enum Role {
+  ADMIN  // League administrator (also a player).
+  PLAYER // Regular participant.
+}
+
+// MatchStatus: lifecycle of a match result (independent of scheduledAt).
+// SCHEDULED = pairing created, result pending (may or may not have a date).
+enum MatchStatus {
+  SCHEDULED // Pairing exists; no result reported yet.
+  REPORTED  // One player reported the result; awaiting rival confirmation.
+  CONFIRMED // Rival (or admin) confirmed the result; counts for standings.
+  DISPUTED  // Rival disputed the result; requires admin resolution.
+}
+
+// MatchPhase: which competition phase the match belongs to.
+enum MatchPhase {
+  LEAGUE  // Regular round-robin phase.
+  PLAYOFF // Elimination bracket phase.
+}
+
+// Outcome: final result of a match.
+enum Outcome {
+  HOME_WIN  // Home player won.
+  AWAY_WIN  // Away player won.
+  DRAW      // Draw (valid in league phase; invalid in playoffs per domain rules).
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+// League: global configuration for the active season.
+// In MVP there is a single active league.
+model League {
+  id     String       @id @default(cuid())
+  name   String
+  season String // e.g. "2026 Spring"
+
+  status LeagueStatus @default(SETUP)
+
+  // Scoring configuration (defaults: win=3, draw=1, loss=0).
+  pointsWin  Int @default(3)
+  pointsDraw Int @default(1)
+  pointsLoss Int @default(0)
+
+  // Bonus configuration (W40k-style optional bonus points).
+  bonusEnabled Boolean @default(false)
+  // bonusMarginThreshold: VP margin required for a massacre bonus (null = disabled).
+  bonusMarginThreshold Int?
+  // bonusMinVP: minimum VP a player must score to earn the min-VP bonus (null = disabled).
+  bonusMinVP Int?
+
+  // Number of players that qualify for the playoff bracket.
+  playoffSize Int @default(4)
+
+  // Ordered list of tiebreaker criteria for standings.
+  // Decision (ADR-002 compatibility): stored as a JSON-encoded string because
+  // SQLite has no native array type and Prisma scalar lists are Postgres-only.
+  // The application layer parses/serialises this field (JSON.parse/stringify).
+  // When migrating to Postgres, this field can be changed to String[] without
+  // data loss by running a migration that unpacks the JSON.
+  // Default order matches SPEC §7.3:
+  // ["POINTS","VP_DIFF","VP_FOR","HEAD_TO_HEAD","LOSSES","ID_ORDER"]
+  tiebreakers String @default("[\"POINTS\",\"VP_DIFF\",\"VP_FOR\",\"HEAD_TO_HEAD\",\"LOSSES\",\"ID_ORDER\"]")
+
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  players     Player[]
+  matches     Match[]
+  bracket     Bracket?
+}
+
+// Player: a league participant.
+model Player {
+  id           String   @id @default(cuid())
+  leagueId     String
+  displayName  String
+  // faction: W40k army/faction (optional free text).
+  faction      String?
+  role         Role     @default(PLAYER)
+  passcodeHash String
+  active       Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  league League @relation(fields: [leagueId], references: [id])
+
+  // Matches where this player is home or away.
+  homeMatches Match[] @relation("HomePlayer")
+  awayMatches Match[] @relation("AwayPlayer")
+
+  // Results this player reported or confirmed.
+  reportedResults  Result[] @relation("Reporter")
+  confirmedResults Result[] @relation("Confirmer")
+
+  // Audit log entries initiated by this player.
+  auditLogs AuditLog[]
+}
+
+// Match: a single game pairing. Covers both league and playoff phases.
+// Two independent dimensions per ADR-007/SPEC §7.5:
+//   - Scheduling: scheduledAt (nullable, orthogonal to status)
+//   - Result lifecycle: status (SCHEDULED → REPORTED → CONFIRMED/DISPUTED)
+model Match {
+  id String @id @default(cuid())
+
+  leagueId String
+  phase    MatchPhase  @default(LEAGUE)
+  status   MatchStatus @default(SCHEDULED)
+
+  playerHomeId String
+  // playerAwayId is null for playoff byes (the seed advances without playing).
+  playerAwayId String?
+
+  // Scheduling dimension (independent from result status).
+  // null = unscheduled (pairing created, date not yet set).
+  scheduledAt DateTime?
+  // Free-text venue (optional).
+  location    String?
+
+  // isBye: true only for playoff byes. In league phase always false.
+  isBye Boolean @default(false)
+
+  // FK to BracketSlot (only for playoff matches).
+  bracketSlotId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  league     League  @relation(fields: [leagueId], references: [id])
+  playerHome Player  @relation("HomePlayer", fields: [playerHomeId], references: [id])
+  playerAway Player? @relation("AwayPlayer", fields: [playerAwayId], references: [id])
+
+  result      Result?
+  bracketSlot BracketSlot? @relation(fields: [bracketSlotId], references: [id])
+}
+
+// Result: recorded outcome for a Match. Separated from Match to track who
+// reported and who confirmed, enabling the anti-dispute workflow (SPEC §7.5).
+model Result {
+  id      String @id @default(cuid())
+  matchId String @unique
+
+  homeVictoryPoints Int
+  awayVictoryPoints Int
+
+  // Outcome stored explicitly because W40k allows rule-defined draws.
+  outcome Outcome
+
+  reportedById  String
+  // confirmedById is null until the rival (or admin) acts.
+  confirmedById String?
+
+  reportedAt  DateTime  @default(now())
+  confirmedAt DateTime?
+
+  // Resolved bonus points stored at result time so standings remain
+  // reproducible even if bonus config changes later (SPEC §9).
+  bonusHome Int @default(0)
+  bonusAway Int @default(0)
+
+  // Relations
+  match     Match   @relation(fields: [matchId], references: [id])
+  reporter  Player  @relation("Reporter", fields: [reportedById], references: [id])
+  confirmer Player? @relation("Confirmer", fields: [confirmedById], references: [id])
+}
+
+// Bracket: the playoff elimination structure.
+model Bracket {
+  id       String @id @default(cuid())
+  leagueId String @unique
+
+  // Effective bracket size (power-of-2 ceiling of playoffSize; byes fill gaps).
+  size Int
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  league League       @relation(fields: [leagueId], references: [id])
+  slots  BracketSlot[]
+}
+
+// BracketSlot: a node in the elimination tree.
+// roundIndex 1 = first round, …, final = ceil(log2(size)).
+// position = position within the round (1-based).
+model BracketSlot {
+  id        String @id @default(cuid())
+  bracketId String
+
+  // Which elimination round this slot belongs to.
+  roundIndex Int
+  // Position within the round (determines seeding pairing).
+  position   Int
+
+  // playerId is null until the slot is resolved (winner advances here).
+  playerId String?
+  // matchId: the match that decides who advances to this slot (nullable;
+  // null for bye slots that do not require a match).
+  matchId String?
+
+  // feedsIntoSlotId: where the winner of this slot advances.
+  // null for the final (no next slot).
+  feedsIntoSlotId String?
+
+  // Relations
+  bracket       Bracket     @relation(fields: [bracketId], references: [id])
+  match         Match[]
+  feedsIntoSlot BracketSlot?  @relation("SlotProgression", fields: [feedsIntoSlotId], references: [id])
+  fedBySlots    BracketSlot[] @relation("SlotProgression")
+}
+
+// AuditLog: append-only log of sensitive actions (reporting, confirming,
+// config edits, dispute resolution). Enables transparency and dispute replay.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  action     String   // e.g. "REPORT_RESULT", "CONFIRM_RESULT", "RESOLVE_DISPUTE"
+  entityType String   // e.g. "Match", "Result", "League"
+  entityId   String
+  // payload: JSON-encoded snapshot of relevant fields at time of action.
+  payload    String   @default("{}")
+  createdAt  DateTime @default(now())
+
+  // Relations
+  actor Player @relation(fields: [actorId], references: [id])
 }
