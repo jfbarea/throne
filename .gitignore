@@ -27,6 +27,9 @@ prisma/test.db
 # Coverage
 coverage/
 
+# Generated documentation artifacts (regenerable from source)
+SPEC.html
+
 # OS
 .DS_Store
 Thumbs.db
