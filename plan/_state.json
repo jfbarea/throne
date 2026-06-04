@@ -79,7 +79,7 @@
       "slug": "auth-sesion",
       "title": "Auth de admin y jugadores con sesion firmada",
       "status": "READY_FOR_REVIEW",
-      "commit_sha": null,
+      "commit_sha": "39913cc",
       "files_changed": [
         "package.json",
         "package-lock.json",
