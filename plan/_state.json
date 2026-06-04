@@ -205,7 +205,7 @@
       "slug": "pulido-responsive-e2e",
       "title": "Pulido mobile-first y tests e2e",
       "status": "READY_FOR_REVIEW",
-      "commit_sha": null,
+      "commit_sha": "27a770b",
       "files_changed": [
         "README.md",
         "package.json",
