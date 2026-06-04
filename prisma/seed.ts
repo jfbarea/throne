@@ -24,11 +24,12 @@ const db = createClient();
 const LEAGUE_NAME = "Liga Warhammer 40K — Capítulo Hierro";
 const LEAGUE_SEASON = "2026 Primavera";
 
-// Placeholder passcode hashes (bcrypt of "1234" repeated per player).
-// In production the admin generates real passcodes via the app.
-// We use a fixed dummy hash so the seed is deterministic and has no runtime
-// dependency on bcrypt here (bcrypt is a future auth-milestone dependency).
-const DUMMY_HASH = "$2b$10$dummyhashforseeddataaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+// Real bcrypt hash of passcode "1234" (cost=10, generated with bcryptjs).
+// All seed players share this passcode so the auth milestone can verify them
+// immediately. In production the admin generates unique passcodes via the app.
+// To verify: bcryptjs.compareSync("1234", SEED_PASSCODE_HASH) === true.
+const SEED_PASSCODE_HASH =
+  "$2b$10$4EDHVVhvPoBe7l47tWuXRe2fPNXyFJT/gB1KlkmGHEGh3xa.OgSvm";
 
 interface PlayerSeed {
   displayName: string;
@@ -96,6 +97,9 @@ async function main(): Promise<void> {
   console.log(`Liga: ${league.name} (${league.season}) [${league.id}]`);
 
   // Upsert each player identified by a deterministic seed id.
+  // Count created/updated by checking existence before each upsert —
+  // more reliable than comparing createdAt/updatedAt timestamps (which can
+  // be equal on the same clock tick with the libSQL driver).
   let created = 0;
   let updated = 0;
 
@@ -103,7 +107,9 @@ async function main(): Promise<void> {
     const seed = PLAYERS[i];
     const seedId = `seed-player-${String(i + 1).padStart(3, "0")}`;
 
-    const result = await db.player.upsert({
+    const existing = await db.player.findUnique({ where: { id: seedId } });
+
+    await db.player.upsert({
       where: { id: seedId },
       create: {
         id: seedId,
@@ -111,7 +117,7 @@ async function main(): Promise<void> {
         displayName: seed.displayName,
         faction: seed.faction,
         role: seed.role,
-        passcodeHash: DUMMY_HASH,
+        passcodeHash: SEED_PASSCODE_HASH,
         active: true,
       },
       update: {
@@ -122,8 +128,7 @@ async function main(): Promise<void> {
       },
     });
 
-    const isNew = result.createdAt.getTime() === result.updatedAt.getTime();
-    if (isNew) {
+    if (existing === null) {
       created++;
     } else {
       updated++;
@@ -131,7 +136,7 @@ async function main(): Promise<void> {
 
     const roleLabel = seed.role === "ADMIN" ? "[ADMIN]" : "[PLAYER]";
     const factionLabel = seed.faction ?? "(sin facción)";
-    console.log(`  ${roleLabel} ${result.displayName} — ${factionLabel}`);
+    console.log(`  ${roleLabel} ${seed.displayName} — ${factionLabel}`);
   }
 
   console.log(
