@@ -1,5 +1,5 @@
 {
-  "current": "reportar-confirmar-resultados",
+  "current": "standings",
   "milestones": [
     {
       "slug": "scaffold-minimo",
@@ -146,8 +146,9 @@
     {
       "slug": "reportar-confirmar-resultados",
       "title": "Flujo de reportar y confirmar resultados",
-      "status": "READY_FOR_REVIEW",
+      "status": "DONE",
       "commit_sha": "0910a8541ae329fe6d56ce95b6c9956a5a10d67d",
+      "review_feedback": null,
       "files_changed": [
         "src/server/result-logic.ts",
         "src/server/result-actions.ts",
@@ -163,13 +164,22 @@
         "tests/reportar-confirmar.test.ts",
         "plan/_state.json"
       ],
-      "notes": "Auto-confirmación: NO — el reporter no puede confirmarse su propio resultado; solo el rival o el admin pueden confirmar (espíritu anti-disputa §7.5). Cálculo de bonus: función pura calculateBonus en result-logic.ts, sin DB; combina massacre bonus (margen >= umbral, excluye DRAW) + min-VP bonus (independiente del outcome); almacenado al reportar para reproducibilidad (§9). TOCTOU fix: la query confirmedCount en generateLeagueMatches se movió DENTRO de la $transaction, que ahora devuelve {blocked, confirmedCount} / {blocked: false}; el caller maneja el bloqueo tras la transacción. Admin override: adminResolveResult en result-actions.ts crea/actualiza Result + confirma Match en cualquier estado, con traza en AuditLog (action=ADMIN_RESOLVE, previousStatus incluido). Vista Mis partidas: /mis-partidas muestra partidas del jugador logueado (o todas si admin) con secciones Por confirmar / Pendientes / Confirmadas; acciones contextuales inline; admin ve todas las partidas. Vista Admin disputas: /admin/disputas accesible desde el layout admin (nuevo enlace Disputas con ícono Gavel). Dimensiones independientes verificadas en tests: applySchedule no cambia status, applyReport no cambia scheduledAt. Standings gate: isConfirmedForStandings solo devuelve true para status=CONFIRMED con result != null. 131 tests en verde; lint y build en verde."
+      "notes": "APPROVED por Notum 2026-06-04. Verificaciones: (1) Anti-auto-confirmacion: canConfirmOrDispute exige isParticipant && !isReporter — el reporter no puede confirmar su propio resultado; enforced en confirmResult y disputeResult con actorId de cookie verificada, nunca de input cliente. (2) Autorizacion: canReport exige home|away|ADMIN; canConfirmOrDispute exige rival||ADMIN; tercero devuelve false en ambos helpers puros; enforced en las Server Actions antes de cualquier escritura DB. (3) TOCTOU fix correcto: confirmedCount ahora DENTRO de la $transaction en generateLeagueMatches — read y delete/create son atomicos. (4) AuditLog atomico: writeAuditLog recibe el cliente tx de la transaccion y escribe dentro de la misma $transaction que la mutacion en reportResult, confirmResult, disputeResult y adminResolveResult. previousStatus presente en REPORT y ADMIN_RESOLVE; nota: DISPUTE_RESULT omite previousStatus (siempre REPORTED por canDisputeInStatus, deuda menor). (5) calculateBonus pura, sin DB: massacre excluye DRAW; umbral exacto (>=) correcto; min-VP independiente del outcome; bonus persistidos al reportar para reproducibilidad. Tests cubren: umbral-1 (no bonus), umbral exacto (si bonus), DRAW sin massacre, loser con min-VP, stacking. (6) Dimension independiente: scheduledAt y status ortogonales — setMatchSchedule no toca status, reportResult no toca scheduledAt; verificado por tests. (7) Standings gate: isConfirmedForStandings exige status=CONFIRMED && result!=null; REPORTED/DISPUTED/SCHEDULED no cuentan. (8) Admin override: adminResolveResult usa requireAdmin(), acepta cualquier estado, upsert Result + CONFIRMED + AuditLog ADMIN_RESOLVE con previousStatus dentro de transaccion. (9) UI: /mis-partidas con requireAuth(), query filtra por leagueId+phase, no expone resultado de terceros; admin ve todas; acciones inline correctas (canReport, canConfirmOrDispute coherentes con la logica servidor). /admin/disputas con requireAdmin() en page.tsx; DisputaCard muestra reporterName de BD (no cliente); AdminResolveForm llama adminResolveResult (requireAdmin en server). Admin layout con enlace Disputas. Primitivos Hito 3, español, dark mode, mobile-first. (10) .env no tocado (git log limpio). Nota tecnica menor: AuditLog de DISPUTE_RESULT omite previousStatus en payload (siempre REPORTED, trivialmente inferible); y el test de AuditLog del hito 8 verifica solo la estructura del payload, no la escritura real en DB (nivel unit, suficiente para este hito). 131 tests en verde; lint y build en verde."
     },
     {
       "slug": "standings",
       "title": "Clasificacion con desempates",
-      "status": "PENDING",
-      "commit_sha": null
+      "status": "READY_FOR_REVIEW",
+      "commit_sha": "16ffd5f",
+      "files_changed": [
+        "src/server/standings.ts",
+        "tests/standings.test.ts",
+        "src/app/clasificacion/page.tsx",
+        "src/app/admin/layout.tsx",
+        "src/app/mis-partidas/page.tsx",
+        "plan/_state.json"
+      ],
+      "notes": "computeStandings pura en src/server/standings.ts: filtra CONFIRMED LEAGUE, acumula stats, ordena por cadena configurable via parseTiebreakers. Head-to-head: comparación bilateral entre los dos jugadores comparados, mini-standing con sus partidas directas (h2h points 3/1/0, h2h VP diff, h2h VP for); sin bonus en h2h per sports convention. ID_ORDER: lexicográfico por playerId, siempre determinista. Cadena respeta el orden de config.tiebreakers; cualquier criterio puede ir primero. Vista /clasificacion: tabla desktop con tabular-nums y borde playoff-zone (moss); tarjetas mobile con rank badge, stats grid 7 cols, tag playoff; panel de criterios colapsable (<details>). Card no acepta style prop — reemplazado por div con clases equivalentes en mobile cards. 36 tests nuevos (168 total). lint 0 errors, build en verde. .env no trackeado ni modificado."
     },
     {
       "slug": "playoffs-bracket",
