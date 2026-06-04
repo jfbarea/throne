@@ -485,6 +485,87 @@ previos.
 
 ---
 
+## Hito 15 — `resultados-directos`
+
+**Objetivo:** simplificar el flujo de resultados. Que un jugador **apunte sus VP
+cuando la partida se ha jugado y pueda editarlos después**, sin confirmación del
+rival, sin disputas y sin validación del admin. Hoy una partida no cuenta hasta
+`CONFIRMED` (el rival confirma o disputa, y el admin resuelve); esto se elimina.
+
+**Decisiones de producto (acordadas con el usuario):**
+
+- **Editan ambos participantes + admin.** Cualquiera de los dos jugadores de la
+  partida (y el admin) puede apuntar y reeditar los VP, las veces que haga falta.
+- **Playoffs: avanzar al apuntar.** En partidas de bracket, apuntar el resultado
+  avanza al ganador al slot siguiente de inmediato (sin confirmación), igual que
+  hoy hacía al confirmar. `DRAW` sigue siendo inválido en playoff. Editar un
+  resultado de playoff que cambie el ganador queda como caso borde menor (admin).
+- **Sin migración destructiva.** Se **conservan** el enum `MatchStatus` (incluidos
+  `CONFIRMED`/`DISPUTED`) y las columnas `Result.confirmedById`/`confirmedAt` en el
+  schema, sin uso en el flujo activo, por si se reintroducen disputas en el futuro.
+  No se toca `prisma/schema.prisma` salvo comentarios.
+
+**Modelo nuevo:** una partida **cuenta** en cuanto tiene `Result` (status
+`REPORTED`); ya no hace falta `CONFIRMED`. Apuntar deja la partida en `REPORTED`;
+editar reescribe el `Result` (recalcula bonus) y la mantiene en `REPORTED`. El gate
+de standings/playoffs pasa a ser "tiene resultado" (status `REPORTED` o `CONFIRMED`
+legado, con `result != null`).
+
+**Alcance:**
+
+- `src/server/result-actions.ts`: **eliminar** `confirmResult`, `disputeResult` y
+  `adminResolveResult`. `reportResult` pasa a ser apuntar/editar: autorizado para
+  ambos participantes y admin (`canReport`), permite reescribir un resultado
+  existente, recalcula y persiste bonus, escribe `AuditLog` (apuntar/editar) y, si
+  `phase=PLAYOFF` y `!isBye`, llama a `advancePlayoffWinner` dentro de la
+  transacción. Mantener la guarda de `DRAW` inválido en playoff. La identidad
+  siempre desde la cookie (`requireAuth`), nunca del cliente.
+- `src/server/result-logic.ts`: eliminar `canConfirmOrDispute`,
+  `canConfirmInStatus`, `canDisputeInStatus` (y su uso). `canReport` y
+  `canReportInStatus` se conservan; `canReportInStatus` permite apuntar/editar
+  sobre `SCHEDULED`/`REPORTED`.
+- `src/server/standings.ts`: el gate `isConfirmedForStandings` pasa a contar
+  partidas con `result != null` y status `REPORTED` **o** `CONFIRMED` (compatibilidad
+  con datos legados). Renombrar/ajustar comentarios sin romper la API consumida.
+- `src/server/match-actions.ts`: la guarda de regeneración de
+  `generateLeagueMatches` debe bloquear si hay partidas **con resultado apuntado**
+  (status `REPORTED`/`CONFIRMED`), no solo `CONFIRMED`, para no borrar resultados.
+- `src/server/playoff-actions.ts`: `startPlayoffs` toma seeds de los standings con
+  el nuevo gate; el avance del ganador ahora se dispara desde `reportResult`.
+- UI:
+  - **Eliminar** `src/app/admin/disputas/` (page, `DisputaCard`, `AdminResolveForm`)
+    y el enlace "Disputas" del nav en `src/app/admin/layout.tsx`.
+  - **Eliminar** `src/app/mis-partidas/ConfirmActions.tsx`; `MatchCard` deja solo
+    apuntar/editar el resultado (sin confirmar/disputar), disponible para ambos
+    participantes. Mostrar el resultado apuntado con acción "Editar".
+  - Ajustar etiquetas de estado en `calendario/MatchRow`, `clasificacion`,
+    `admin/emparejamientos`, `admin/playoffs`: `REPORTED` = "Jugada/Apuntada",
+    `SCHEDULED` = "Pendiente"; mapas tolerantes con `CONFIRMED`/`DISPUTED` legados.
+- Tests: actualizar `tests/reportar-confirmar.test.ts` (quitar confirm/dispute;
+  añadir: cuenta al apuntar, edición por ambos participantes, tercero rechazado,
+  avance de playoff al apuntar) y `tests/standings.test.ts` (REPORTED cuenta).
+  Actualizar el e2e `tests/e2e/full-journey.spec.ts`: el paso de confirmación se
+  sustituye por apuntar (y opcionalmente editar) el resultado.
+
+**Criterios de aceptación:**
+
+- Apuntar un resultado en una partida propia lo **contabiliza de inmediato** en
+  standings, sin paso de confirmación (test).
+- Cualquiera de los dos participantes —y el admin— puede apuntar y **editar** los
+  VP; un tercero no participante (no admin) no puede (test).
+- No quedan referencias vivas a `confirmResult`/`disputeResult`/`adminResolveResult`,
+  a `/admin/disputas` ni a `ConfirmActions` (grep limpio); el enlace "Disputas"
+  desaparece del nav de admin.
+- En playoffs, apuntar el resultado **avanza al ganador**; `DRAW` sigue inválido en
+  playoff (tests).
+- Editar un resultado recalcula bonus y persiste, y la partida sigue contando.
+- El gate de standings cuenta `REPORTED` (y `CONFIRMED` legado); `SCHEDULED` no.
+- La guarda de regeneración bloquea cuando hay resultados apuntados.
+- `schema.prisma` no cambia (salvo comentarios): enum y columnas conservados.
+- `npm run lint`, `npm run test` y `npm run build` en verde; e2e actualizado pasa.
+
+---
+
 ## Notas de portabilidad (transversal a todos los hitos)
 
 - Toda regla de negocio (standings, pairings, bracket, bonus) vive en funciones
