@@ -17,6 +17,7 @@ import {
   canDisputeInStatus,
   validateOutcomeVsVP,
 } from "@/server/result-logic";
+import { advancePlayoffWinner } from "@/server/playoff-actions";
 
 // ---------------------------------------------------------------------------
 // ActionResult type (shared with match-actions)
@@ -129,6 +130,14 @@ export async function reportResult(
     return {
       ok: false,
       error: `No se puede reportar una partida en estado ${match.status}`,
+    };
+  }
+
+  // SPEC §7.4: DRAW is invalid in playoff matches.
+  if (match.phase === "PLAYOFF" && outcome === "DRAW") {
+    return {
+      ok: false,
+      error: "Los empates no están permitidos en partidas de playoffs. Se requiere un ganador.",
     };
   }
 
@@ -296,6 +305,15 @@ export async function confirmResult(
     };
   }
 
+  // SPEC §7.4: DRAW is invalid in playoff matches (also validated at report time,
+  // but re-check here in case of data inconsistency).
+  if (match.phase === "PLAYOFF" && match.result.outcome === "DRAW") {
+    return {
+      ok: false,
+      error: "Los empates no están permitidos en partidas de playoffs. Se requiere un ganador.",
+    };
+  }
+
   const now = new Date();
 
   await prisma.$transaction(async (tx) => {
@@ -318,11 +336,24 @@ export async function confirmResult(
       confirmedById: actorId,
       confirmedAt: now.toISOString(),
     });
+
+    // SPEC §7.4: advance winner in playoff bracket after confirmation.
+    if (match.phase === "PLAYOFF" && !match.isBye) {
+      await advancePlayoffWinner(
+        tx,
+        matchId,
+        match.result!.outcome,
+        match.leagueId,
+        match.playerHomeId,
+        match.playerAwayId
+      );
+    }
   });
 
   revalidatePath("/mis-partidas");
   revalidatePath("/calendario");
   revalidatePath("/admin/disputas");
+  revalidatePath("/bracket");
 
   return { ok: true, data: undefined };
 }
@@ -450,6 +481,14 @@ export async function adminResolveResult(
     return { ok: false, error: "Partida no encontrada" };
   }
 
+  // SPEC §7.4: DRAW is invalid in playoff matches.
+  if (match.phase === "PLAYOFF" && outcome === "DRAW") {
+    return {
+      ok: false,
+      error: "Los empates no están permitidos en partidas de playoffs. Se requiere un ganador.",
+    };
+  }
+
   // Calculate bonus.
   const { bonusHome, bonusAway } = calculateBonus(
     homeVictoryPoints,
@@ -513,11 +552,24 @@ export async function adminResolveResult(
       previousStatus: match.status,
       resolvedAt: now.toISOString(),
     });
+
+    // SPEC §7.4: advance winner in playoff bracket after admin resolution.
+    if (match.phase === "PLAYOFF" && !match.isBye) {
+      await advancePlayoffWinner(
+        tx,
+        matchId,
+        outcome,
+        match.leagueId,
+        match.playerHomeId,
+        match.playerAwayId
+      );
+    }
   });
 
   revalidatePath("/mis-partidas");
   revalidatePath("/calendario");
   revalidatePath("/admin/disputas");
+  revalidatePath("/bracket");
 
   return { ok: true, data: { resultId: resultId! } };
 }

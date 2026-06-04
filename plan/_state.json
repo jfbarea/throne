@@ -1,5 +1,5 @@
 {
-  "current": "standings",
+  "current": "playoffs-bracket",
   "milestones": [
     {
       "slug": "scaffold-minimo",
@@ -169,7 +169,7 @@
     {
       "slug": "standings",
       "title": "Clasificacion con desempates",
-      "status": "READY_FOR_REVIEW",
+      "status": "DONE",
       "commit_sha": "16ffd5f",
       "files_changed": [
         "src/server/standings.ts",
@@ -179,13 +179,26 @@
         "src/app/mis-partidas/page.tsx",
         "plan/_state.json"
       ],
-      "notes": "computeStandings pura en src/server/standings.ts: filtra CONFIRMED LEAGUE, acumula stats, ordena por cadena configurable via parseTiebreakers. Head-to-head: comparación bilateral entre los dos jugadores comparados, mini-standing con sus partidas directas (h2h points 3/1/0, h2h VP diff, h2h VP for); sin bonus en h2h per sports convention. ID_ORDER: lexicográfico por playerId, siempre determinista. Cadena respeta el orden de config.tiebreakers; cualquier criterio puede ir primero. Vista /clasificacion: tabla desktop con tabular-nums y borde playoff-zone (moss); tarjetas mobile con rank badge, stats grid 7 cols, tag playoff; panel de criterios colapsable (<details>). Card no acepta style prop — reemplazado por div con clases equivalentes en mobile cards. 36 tests nuevos (168 total). lint 0 errors, build en verde. .env no trackeado ni modificado."
+      "notes": "computeStandings pura en src/server/standings.ts: filtra CONFIRMED LEAGUE, acumula stats, ordena por cadena configurable via parseTiebreakers. Head-to-head: comparación bilateral entre los dos jugadores comparados, mini-standing con sus partidas directas (h2h points 3/1/0, h2h VP diff, h2h VP for); sin bonus en h2h per sports convention. ID_ORDER: lexicográfico por playerId, siempre determinista. Cadena respeta el orden de config.tiebreakers; cualquier criterio puede ir primero. Vista /clasificacion: tabla desktop con tabular-nums y borde playoff-zone (moss); tarjetas mobile con rank badge, stats grid 7 cols, tag playoff; panel de criterios colapsable (<details>). Card no acepta style prop — reemplazado por div con clases equivalentes en mobile cards. 36 tests nuevos (168 total). lint 0 errors, build en verde. .env no trackeado ni modificado. APPROVED por Notum 2026-06-04. Verificaciones: (1) computeStandings pura, sin DB, determinista. (2) Solo Results CONFIRMED/LEAGUE — tests cubren REPORTED/DISPUTED/SCHEDULED/PLAYOFF excluidos. (3) Bonus sumados correctamente a puntos (wins, losses, draws). (4) Cadena de tiebreakers configurable; test demuestra que cambiar orden cambia ranking. (5) HEAD_TO_HEAD bilateral: correcto y aceptable. El H2H pairwise no es transitivo en ciclos de 3+ jugadores, pero en la implementacion la pagina siempre pasa playerIds ordenado por createdAt, haciendo el resultado reproducible y estable. ID_ORDER solo falla como garantia en ciclos H2H (situacion extremadamente improbable: requiere 3+ jugadores empatados en puntos+vpDiff+vpFor+h2h formando ciclo). Nota tecnica: tests cubren H2H con 2 jugadores pero no ejercitan el escenario de ciclo 3-way; se deja como deuda documental para Hito 10 (pulido). (6) Vista /clasificacion: columnas PJ/V/E/D/Pts/VP+/VP-/Dif, tabular-nums, playoff zone en moss con borde visual, accesible a admin y jugadores (requireAuth), dark mode, mobile-first, primitivos Hito 3. (7) Alcance correcto: solo fase LEAGUE, sin transicion a playoffs. (8) .env no commiteado. lint 0 errors, 168 tests en verde, build en verde.",
+      "review_feedback": null
     },
     {
       "slug": "playoffs-bracket",
       "title": "Transicion a playoffs y bracket de eliminatoria",
-      "status": "PENDING",
-      "commit_sha": null
+      "status": "READY_FOR_REVIEW",
+      "commit_sha": null,
+      "files_changed": [
+        "src/server/bracket.ts",
+        "src/server/playoff-actions.ts",
+        "src/server/result-actions.ts",
+        "src/app/admin/playoffs/page.tsx",
+        "src/app/admin/playoffs/StartPlayoffsButton.tsx",
+        "src/app/admin/layout.tsx",
+        "src/app/bracket/page.tsx",
+        "tests/playoffs-bracket.test.ts",
+        "plan/_state.json"
+      ],
+      "notes": "Seeding puro en src/server/bracket.ts: nextPowerOf2, buildBracket (1vsN, 2vsN-1, byes para los mejores seeds cuando playoffSize no es potencia de 2), seedsFromStandings, resolvePlayoffWinner (DRAW lanza excepcion). La funcion buildBracket construye el arbol completo con feedsIntoIndex como indice en el array de slots. src/server/playoff-actions.ts: startPlayoffs (Server Action admin) que calcula standings, extrae seeds, persiste Bracket+BracketSlots en 2 pasadas (crear todos sin FK, luego wirear feedsIntoSlotId), crea Matches de primera ronda y byes (status=CONFIRMED, isBye=true); avancePlayoffWinner (llamada dentro de transaccion de confirmacion) actualiza playerId del slot ganador, crea el siguiente Match si ambos feeders estan resueltos, y si es la final marca la liga como FINISHED. Integracion con result-actions.ts: (1) reportResult: DRAW invalido en PLAYOFF; (2) confirmResult: llama advancePlayoffWinner si phase=PLAYOFF y !isBye, dentro de la transaccion atomica; (3) adminResolveResult: mismo patron. Vista /bracket: arbol responsive con scroll horizontal, roundLabels (cuartos/semis/final), banner de campeon, byeslots, revalidatePath. Vista /admin/playoffs: standings preview, stats, StartPlayoffsButton con confirmacion de 2 pasos. Integracion con hito 7: avance del ganador es atomico dentro de la transaccion de confirmacion. 56 tests nuevos (224 total). lint 0 errors, build en verde. .env no tocado."
     },
     {
       "slug": "pulido-responsive-e2e",
