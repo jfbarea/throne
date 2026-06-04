@@ -127,7 +127,7 @@
       "slug": "emparejamientos-y-fechas",
       "title": "Generacion de emparejamientos round-robin y agendado por fecha libre",
       "status": "READY_FOR_REVIEW",
-      "commit_sha": null,
+      "commit_sha": "df6f1490306c232f571169e0a23f79d90b3379a6",
       "files_changed": [
         "src/server/pairings.ts",
         "src/server/match-actions.ts",
