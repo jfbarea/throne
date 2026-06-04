@@ -201,35 +201,38 @@ export async function addMissingLeagueMatches(
     };
   }
 
-  // Load existing LEAGUE pairs (home/away IDs only).
-  const existingMatches = await prisma.match.findMany({
-    where: { leagueId, phase: "LEAGUE" },
-    select: { playerHomeId: true, playerAwayId: true },
-  });
+  // Read existing pairs, compute what's missing, and create the new matches all
+  // INSIDE one transaction so the read and the create are atomic. Otherwise two
+  // concurrent calls could both read "pair {A,B} missing" and each create it,
+  // producing duplicates (negligible on SQLite, real on Postgres).
+  const createdCount = await prisma.$transaction(async (tx) => {
+    // Load existing LEAGUE pairs (home/away IDs only).
+    const existingMatches = await tx.match.findMany({
+      where: { leagueId, phase: "LEAGUE" },
+      select: { playerHomeId: true, playerAwayId: true },
+    });
 
-  // Map to ExistingPair shape (aId = home, bId = away — order is irrelevant for
-  // the unordered comparison inside missingPairings).
-  // playerAwayId is nullable in the schema (playoff byes); league matches always
-  // have an away player, but we guard with a filter to keep types clean.
-  const existingPairs = existingMatches
-    .filter(
-      (m): m is typeof m & { playerAwayId: string } => m.playerAwayId !== null
-    )
-    .map((m) => ({
-      aId: m.playerHomeId,
-      bId: m.playerAwayId,
-    }));
+    // Map to ExistingPair shape (aId = home, bId = away — order is irrelevant for
+    // the unordered comparison inside missingPairings).
+    // playerAwayId is nullable in the schema (playoff byes); league matches always
+    // have an away player, but we guard with a filter to keep types clean.
+    const existingPairs = existingMatches
+      .filter(
+        (m): m is typeof m & { playerAwayId: string } => m.playerAwayId !== null
+      )
+      .map((m) => ({
+        aId: m.playerHomeId,
+        bId: m.playerAwayId,
+      }));
 
-  // Compute the pairs that are not yet present.
-  const newPairings = missingPairings(players, existingPairs);
+    // Compute the pairs that are not yet present.
+    const newPairings = missingPairings(players, existingPairs);
 
-  if (newPairings.length === 0) {
-    // Nothing to create — report success with count 0.
-    return { ok: true, data: { count: 0 } };
-  }
+    if (newPairings.length === 0) {
+      // Nothing to create — leave league status untouched.
+      return 0;
+    }
 
-  // Persist new matches (and optionally transition league status) in a transaction.
-  await prisma.$transaction(async (tx) => {
     await tx.match.createMany({
       data: newPairings.map((p) => ({
         leagueId,
@@ -250,13 +253,17 @@ export async function addMissingLeagueMatches(
         data: { status: "LEAGUE" },
       });
     }
+
+    return newPairings.length;
   });
 
-  revalidatePath("/admin/emparejamientos");
-  revalidatePath("/calendario");
-  revalidatePath("/admin");
+  if (createdCount > 0) {
+    revalidatePath("/admin/emparejamientos");
+    revalidatePath("/calendario");
+    revalidatePath("/admin");
+  }
 
-  return { ok: true, data: { count: newPairings.length } };
+  return { ok: true, data: { count: createdCount } };
 }
 
 // ---------------------------------------------------------------------------

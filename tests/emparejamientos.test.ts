@@ -4,7 +4,75 @@
 //   2. Authorization: setMatchSchedule rejects non-participants
 //   3. Regeneration guard: blocked when confirmed matches exist
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// ---------------------------------------------------------------------------
+// Mocks for the addMissingLeagueMatches integration test (Hito 12, S2).
+// We mock the auth guard, the DB client and next/cache so the server action
+// can run in vitest (node) and we can assert its DB orchestration: that it
+// never deletes, creates exactly the missing pairs, and transitions the league
+// status only when it actually creates matches. A fake prisma with spies (not a
+// real DB) keeps this in line with the repo's pure-vitest testing style while
+// still exercising the real action code, including the transactional read.
+// ---------------------------------------------------------------------------
+
+const dbMock = vi.hoisted(() => {
+  // Mutable state each test configures before invoking the action.
+  const state = {
+    league: null as null | { id: string; status: string },
+    players: [] as { id: string; displayName: string }[],
+    existingMatches: [] as {
+      playerHomeId: string;
+      playerAwayId: string | null;
+    }[],
+  };
+  // Spies shared between the transaction client and the top-level client.
+  const spies = {
+    createMany: vi.fn(async () => ({ count: 0 })),
+    leagueUpdate: vi.fn(async () => ({})),
+    deleteMany: vi.fn(async () => ({ count: 0 })),
+    txFindMany: vi.fn(async () => state.existingMatches),
+  };
+  return { state, spies };
+});
+
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+
+vi.mock("@/lib/guards", () => ({
+  // The action only awaits these for their side effect (throw/redirect on
+  // unauthorized); returning undefined emulates an authorized ADMIN.
+  requireAdmin: vi.fn(async () => undefined),
+  requireAuth: vi.fn(async () => ({ role: "ADMIN", playerId: null })),
+}));
+
+vi.mock("@/lib/db", () => {
+  const tx = {
+    match: {
+      findMany: dbMock.spies.txFindMany,
+      createMany: dbMock.spies.createMany,
+      deleteMany: dbMock.spies.deleteMany,
+    },
+    league: { update: dbMock.spies.leagueUpdate },
+  };
+  return {
+    prisma: {
+      league: {
+        findUnique: vi.fn(async () => dbMock.state.league),
+      },
+      player: {
+        findMany: vi.fn(async () => dbMock.state.players),
+      },
+      match: {
+        findMany: vi.fn(async () => dbMock.state.existingMatches),
+        createMany: dbMock.spies.createMany,
+        deleteMany: dbMock.spies.deleteMany,
+      },
+      $transaction: vi.fn(async (cb: (client: typeof tx) => unknown) =>
+        cb(tx)
+      ),
+    },
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Helper: build a test player list
@@ -416,5 +484,143 @@ describe("expectedPairingCount", () => {
     expect(expectedPairingCount(10)).toBe(45);
     expect(expectedPairingCount(12)).toBe(66);
     expect(expectedPairingCount(20)).toBe(190);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. addMissingLeagueMatches — integration test over a fake prisma (Hito 12, S2)
+// ---------------------------------------------------------------------------
+
+describe("addMissingLeagueMatches (orchestration)", () => {
+  // Extract the records passed to the createMany spy (the matches it would
+  // persist), normalized to unordered pair keys for stable comparison.
+  function createdPairKeys(): string[] {
+    const calls = dbMock.spies.createMany.mock.calls;
+    if (calls.length === 0) return [];
+    const arg = calls[0][0] as { data: { playerHomeId: string; playerAwayId: string }[] };
+    return arg.data
+      .map((d) => [d.playerHomeId, d.playerAwayId].sort().join("|"))
+      .sort();
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    dbMock.state.league = { id: "league-1", status: "LEAGUE" };
+    dbMock.state.players = makePlayers(3); // player-001, player-002, player-003
+    dbMock.state.existingMatches = [];
+  });
+
+  it("creates only the missing pairs and never deletes", async () => {
+    // {1,2} and {1,3} already exist → only {2,3} is missing.
+    dbMock.state.existingMatches = [
+      { playerHomeId: "player-001", playerAwayId: "player-002" },
+      { playerHomeId: "player-001", playerAwayId: "player-003" },
+    ];
+
+    const { addMissingLeagueMatches } = await import("@/server/match-actions");
+    const result = await addMissingLeagueMatches("league-1");
+
+    expect(result).toEqual({ ok: true, data: { count: 1 } });
+    expect(createdPairKeys()).toEqual(["player-002|player-003"]);
+    // Never deletes existing matches/results/dates.
+    expect(dbMock.spies.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("adds exactly n pairs when one new player joins n existing", async () => {
+    // 4 players; the first 3 already played each other (C(3,2)=3 pairs present).
+    // The 4th player is missing 3 pairs (vs each of the first 3).
+    dbMock.state.players = makePlayers(4);
+    dbMock.state.existingMatches = [
+      { playerHomeId: "player-001", playerAwayId: "player-002" },
+      { playerHomeId: "player-001", playerAwayId: "player-003" },
+      { playerHomeId: "player-002", playerAwayId: "player-003" },
+    ];
+
+    const { addMissingLeagueMatches } = await import("@/server/match-actions");
+    const result = await addMissingLeagueMatches("league-1");
+
+    expect(result).toEqual({ ok: true, data: { count: 3 } });
+    expect(createdPairKeys()).toEqual([
+      "player-001|player-004",
+      "player-002|player-004",
+      "player-003|player-004",
+    ]);
+  });
+
+  it("treats reversed home/away as already present (no duplicate)", async () => {
+    // All 3 pairs present, two of them with reversed home/away orientation.
+    dbMock.state.existingMatches = [
+      { playerHomeId: "player-002", playerAwayId: "player-001" }, // {1,2} reversed
+      { playerHomeId: "player-003", playerAwayId: "player-001" }, // {1,3} reversed
+      { playerHomeId: "player-002", playerAwayId: "player-003" },
+    ];
+
+    const { addMissingLeagueMatches } = await import("@/server/match-actions");
+    const result = await addMissingLeagueMatches("league-1");
+
+    expect(result).toEqual({ ok: true, data: { count: 0 } });
+    expect(dbMock.spies.createMany).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op (count 0) when every pair already exists", async () => {
+    dbMock.state.existingMatches = [
+      { playerHomeId: "player-001", playerAwayId: "player-002" },
+      { playerHomeId: "player-001", playerAwayId: "player-003" },
+      { playerHomeId: "player-002", playerAwayId: "player-003" },
+    ];
+
+    const { addMissingLeagueMatches } = await import("@/server/match-actions");
+    const result = await addMissingLeagueMatches("league-1");
+
+    expect(result).toEqual({ ok: true, data: { count: 0 } });
+    expect(dbMock.spies.createMany).not.toHaveBeenCalled();
+    expect(dbMock.spies.leagueUpdate).not.toHaveBeenCalled();
+  });
+
+  it("transitions SETUP→LEAGUE when it creates matches", async () => {
+    dbMock.state.league = { id: "league-1", status: "SETUP" };
+    dbMock.state.existingMatches = [];
+
+    const { addMissingLeagueMatches } = await import("@/server/match-actions");
+    await addMissingLeagueMatches("league-1");
+
+    expect(dbMock.spies.leagueUpdate).toHaveBeenCalledTimes(1);
+    expect(dbMock.spies.leagueUpdate).toHaveBeenCalledWith({
+      where: { id: "league-1" },
+      data: { status: "LEAGUE" },
+    });
+  });
+
+  it("does NOT transition SETUP→LEAGUE when nothing is missing", async () => {
+    dbMock.state.league = { id: "league-1", status: "SETUP" };
+    dbMock.state.existingMatches = [
+      { playerHomeId: "player-001", playerAwayId: "player-002" },
+      { playerHomeId: "player-001", playerAwayId: "player-003" },
+      { playerHomeId: "player-002", playerAwayId: "player-003" },
+    ];
+
+    const { addMissingLeagueMatches } = await import("@/server/match-actions");
+    await addMissingLeagueMatches("league-1");
+
+    expect(dbMock.spies.leagueUpdate).not.toHaveBeenCalled();
+  });
+
+  it("errors when fewer than 2 active players", async () => {
+    dbMock.state.players = makePlayers(1);
+
+    const { addMissingLeagueMatches } = await import("@/server/match-actions");
+    const result = await addMissingLeagueMatches("league-1");
+
+    expect(result.ok).toBe(false);
+    expect(dbMock.spies.createMany).not.toHaveBeenCalled();
+  });
+
+  it("errors when the league does not exist", async () => {
+    dbMock.state.league = null;
+
+    const { addMissingLeagueMatches } = await import("@/server/match-actions");
+    const result = await addMissingLeagueMatches("league-1");
+
+    expect(result).toEqual({ ok: false, error: "Liga no encontrada" });
   });
 });

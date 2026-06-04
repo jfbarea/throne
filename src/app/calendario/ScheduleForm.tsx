@@ -89,7 +89,7 @@ export function ScheduleForm({
           type="text"
           value={locationValue}
           onChange={(e) => setLocationValue(e.target.value)}
-          placeholder="Ej: Casa de Rodrigo, Bunker GW Majadahonda…"
+          placeholder="Ej: Warlotus, GTS Granada…"
           leadingIcon={<MapPin size={15} />}
         />
       </div>
