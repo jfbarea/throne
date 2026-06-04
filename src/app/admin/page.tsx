@@ -7,7 +7,7 @@ import { Card } from "@/components/Card";
 import { Badge } from "@/components/Badge";
 import { Eyebrow } from "@/components/Eyebrow";
 import Link from "next/link";
-import { Gear, Users, Crown } from "@phosphor-icons/react/dist/ssr";
+import { Gear, Users, Crown, Sword } from "@phosphor-icons/react/dist/ssr";
 
 const STATUS_LABEL: Record<string, { label: string; variant: "brass" | "moss" | "ash" | "ember" | "neutral" }> = {
   SETUP:    { label: "Configuración", variant: "brass" },
@@ -127,6 +127,31 @@ export default async function AdminPage() {
                   style={{ color: "var(--fg-muted)", fontFamily: "var(--font-sans)" }}
                 >
                   Alta, baja, edición, passcodes
+                </p>
+              </div>
+            </Card>
+          </Link>
+
+          <Link href="/admin/emparejamientos" className="no-underline">
+            <Card className="flex items-center gap-4 cursor-pointer hover:opacity-80 transition-opacity">
+              <span
+                className="flex-shrink-0 w-10 h-10 flex items-center justify-center rounded"
+                style={{ background: "rgba(201,166,107,0.12)", color: "var(--accent)" }}
+              >
+                <Sword size={20} />
+              </span>
+              <div>
+                <p
+                  className="text-[15px] font-semibold"
+                  style={{ fontFamily: "var(--font-sans)", color: "var(--fg)" }}
+                >
+                  Emparejamientos
+                </p>
+                <p
+                  className="text-[12px]"
+                  style={{ color: "var(--fg-muted)", fontFamily: "var(--font-sans)" }}
+                >
+                  Generar partidas round-robin
                 </p>
               </div>
             </Card>

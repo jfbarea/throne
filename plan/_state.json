@@ -1,5 +1,5 @@
 {
-  "current": "admin-liga-jugadores",
+  "current": "emparejamientos-y-fechas",
   "milestones": [
     {
       "slug": "scaffold-minimo",
@@ -101,7 +101,7 @@
     {
       "slug": "admin-liga-jugadores",
       "title": "Panel admin: config de liga y jugadores",
-      "status": "READY_FOR_REVIEW",
+      "status": "DONE",
       "commit_sha": "4fcbaa2",
       "files_changed": [
         "package.json",
@@ -120,13 +120,57 @@
         "src/app/admin/jugadores/PlayersPageClient.tsx",
         "tests/admin-liga-jugadores.test.ts"
       ],
-      "notes": "Implementado: (1) src/lib/schemas.ts — Zod v4 schemas compartidos cliente/servidor: leagueConfigSchema (nombre, temporada, puntos, bonus, playoffSize, tiebreakers), createPlayerSchema, updatePlayerSchema; serialiseTiebreakers/parseTiebreakers para la columna JSON del schema Prisma. (2) src/lib/passcode.ts — módulo puro: generatePasscode() aleatorio 8 chars sin ambiguos (excluye I,O,l,0,1), hashPasscode() bcrypt coste 10, generateHashedPasscode() devuelve {plain, hash}. (3) src/server/league-actions.ts — Server Actions con 'use server': createLeague, updateLeague (cross-validates playoffSize vs jugadores activos), createPlayer (genera+devuelve passcode plain UNA VEZ), updatePlayer, setPlayerActive (soft-delete), resetPlayerPasscode. Todas llaman requireAdmin() antes de operar. (4) src/app/admin/ — layout con guard requireAdmin; página dashboard; src/app/admin/liga/ con LeagueForm (edición inline de tiebreakers con flechas arriba/abajo) y LeagueFormWrapper; src/app/admin/jugadores/ con PlayerCreateForm (muestra passcode con banner dismiss), PlayerList (edit inline, reset passcode, activar/desactivar), PlayersPageClient. (5) tests/admin-liga-jugadores.test.ts — 30 tests nuevos (total 51 pasan): schemas Zod, generación/hash de passcode, serialización tiebreakers, guard de rol, cross-validation playoffSize. (6) Zod v4 (ya instalado como dep transitivo) añadido como dep directo; API invalida_type_error→error actualizada. Passcode muestra única: al crear o resetear un jugador, la Server Action devuelve {plain, hash}; el hash se persiste en DB; el plain se devuelve UNA VEZ al cliente (en el estado React del componente) dentro de un banner con botón 'Copiar' y botón 'He anotado el código — cerrar'; tras cerrar el banner el plain desaparece del cliente; nunca se almacena ni se puede recuperar. Tiebreakers en UI: lista reordenable con flechas arriba/abajo (sin drag-and-drop para máxima compatibilidad móvil); cada criterio muestra su etiqueta en español; el array se serializa/deserializa a JSON en la columna String del schema Prisma (por compatibilidad SQLite/Postgres, ADR-002). .env no tocado."
+      "notes": "Implementado: (1) src/lib/schemas.ts — Zod v4 schemas compartidos cliente/servidor: leagueConfigSchema (nombre, temporada, puntos, bonus, playoffSize, tiebreakers), createPlayerSchema, updatePlayerSchema; serialiseTiebreakers/parseTiebreakers para la columna JSON del schema Prisma. (2) src/lib/passcode.ts — módulo puro: generatePasscode() aleatorio 8 chars sin ambiguos (excluye I,O,l,0,1), hashPasscode() bcrypt coste 10, generateHashedPasscode() devuelve {plain, hash}. (3) src/server/league-actions.ts — Server Actions con 'use server': createLeague, updateLeague (cross-validates playoffSize vs jugadores activos), createPlayer (genera+devuelve passcode plain UNA VEZ), updatePlayer, setPlayerActive (soft-delete), resetPlayerPasscode. Todas llaman requireAdmin() antes de operar. (4) src/app/admin/ — layout con guard requireAdmin; página dashboard; src/app/admin/liga/ con LeagueForm (edición inline de tiebreakers con flechas arriba/abajo) y LeagueFormWrapper; src/app/admin/jugadores/ con PlayerCreateForm (muestra passcode con banner dismiss), PlayerList (edit inline, reset passcode, activar/desactivar), PlayersPageClient. (5) tests/admin-liga-jugadores.test.ts — 30 tests nuevos (total 51 pasan): schemas Zod, generación/hash de passcode, serialización tiebreakers, guard de rol, cross-validation playoffSize. (6) Zod v4 (ya instalado como dep transitivo) añadido como dep directo; API invalida_type_error→error actualizada. Passcode muestra única: al crear o resetear un jugador, la Server Action devuelve {plain, hash}; el hash se persiste en DB; el plain se devuelve UNA VEZ al cliente (en el estado React del componente) dentro de un banner con botón 'Copiar' y botón 'He anotado el código — cerrar'; tras cerrar el banner el plain desaparece del cliente; nunca se almacena ni se puede recuperar. Tiebreakers en UI: lista reordenable con flechas arriba/abajo (sin drag-and-drop para máxima compatibilidad móvil); cada criterio muestra su etiqueta en español; el array se serializa/deserializa a JSON en la columna String del schema Prisma (por compatibilidad SQLite/Postgres, ADR-002). .env no tocado. APPROVED por Notum 2026-06-04. Verificaciones: (1) requireAdmin() en layout.tsx y en TODAS las Server Actions (createLeague, updateLeague, createPlayer, updatePlayer, setPlayerActive, resetPlayerPasscode) — guard en la primera línea antes de operar. (2) passcodeHash no expuesto: select projection en /admin/jugadores/page.tsx enumera solo id/displayName/faction/role/active; passcodeHash ausente de client props; plain devuelto UNA VEZ en ActionResult y mantenido solo en estado React local hasta dismiss. generatePasscode: 8 chars, crypto.randomBytes, alfabeto sin ambiguos (excluye I,O,l,0,1); bcrypt c=10. (3) Validación Zod: server re-valida con safeParse en cada acción (servidor manda); cross-validation playoffSize>activeCount en updateLeague con guarda activeCount>0 (correcto para liga vacía). (4) Config de liga: nombre/season/puntos/bonus/playoffSize/tiebreakers; status SETUP al crear. (5) Baja soft via active flag (sin DELETE). (6) Alcance correcto: sin emparejamientos, standings ni playoffs. (7) .env no trackeado (git log limpio); env en vitest.config.ts. (8) UI con primitivos Hito 3, copy en español, dark mode. (9) parseTiebreakers: every() rechaza valores desconocidos y cae al default. Nota menor: comentario en test linea 339 es impreciso respecto al comportamiento real del every() — no bloqueante, comportamiento es correcto. npm run lint/test/build en verde; 51 tests pasados.",
+      "review_feedback": null
     },
-    { "slug": "emparejamientos-y-fechas", "title": "Generacion de emparejamientos round-robin y agendado por fecha libre", "status": "PENDING", "commit_sha": null },
-    { "slug": "reportar-confirmar-resultados", "title": "Flujo de reportar y confirmar resultados", "status": "PENDING", "commit_sha": null },
-    { "slug": "standings", "title": "Clasificacion con desempates", "status": "PENDING", "commit_sha": null },
-    { "slug": "playoffs-bracket", "title": "Transicion a playoffs y bracket de eliminatoria", "status": "PENDING", "commit_sha": null },
-    { "slug": "pulido-responsive-e2e", "title": "Pulido mobile-first y tests e2e", "status": "PENDING", "commit_sha": null },
-    { "slug": "documentacion-y-guion-pruebas", "title": "Documentacion de uso y configuracion + guion de pruebas manual (espanol)", "status": "PENDING", "commit_sha": null }
+    {
+      "slug": "emparejamientos-y-fechas",
+      "title": "Generacion de emparejamientos round-robin y agendado por fecha libre",
+      "status": "READY_FOR_REVIEW",
+      "commit_sha": null,
+      "files_changed": [
+        "src/server/pairings.ts",
+        "src/server/match-actions.ts",
+        "src/app/admin/emparejamientos/page.tsx",
+        "src/app/admin/emparejamientos/GenerateButton.tsx",
+        "src/app/calendario/page.tsx",
+        "src/app/calendario/MatchRow.tsx",
+        "src/app/calendario/ScheduleForm.tsx",
+        "src/app/admin/layout.tsx",
+        "src/app/admin/page.tsx",
+        "tests/emparejamientos.test.ts"
+      ],
+      "notes": "Funcion pura generatePairings: itera pares (i,j) sobre array ordenado por id → C(n,2) pares deterministas; home = id lexicograficamente menor. Home/away estable sin equilibrado por ronda (ADR-007: no hay rondas). Guarda de regeneracion: blockeada si hay >= 1 Match CONFIRMED en fase LEAGUE; si no hay confirmados, borra resultados huerfanos antes de borrar matches (FK constraint), luego crea nuevos. Transicion automatica de liga SETUP → LEAGUE al generar. Accion setMatchSchedule: identidad derivada 100% de cookie; isAdmin OR (playerId == homeId OR awayId); campo scheduledAt y location independientes y opcionales (omitir = no tocar). ZodError manejado con flatten() para compatibilidad Zod v4. Vista /calendario: unscheduled primero, luego scheduled en orden cronologico; MatchRow con ScheduleForm inline (set/edit/clear); canEdit per-match. Admin panel /admin/emparejamientos con stats C(n,2), lista de jugadores activos y listado de partidas. Layout admin ampliado con enlace a Partidas. npm run lint/test/build en verde; 77 tests pasados (26 nuevos). .env no tocado."
+    },
+    {
+      "slug": "reportar-confirmar-resultados",
+      "title": "Flujo de reportar y confirmar resultados",
+      "status": "PENDING",
+      "commit_sha": null
+    },
+    {
+      "slug": "standings",
+      "title": "Clasificacion con desempates",
+      "status": "PENDING",
+      "commit_sha": null
+    },
+    {
+      "slug": "playoffs-bracket",
+      "title": "Transicion a playoffs y bracket de eliminatoria",
+      "status": "PENDING",
+      "commit_sha": null
+    },
+    {
+      "slug": "pulido-responsive-e2e",
+      "title": "Pulido mobile-first y tests e2e",
+      "status": "PENDING",
+      "commit_sha": null
+    },
+    {
+      "slug": "documentacion-y-guion-pruebas",
+      "title": "Documentacion de uso y configuracion + guion de pruebas manual (espanol)",
+      "status": "PENDING",
+      "commit_sha": null
+    }
   ]
 }
