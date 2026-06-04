@@ -316,6 +316,131 @@ que aún cambian.
 
 ---
 
+## Hito 12 — `altas-mitad-liga`
+
+**Objetivo:** permitir que un jugador se incorpore con la liga ya en marcha y
+**añadir solo los emparejamientos que faltan** sin destruir partidas, fechas ni
+resultados ya existentes. Hoy la única acción (`generateLeagueMatches`) borra y
+regenera todo: se bloquea en cuanto hay una partida `CONFIRMED` y, si no, descarta
+las fechas acordadas. Esto hace inviable dar de alta a alguien a mitad de liga.
+
+**Posición y justificación:** va al final, como extensión del Hito 6
+(`emparejamientos-y-fechas`) sobre un producto ya completo. No reordena ni toca
+ningún hito previo: añade una acción nueva y un botón nuevo, dejando intacta la
+regeneración total existente (que sigue siendo útil en `SETUP`).
+
+**Decisiones de producto (acordadas con el usuario):**
+
+- **Dos acciones separadas.** Se mantiene "Regenerar emparejamientos" (borra todo,
+  solo permitido sin partidas confirmadas) y se añade **"Añadir los que faltan"**
+  (incremental, seguro, funciona aunque la liga esté en marcha con partidas jugadas).
+- **La acción incremental nunca borra.** Solo crea los pares que faltan entre
+  jugadores **activos**. Las partidas de un jugador dado de baja (inactivo) se
+  conservan con sus fechas/resultados, coherente con el soft-delete del histórico.
+  Un par nuevo solo se genera entre dos jugadores activos.
+
+**Alcance:**
+
+- Función pura nueva en `src/server/pairings.ts`:
+  `missingPairings(players, existingPairs)` → calcula el round-robin completo entre
+  los activos (reutilizando `generatePairings`) y devuelve **solo los pares no
+  presentes**, comparando de forma **no ordenada** (el par `{A,B}` cuenta como
+  existente sea cual sea su home/away actual). Home/away de los pares nuevos sigue
+  el orden lexicográfico estable existente. No accede a DB.
+- Server Action nueva `addMissingLeagueMatches(leagueId)` en
+  `src/server/match-actions.ts` (guard `requireAdmin()`): carga activos y los pares
+  `LEAGUE` existentes, computa los que faltan y los crea en una transacción con
+  `phase=LEAGUE`, `status=SCHEDULED`, `scheduledAt=null`, `isBye=false`. **No borra
+  nada.** Funciona con o sin partidas `CONFIRMED`. Si la liga está en `SETUP` y se
+  crean partidas, transiciona a `LEAGUE` (igual que la generación). Devuelve el número
+  de partidas añadidas (0 si ya estaba todo). Revalida `/admin/emparejamientos`,
+  `/calendario`, `/admin`.
+- UI en `src/app/admin/emparejamientos/`: una segunda tarjeta/acción "Añadir los que
+  faltan" junto a la de regenerar, que muestra **cuántas partidas se añadirían**
+  (calculado en el server component vía `missingPairings`) y un mensaje claro de que
+  es la opción segura cuando la liga ya está en marcha. Nuevo componente cliente
+  (p. ej. `SyncButton.tsx`) análogo a `GenerateButton`. El botón de regenerar y su
+  guarda actuales no cambian.
+
+**Criterios de aceptación:**
+
+- Tests de `missingPairings`: con todos los pares ya presentes devuelve `[]`; al
+  añadir 1 jugador a `n` existentes devuelve exactamente `n` pares (el nuevo contra
+  cada activo) y ninguno duplicado; reconoce pares existentes con home/away invertido
+  como presentes (comparación no ordenada); no genera autopares ni byes.
+- `addMissingLeagueMatches` añade solo lo que falta y **deja intactas** las partidas
+  existentes y sus `scheduledAt`/`Result` (test o verificación): el conteo de
+  partidas previas se conserva y se suman las nuevas.
+- La acción incremental funciona **aunque existan partidas `CONFIRMED`** (no la
+  bloquea la guarda de regeneración), a diferencia de `generateLeagueMatches`.
+- Un jugador dado de baja (inactivo) no genera pares nuevos y sus partidas previas
+  se conservan.
+- La vista de admin muestra ambas acciones y el número de partidas que se añadirían;
+  un jugador no admin no puede ejecutar ninguna (guard).
+- `npm run lint`, `npm run test` y `npm run build` en verde; no se rompe el recorrido
+  e2e existente.
+
+---
+
+## Hito 13 — `persistencia-turso`
+
+**Objetivo:** poder desplegar throne en hosting serverless (Netlify o similar)
+moviendo la persistencia de **producción** a **Turso** (libSQL gestionado),
+manteniendo SQLite en fichero para desarrollo y tests. SQLite en fichero es
+efímero en serverless (FS de solo lectura que se descarta entre invocaciones);
+Turso es el gemelo remoto del driver adapter libSQL que el proyecto **ya usa**.
+
+**Posición y justificación:** va el último, como hito de infraestructura sobre un
+producto ya completo (Hitos 1-12). No cambia lógica de dominio: solo la capa de
+conexión (`src/lib/db.ts`), la configuración de entorno y la documentación de
+despliegue. Honra ADR-002 (portabilidad, sin SQL propietario) y la nota de
+"DB futuro"; se elige Turso sobre Postgres por **fricción mínima**: el proyecto ya
+depende de `@prisma/adapter-libsql` y del generador `prisma-client` (sin motor
+Rust nativo), lo que evita los problemas habituales de Prisma en serverless.
+
+**Decisiones de producto (acordadas con el usuario):**
+
+- **Dual local vs. producción.** Dev y tests siguen con SQLite en fichero
+  (`file:./dev.db`, `file:e2e.db`) — rápido, offline, sin credenciales.
+  Producción usa Turso vía `DATABASE_URL=libsql://...` + `DATABASE_AUTH_TOKEN`.
+- **El adapter ya instalado no cambia.** Solo se le pasa un `authToken` **opcional**
+  desde env: ausente en local (no rompe el `file:` URL), presente en producción.
+- **Migraciones.** Se siguen creando en local contra SQLite (`prisma migrate dev`).
+  Para Turso se aplican los `.sql` ya versionados de `prisma/migrations/` al remoto
+  (turso CLI / script documentado). No se cambia el dialecto: libSQL es compatible
+  con las migraciones SQLite existentes.
+
+**Alcance:**
+
+- `src/lib/db.ts`: pasar `authToken: process.env.DATABASE_AUTH_TOKEN` a
+  `PrismaLibSql` (opcional; `undefined` en local mantiene intacto el comportamiento
+  `file:`). Sin otros cambios de lógica ni de la lógica de dominio.
+- `.env.example`: documentar `DATABASE_URL` (`file:` en local, `libsql://` en prod)
+  y añadir `DATABASE_AUTH_TOKEN` (vacío en local; token de Turso en prod).
+- Forma reproducible de aplicar las migraciones versionadas a Turso: script npm
+  (p. ej. `db:migrate:turso`) que recorre `prisma/migrations/**/migration.sql` con
+  la turso CLI, o el comando equivalente documentado. No reescribe el dialecto.
+- `docs/despliegue.md` (español): provisión de Turso (crear DB, obtener URL + token),
+  aplicar migraciones al remoto, sembrar datos iniciales si aplica, variables de
+  entorno en Netlify, y nota de build (`prisma generate` ya en `postinstall`;
+  generador `prisma-client` + driver adapter → sin motor nativo, apto para
+  serverless). El `README.md` enlaza el doc.
+
+**Criterios de aceptación:**
+
+- `db.ts` lee `DATABASE_AUTH_TOKEN` y lo pasa al adapter; con `file:./dev.db` y sin
+  token, dev y la suite completa de tests siguen en verde (no se requiere Turso ni
+  red para test/dev/e2e).
+- `.env.example` documenta `DATABASE_URL` (local vs. prod) y `DATABASE_AUTH_TOKEN`.
+- Existe forma reproducible (script npm o comando documentado) de aplicar las
+  migraciones existentes a una base Turso, sin reescribir el dialecto.
+- `docs/despliegue.md` en español cubre: crear la DB Turso, URL+token, aplicar
+  migraciones, env vars de Netlify y el detalle de build serverless; el README lo
+  enlaza.
+- `npm run lint`, `npm run test` y `npm run build` siguen en verde.
+
+---
+
 ## Notas de portabilidad (transversal a todos los hitos)
 
 - Toda regla de negocio (standings, pairings, bracket, bonus) vive en funciones

@@ -52,9 +52,12 @@ npm run db:migrate:turso
 ```
 
 El script aplica cada `migration.sql` de `prisma/migrations/` en orden cronológico
-usando la CLI de Turso. Si una migración ya fue aplicada anteriormente y el SQL
-es idempotente (CREATE TABLE IF NOT EXISTS, etc.), puede ejecutarse de nuevo sin
-problema; en caso contrario, ejecuta solo las migraciones nuevas.
+usando la CLI de Turso. **Importante:** aplica *todas* las migraciones versionadas,
+no solo las nuevas. Las migraciones de Prisma no son idempotentes (`CREATE TABLE`,
+`DROP TABLE`, etc.), así que re-ejecutar este script sobre una base que ya las tiene
+fallará. Úsalo sobre una **base Turso recién creada** (vacía) la primera vez; para
+migraciones posteriores, aplica a mano solo el `migration.sql` nuevo con
+`turso db shell "$DATABASE_URL" --auth-token "$DATABASE_AUTH_TOKEN" < ruta/al/nuevo/migration.sql`.
 
 > **Nota:** `db:migrate:turso` no sustituye a `prisma migrate dev`. El flujo de
 > trabajo es el mismo de siempre: creates las migraciones en local con

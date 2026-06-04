@@ -1,5 +1,5 @@
 {
-  "current": null,
+  "current": "persistencia-turso",
   "milestones": [
     {
       "slug": "scaffold-minimo",
@@ -239,6 +239,37 @@
       ],
       "notes": "Correcciones post-review de Notum: (B1) Paso 13 del guion corregido — Marak suma 5 pts (3 victoria + 2 bonus: masacre margen>=20 + minVP 85>=40) y Torvayne 1 pt (bonus minVP 45>=40); verificado contra calculateBonus en result-logic.ts. La frase de verificacion ahora especifica que Marak obtiene ambos bonus (masacre + minVP). (B2) Descripcion de bonusMinVP en configuracion.md corregida: aplica en cualquier resultado incluyendo DRAW y derrota; la descripcion de bonusMarginThreshold deja claro que ese es el que excluye el empate. Menor: typo 'Magos Drekh' → 'Magos Drekk' en paso 3. Revision de ambos docs completos: sin otros nombres incorrectos ni calculos de bonus erroneos. guia-de-uso.md no requeria cambios (descripcion de bonus ya era correcta). lint 0 errores, 226 tests en verde, build 19 rutas sin errores TypeScript. APPROVED por Notum en re-review 2026-06-04.",
       "review_feedback": null
+    },
+    {
+      "slug": "altas-mitad-liga",
+      "title": "Altas de jugadores a mitad de liga: anadir solo los emparejamientos que faltan",
+      "status": "DONE",
+      "commit_sha": "0e35503a713cf3136ac48b7236c8ced72212142b",
+      "files_changed": [
+        "src/server/pairings.ts",
+        "src/server/match-actions.ts",
+        "src/app/admin/emparejamientos/page.tsx",
+        "src/app/admin/emparejamientos/SyncButton.tsx",
+        "tests/emparejamientos.test.ts"
+      ],
+      "notes": "Implementado: (1) missingPairings(players, existingPairs) pura en pairings.ts: reutiliza generatePairings para el round-robin completo, luego filtra con clave normalizada [id1,id2].sort().join('|') — comparacion no ordenada correcta. ExistingPair shape: {aId, bId} agnostico al home/away. (2) addMissingLeagueMatches(leagueId) Server Action en match-actions.ts: requireAdmin() en primera linea; carga activos y pares LEAGUE existentes; playerAwayId nullable filtrado con type guard; transaccion crea solo los pares nuevos con phase=LEAGUE/status=SCHEDULED/isBye=false; transiciona SETUP->LEAGUE si se crean partidas; NO borra nada; funciona con CONFIRMED; revalida /admin/emparejamientos, /calendario, /admin. (3) SyncButton.tsx: componente cliente analogo a GenerateButton; variante secondary; icono PlusCircle; boton deshabilitado cuando missingCount===0; mensajes inline exito/error con mismos colores CSS var. (4) page.tsx: query extendida con playerHomeId/playerAwayId; existingPairs computado con type guard para null; missingCount calculado con missingPairings sin query adicional; segunda Card 'Anadir los que faltan' con descripcion, missingCount en texto y SyncButton; Card de 'Regenerar' sin cambios. (5) Tests: 9 nuevos tests de missingPairings en emparejamientos.test.ts: todos-presentes->[], n+1 jugador->n pares nuevos, invertido reconocido como presente, sin autopares, lista vacia/un jugador, sin byes, determinista, delta parcial. Total: 235 tests. Verificaciones: npm run lint (0 errores), npm run test (235 passed), npm run build (19 rutas sin errores TypeScript). No se tocaron e2e tests. APPROVED por Notum 2026-06-04. Verificaciones: (1) missingPairings comparacion no ordenada correcta — clave normalizada [id1,id2].sort().join(\"|\") identica en existingKeys y en el filtro; test de inversion home/away cubre caso critico. (2) requireAdmin() primera instruccion; leagueId llega del server component (league.id), nunca de input cliente. (3) addMissingLeagueMatches: sin deleteMany ni delete; sin guarda confirmedCount — funciona con CONFIRMED; phase=LEAGUE/status=SCHEDULED/scheduledAt=null/isBye=false; transicion SETUP->LEAGUE solo si newPairings.length>0 y league.status===SETUP. (4) generateLeagueMatches intacto — diff limpio: solo import ampliado y funcion nueva insertada despues. (5) Type guard playerAwayId nullable correcto; no filtra partidas de liga (siempre tienen away). (6) 235/235 tests, lint 0 errores, build 19 rutas sin errores TypeScript. Sugerencias: (S1) carga de existingMatches fuera de transaccion — riesgo de TOCTOU en insercion doble bajo concurrencia; negligible en SQLite, mitigable en Postgres futuro moviendo findMany dentro de la transaccion. (S2) Sin test de integracion directo sobre addMissingLeagueMatches; tests puros de missingPairings son solidos y el criterio del plan acepta \"test o verificacion\" — acceptable. (S3) Mensaje de exito count=0 solo aparece en race condition cosmetica — respuesta correcta. DEUDA SALDADA 2026-06-04 (a peticion del usuario): (S1) la lectura de existingMatches y el calculo de missingPairings se han movido DENTRO de prisma.$transaction (tx.match.findMany), eliminando el TOCTOU: read+create ahora atomicos; revalidatePath solo si createdCount>0. (S2) anadidos 8 tests de integracion de addMissingLeagueMatches sobre un prisma falso (vi.mock de @/lib/db, @/lib/guards y next/cache con spies via vi.hoisted): crea solo pares faltantes y nunca borra (deleteMany no llamado), n+1 jugador->n pares, home/away invertido reconocido como presente, no-op count=0 sin createMany ni league.update, transicion SETUP->LEAGUE solo al crear, no transiciona si nada falta, error <2 jugadores, error liga inexistente. Total ahora 243 tests. npm run lint (0 errores), npm run test (243 passed), npm run build (19 rutas sin errores TypeScript).",
+      "review_feedback": null
+    },
+    {
+      "slug": "persistencia-turso",
+      "title": "Persistencia en Turso (libSQL) para despliegue serverless; SQLite local intacto",
+      "status": "DONE",
+      "commit_sha": "9771af8",
+      "review_feedback": null,
+      "files_changed": [
+        "src/lib/db.ts",
+        ".env.example",
+        "package.json",
+        "scripts/migrate-turso.sh",
+        "docs/despliegue.md",
+        "README.md"
+      ],
+      "notes": "APPROVED por Notum 2026-06-04. Verificaciones: (1) Regresión local correcta: db.ts lee DATABASE_AUTH_TOKEN como undefined cuando no está presente; PrismaLibSql({ url, authToken: undefined }) se comporta idénticamente al PrismaLibSql({ url }) anterior — sin red, sin credenciales, sin cambio de contrato. (2) Diff limpio: solo 6 ficheros (db.ts, .env.example, package.json, scripts/migrate-turso.sh, docs/despliegue.md, README.md) — ningún fichero de dominio, schema.prisma, app/, server/, components/ ni tests/ tocado. Alcance correcto. (3) scripts/migrate-turso.sh: valida DATABASE_URL (libsql://), DATABASE_AUTH_TOKEN y presencia de turso CLI antes de actuar; set -euo pipefail; aplica migration.sql en orden cronológico (find|sort sobre directorios con prefijo timestamp). No se ejecuta en build/dev/test (solo script npm explícito db:migrate:turso). (4) docs/despliegue.md: en español, 7 secciones, comandos correctos y copiables, cubre todos los criterios del PLAN. (5) .env no versionado (git log -- .env vacío). (6) npm run lint: 0 errores, 0 warnings. npm run test: 243/243 passed (idéntico al hito anterior — sin regresión). npm run build: 19 rutas generadas sin errores TypeScript. Sugerencias para futura iteración: (S1) scripts/migrate-turso.sh usa mapfile que requiere bash 4+ — falla en macOS con bash 3.2 de sistema si el usuario intenta ejecutarlo localmente sin homebrew bash; en Linux/Netlify (bash 5+) funciona correctamente. Alternativa compatible: sustituir mapfile por while read loop o usar find -exec directamente. (S2) docs/despliegue.md líneas 55-57 afirma que el SQL puede re-ejecutarse si es idempotente — las migraciones Prisma no lo son (CREATE TABLE sin IF NOT EXISTS); la afirmación puede confundir: el flujo normal aplica cada migración una sola vez al desplegar. (S3) El script indica en su cabecera que requiere turso autenticado pero en realidad --auth-token es suficiente sin turso auth login. POST-REVIEW (correcciones de sugerencias de Notum): (S1) scripts/migrate-turso.sh — reemplazado mapfile (bash 4+) por bucle while read compatible con bash 3.2.57 (bash por defecto en macOS, confirmado en el entorno del usuario); bash -n valida sintaxis OK. (S2) docs/despliegue.md — corregida la afirmacion de idempotencia: las migraciones Prisma NO son idempotentes (CREATE/DROP TABLE), el script aplica TODAS las migraciones y debe usarse sobre base Turso recien creada; documentado el comando manual para aplicar solo migraciones nuevas posteriores. (S3) cabecera del script aclara que --auth-token autentica cada comando, sin necesidad de turso auth login interactivo. Cambios solo en script y doc; no afectan lint/test/build (243 tests ya verificados en verde por el reviewer)."
     }
   ]
 }

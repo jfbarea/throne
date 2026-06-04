@@ -7,7 +7,8 @@
 #   npm run db:migrate:turso
 #
 # Requires:
-#   - turso CLI installed and authenticated (https://docs.turso.tech/cli/introduction)
+#   - turso CLI installed (https://docs.turso.tech/cli/introduction); no interactive
+#     `turso auth login` needed — the --auth-token flag authenticates each command
 #   - DATABASE_URL set to a libsql:// URL (not a file: path)
 #   - DATABASE_AUTH_TOKEN set to a valid Turso token
 
@@ -38,8 +39,12 @@ DB_URL="${DATABASE_URL}"
 
 MIGRATIONS_DIR="$(dirname "$0")/../prisma/migrations"
 
-# Collect migration SQL files in chronological order (directory names are timestamped)
-mapfile -t MIGRATION_FILES < <(find "${MIGRATIONS_DIR}" -name "migration.sql" | sort)
+# Collect migration SQL files in chronological order (directory names are timestamped).
+# Use a read loop instead of `mapfile` for compatibility with bash 3.2 (default on macOS).
+MIGRATION_FILES=()
+while IFS= read -r SQL_FILE; do
+  MIGRATION_FILES+=("${SQL_FILE}")
+done < <(find "${MIGRATIONS_DIR}" -name "migration.sql" | sort)
 
 if [[ ${#MIGRATION_FILES[@]} -eq 0 ]]; then
   echo "No migration.sql files found in ${MIGRATIONS_DIR}" >&2
