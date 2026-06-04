@@ -227,9 +227,6 @@ model BracketSlot {
 
   // playerId is null until the slot is resolved (winner advances here).
   playerId String?
-  // matchId: the match that decides who advances to this slot (nullable;
-  // null for bye slots that do not require a match).
-  matchId String?
 
   // feedsIntoSlotId: where the winner of this slot advances.
   // null for the final (no next slot).
