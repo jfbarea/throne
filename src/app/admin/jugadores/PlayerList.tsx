@@ -12,6 +12,7 @@ import {
   setPlayerActive,
   resetPlayerPasscode,
   updatePlayer,
+  deletePlayer,
 } from "@/server/league-actions";
 import {
   PencilSimple,
@@ -22,6 +23,7 @@ import {
   X,
   CopySimple,
   CheckCircle,
+  Trash,
 } from "@phosphor-icons/react";
 
 interface PlayerRow {
@@ -227,10 +229,24 @@ function PlayerCard({ player }: PlayerCardProps) {
   const [editing, setEditing] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [plainPasscode, setPlainPasscode] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   function handleToggleActive() {
     startTransition(async () => {
       await setPlayerActive(player.id, !player.active);
+    });
+  }
+
+  function handleDelete() {
+    setDeleteError(null);
+    startTransition(async () => {
+      const result = await deletePlayer(player.id);
+      if (!result.ok) {
+        setDeleteError(result.error);
+        return;
+      }
+      // On success the row disappears via revalidation; nothing else to do.
     });
   }
 
@@ -308,9 +324,74 @@ function PlayerCard({ player }: PlayerCardProps) {
                 {player.active ? "Baja" : "Activar"}
               </span>
             </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setDeleteError(null);
+                setConfirmingDelete(true);
+              }}
+              disabled={isPending}
+              icon={<Trash size={13} />}
+              title="Borrar definitivamente"
+            >
+              <span className="hidden sm:inline">Borrar</span>
+            </Button>
           </div>
         )}
       </div>
+
+      {/* Delete confirmation */}
+      {confirmingDelete && (
+        <div
+          className="mt-3 rounded border px-3 py-3 space-y-2"
+          style={{
+            background: "rgba(184,92,60,0.08)",
+            borderColor: "rgba(184,92,60,0.4)",
+          }}
+        >
+          <p
+            className="text-[12px] font-semibold"
+            style={{ color: "var(--danger)", fontFamily: "var(--font-sans)" }}
+          >
+            ¿Borrar a {player.displayName} definitivamente? Esta acción no se
+            puede deshacer.
+          </p>
+          {deleteError && (
+            <p
+              className="text-[12px]"
+              style={{ color: "var(--danger)", fontFamily: "var(--font-sans)" }}
+            >
+              {deleteError}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              onClick={handleDelete}
+              disabled={isPending}
+              icon={<Trash size={14} />}
+            >
+              {isPending ? "Borrando…" : "Sí, borrar"}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setConfirmingDelete(false);
+                setDeleteError(null);
+              }}
+              disabled={isPending}
+              icon={<X size={14} />}
+            >
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Inline edit */}
       {editing && (

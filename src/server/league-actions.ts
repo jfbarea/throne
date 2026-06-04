@@ -274,3 +274,42 @@ export async function resetPlayerPasscode(
   revalidatePath("/admin/jugadores");
   return { ok: true, data: { plainPasscode: plain } };
 }
+
+// ---------------------------------------------------------------------------
+// Player: hard delete — removes the player entirely
+// ---------------------------------------------------------------------------
+
+/**
+ * Permanently delete a player. Refuses if the player is referenced by any
+ * match or result, since deleting them would corrupt league history — in that
+ * case the admin should deactivate (setPlayerActive) instead, which preserves
+ * the record. AuditLog entries (actor-only references) are removed in the same
+ * transaction so the FK constraint is satisfied.
+ */
+export async function deletePlayer(playerId: string): Promise<ActionResult> {
+  await requireAdmin();
+
+  const [homeMatches, awayMatches, reported, confirmed] = await Promise.all([
+    prisma.match.count({ where: { playerHomeId: playerId } }),
+    prisma.match.count({ where: { playerAwayId: playerId } }),
+    prisma.result.count({ where: { reportedById: playerId } }),
+    prisma.result.count({ where: { confirmedById: playerId } }),
+  ]);
+
+  if (homeMatches + awayMatches + reported + confirmed > 0) {
+    return {
+      ok: false,
+      error:
+        "No se puede borrar: el jugador tiene partidas o resultados en la liga. Dalo de baja para conservar el histórico.",
+    };
+  }
+
+  await prisma.$transaction([
+    // Actor-only references; safe to remove for a player with no match history.
+    prisma.auditLog.deleteMany({ where: { actorId: playerId } }),
+    prisma.player.delete({ where: { id: playerId } }),
+  ]);
+
+  revalidatePath("/admin/jugadores");
+  return { ok: true, data: undefined };
+}
