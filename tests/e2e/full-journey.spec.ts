@@ -294,6 +294,14 @@ test.describe("Recorrido completo", () => {
 test.describe("Mobile viewport — sin scroll horizontal roto", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
+  // Guarantee a clean session before every mobile test: clear any cookies left by
+  // previous tests in the shared browser context (the "Recorrido completo" suite
+  // mutates the DB and leaves session cookies that can redirect or render
+  // unexpected content in subsequent tests, making the overflow assertions flaky).
+  test.beforeEach(async ({ page }) => {
+    await page.context().clearCookies();
+  });
+
   test("login no tiene overflow horizontal", async ({ page }) => {
     await page.goto("/login");
     await expect(page.locator("body")).toBeVisible();
@@ -303,9 +311,11 @@ test.describe("Mobile viewport — sin scroll horizontal roto", () => {
   });
 
   test("mis-partidas no tiene overflow horizontal tras login", async ({ page }) => {
+    // Fresh login as PLAYER1 so the page always renders the expected player's matches.
     await loginPlayer(page, PLAYER1_NAME, PLAYER_PASSCODE);
     await page.goto("/mis-partidas");
-    await expect(page.locator("body")).toBeVisible();
+    // Wait for the page content to fully settle before measuring layout.
+    await expect(page.locator("body")).toContainText(/mis partidas|Mis partidas|Pendientes|Confirmadas/i);
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
     expect(bodyWidth).toBeLessThanOrEqual(391);
   });
