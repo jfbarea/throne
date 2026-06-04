@@ -46,8 +46,11 @@ export default async function ClasificacionPage() {
   });
 
   // Fetch all LEAGUE matches with their results.
+  // Defensive orderBy: createdAt asc ensures a stable, reproducible query result
+  // across DB implementations (SQLite, Postgres) regardless of internal row order.
   const rawMatches = await prisma.match.findMany({
     where: { leagueId: league.id, phase: "LEAGUE" },
+    orderBy: { createdAt: "asc" },
     select: {
       id: true,
       status: true,

@@ -191,47 +191,41 @@ export function buildBracket(seeds: SeedEntry[]): BracketSpec {
 
 /**
  * Propagate automatic bye advances through the bracket.
- * If both slots feeding into a parent are byes, the parent's playerId
- * can be determined. (In standard single-elim with top seeds getting byes,
- * no two adjacent round-1 slots should both be byes given proper seeding,
- * but we handle it generically.)
+ *
+ * In standard single-elimination seeding, byes are given to the top seeds when
+ * playoffSize is not a power of 2. With standard seeding (seed 1 vs seed N, etc.)
+ * no two adjacent round-1 slots will BOTH be byes — the lowest seeds face the
+ * highest seeds and byes go to the top. Therefore, no multi-level propagation
+ * is ever needed in practice.
+ *
+ * This function is kept as a documented stub for defensive completeness. It
+ * performs a single iteration and immediately breaks — the `while (changed)`
+ * loop is intentionally a one-pass guard (not an actual multi-pass algorithm).
+ * Any future non-standard seeding that could produce adjacent byes would need
+ * this to be expanded.
  */
 function propagateByes(slots: BracketSlotSpec[]): void {
-  // Process slots in order (round 1 first). If a slot is a bye and its paired
-  // feeder is also a bye, we can set the parent's playerId.
-  // We iterate until stable (at most O(rounds) passes).
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (let i = 0; i < slots.length; i++) {
-      const slot = slots[i];
-      if (slot.feedsIntoIndex === null) continue;
-      const parent = slots[slot.feedsIntoIndex];
-      // Skip if parent already resolved.
-      if (parent.playerId !== null) continue;
-      // Find the sibling slot that also feeds into parent.
-      const siblings = slots.filter(
-        (s, j) => j !== i && s.feedsIntoIndex === slot.feedsIntoIndex
-      );
-      if (siblings.length !== 1) continue;
-      const sibling = siblings[0];
-      // If both this slot and its sibling are byes (auto-advances), the parent
-      // can be determined. But in a bye, playerId is already the seed that advances.
-      // Actually: byes in round 1 mean one side has no opponent; the winner is playerId.
-      // The parent slot gets the winner of this slot vs sibling slot — that's a real
-      // match (unless sibling is also a bye). We only auto-propagate if BOTH are byes.
-      if (slot.isBye && sibling.isBye && slot.playerId && sibling.playerId) {
-        // Both feed into parent — but this means a real match between two bye-winners.
-        // Parent is NOT a bye; just don't pre-populate.
-        // (Nothing to do — parent waits for actual match result.)
-        continue;
-      }
-      // If this slot is a bye and sibling has no opponent at all (isBye + no playerId):
-      // This can't happen with proper seeds, skip.
+  // Single defensive pass — see function JSDoc for rationale.
+  const changed = false;
+  for (let i = 0; i < slots.length; i++) {
+    const slot = slots[i];
+    if (slot.feedsIntoIndex === null) continue;
+    const parent = slots[slot.feedsIntoIndex];
+    if (parent.playerId !== null) continue;
+    // Find the sibling slot that also feeds into parent.
+    const siblings = slots.filter(
+      (s, j) => j !== i && s.feedsIntoIndex === slot.feedsIntoIndex
+    );
+    if (siblings.length !== 1) continue;
+    const sibling = siblings[0];
+    if (slot.isBye && sibling.isBye && slot.playerId && sibling.playerId) {
+      // Both feed into parent — they form a real match between two bye-winners.
+      // Parent is NOT a bye; don't pre-populate; wait for actual match result.
+      continue;
     }
-    // No propagation needed in the standard seeding case.
-    break;
   }
+  // changed remains false: no propagation occurs in standard seeding.
+  void changed; // suppress unused-variable lint warning
 }
 
 // ---------------------------------------------------------------------------

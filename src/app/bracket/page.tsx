@@ -328,7 +328,8 @@ export default async function BracketPage() {
                                 }
                                 vp={slotMatch.result?.homeVictoryPoints}
                                 isBye={!!slotMatch.isBye}
-                                seed={getSlotSeed(slot.position, 1, bracket.size)}
+                                // Seeds are only meaningful in round 1; later rounds show advancing winners.
+                                seed={roundNum === 1 ? getSlotSeed(slot.position, 1, bracket.size) : undefined}
                               />
                               {!slotMatch.isBye && slotMatch.playerAway && (
                                 <SlotPlayerRow
@@ -338,7 +339,7 @@ export default async function BracketPage() {
                                   }
                                   vp={slotMatch.result?.awayVictoryPoints}
                                   isBye={false}
-                                  seed={getSlotSeed(slot.position, 2, bracket.size)}
+                                  seed={roundNum === 1 ? getSlotSeed(slot.position, 2, bracket.size) : undefined}
                                 />
                               )}
                             </div>

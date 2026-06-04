@@ -16,6 +16,19 @@ export function Card({
   return (
     <div
       onClick={onClick}
+      // a11y: interactive cards must be keyboard-reachable.
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
       className={[
         "bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-sm)] p-6",
         featured ? "border-t-[var(--accent)]" : "",

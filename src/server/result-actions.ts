@@ -432,6 +432,7 @@ export async function disputeResult(
       matchId,
       resultId: match.result!.id,
       disputedById: actorId,
+      previousStatus: match.status,
     });
   });
 

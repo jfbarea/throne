@@ -1,5 +1,5 @@
 {
-  "current": "playoffs-bracket",
+  "current": "pulido-responsive-e2e",
   "milestones": [
     {
       "slug": "scaffold-minimo",
@@ -185,7 +185,7 @@
     {
       "slug": "playoffs-bracket",
       "title": "Transicion a playoffs y bracket de eliminatoria",
-      "status": "READY_FOR_REVIEW",
+      "status": "DONE",
       "commit_sha": "61ecb82",
       "files_changed": [
         "src/server/bracket.ts",
@@ -198,13 +198,34 @@
         "tests/playoffs-bracket.test.ts",
         "plan/_state.json"
       ],
-      "notes": "Seeding puro en src/server/bracket.ts: nextPowerOf2, buildBracket (1vsN, 2vsN-1, byes para los mejores seeds cuando playoffSize no es potencia de 2), seedsFromStandings, resolvePlayoffWinner (DRAW lanza excepcion). La funcion buildBracket construye el arbol completo con feedsIntoIndex como indice en el array de slots. src/server/playoff-actions.ts: startPlayoffs (Server Action admin) que calcula standings, extrae seeds, persiste Bracket+BracketSlots en 2 pasadas (crear todos sin FK, luego wirear feedsIntoSlotId), crea Matches de primera ronda y byes (status=CONFIRMED, isBye=true); avancePlayoffWinner (llamada dentro de transaccion de confirmacion) actualiza playerId del slot ganador, crea el siguiente Match si ambos feeders estan resueltos, y si es la final marca la liga como FINISHED. Integracion con result-actions.ts: (1) reportResult: DRAW invalido en PLAYOFF; (2) confirmResult: llama advancePlayoffWinner si phase=PLAYOFF y !isBye, dentro de la transaccion atomica; (3) adminResolveResult: mismo patron. Vista /bracket: arbol responsive con scroll horizontal, roundLabels (cuartos/semis/final), banner de campeon, byeslots, revalidatePath. Vista /admin/playoffs: standings preview, stats, StartPlayoffsButton con confirmacion de 2 pasos. Integracion con hito 7: avance del ganador es atomico dentro de la transaccion de confirmacion. 56 tests nuevos (224 total). lint 0 errors, build en verde. .env no tocado."
+      "notes": "Seeding puro en src/server/bracket.ts: nextPowerOf2, buildBracket (1vsN, 2vsN-1, byes para los mejores seeds cuando playoffSize no es potencia de 2), seedsFromStandings, resolvePlayoffWinner (DRAW lanza excepcion). La funcion buildBracket construye el arbol completo con feedsIntoIndex como indice en el array de slots. src/server/playoff-actions.ts: startPlayoffs (Server Action admin) que calcula standings, extrae seeds, persiste Bracket+BracketSlots en 2 pasadas (crear todos sin FK, luego wirear feedsIntoSlotId), crea Matches de primera ronda y byes (status=CONFIRMED, isBye=true); avancePlayoffWinner (llamada dentro de transaccion de confirmacion) actualiza playerId del slot ganador, crea el siguiente Match si ambos feeders estan resueltos, y si es la final marca la liga como FINISHED. Integracion con result-actions.ts: (1) reportResult: DRAW invalido en PLAYOFF; (2) confirmResult: llama advancePlayoffWinner si phase=PLAYOFF y !isBye, dentro de la transaccion atomica; (3) adminResolveResult: mismo patron. Vista /bracket: arbol responsive con scroll horizontal, roundLabels (cuartos/semis/final), banner de campeon, byeslots, revalidatePath. Vista /admin/playoffs: standings preview, stats, StartPlayoffsButton con confirmacion de 2 pasos. Integracion con hito 7: avance del ganador es atomico dentro de la transaccion de confirmacion. 56 tests nuevos (224 total). lint 0 errors, build en verde. .env no tocado.",
+      "review_feedback": null
     },
     {
       "slug": "pulido-responsive-e2e",
       "title": "Pulido mobile-first y tests e2e",
-      "status": "PENDING",
-      "commit_sha": null
+      "status": "READY_FOR_REVIEW",
+      "commit_sha": null,
+      "files_changed": [
+        "README.md",
+        "package.json",
+        "package-lock.json",
+        "playwright.config.ts",
+        "vitest.config.ts",
+        "tests/e2e/global-setup.ts",
+        "tests/e2e/seed-e2e.ts",
+        "tests/e2e/full-journey.spec.ts",
+        "tests/standings.test.ts",
+        "src/components/Card.tsx",
+        "src/app/login/LoginForm.tsx",
+        "src/app/admin/disputas/DisputaCard.tsx",
+        "src/app/bracket/page.tsx",
+        "src/app/clasificacion/page.tsx",
+        "src/server/result-actions.ts",
+        "src/server/bracket.ts",
+        "plan/_state.json"
+      ],
+      "notes": "Playwright e2e instalado (@playwright/test ^1.60.0) con playwright.config.ts (chromium + mobile-chrome Pixel 7, 1 worker, globalSetup, webServer :3001). Tests e2e en tests/e2e/: global-setup.ts borra e2e.db y aplica migraciones+seed fresco; seed-e2e.ts crea liga + admin + 6 jugadores; full-journey.spec.ts cubre recorrido completo 11 pasos (login→emparejamientos→fecha→reportar→confirmar→standings→playoffs→bracket), 5 tests overflow móvil y 2 estados vacíos — 37 passed 1 skipped. vitest.config.ts excluye tests/e2e/**. Correcciones menor: Card.tsx a11y (role/tabIndex/onKeyDown cuando onClick presente), LoginForm.tsx maxLength=256 y footer texto, DisputaCard.tsx oculta Resolver para CONFIRMED, bracket/page.tsx seeds solo ronda 1, clasificacion/page.tsx orderBy determinista, result-actions.ts DISPUTE_RESULT incluye previousStatus, bracket.ts propagateByes documentado como stub con JSDoc, standings.test.ts añade test H2H ciclo 3-way documentando comportamiento no-transitivo."
     },
     {
       "slug": "documentacion-y-guion-pruebas",

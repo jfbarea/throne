@@ -33,10 +33,17 @@ npm run build        # Build de producción
 npm run start        # Arrancar build de producción
 npm run lint         # Linting con ESLint
 npm run format       # Formatear código con Prettier
-npm run test         # Ejecutar tests con Vitest
+npm run test         # Ejecutar tests unitarios con Vitest
 npm run test:watch   # Tests en modo observador
 npm run test:coverage # Tests con reporte de cobertura
+npm run e2e          # Tests end-to-end con Playwright (arranca dev server en :3001)
+npm run e2e:ui       # Tests e2e en modo UI interactivo
+npm run e2e:report   # Ver último reporte HTML de e2e
 ```
+
+> **Tests e2e:** Se ejecutan contra una base de datos dedicada (`e2e.db`) que se
+> crea y destruye en cada ejecución. Las variables de entorno del e2e están
+> embebidas en `playwright.config.ts` — no se lee ni modifica el `.env` real.
 
 ## Base de datos
 

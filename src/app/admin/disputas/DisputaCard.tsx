@@ -98,8 +98,8 @@ export function DisputaCard({ match }: DisputaCardProps) {
         </div>
       </div>
 
-      {/* Admin resolve action */}
-      {!showResolve && (
+      {/* Admin resolve action — hidden for already-confirmed matches */}
+      {!showResolve && match.status !== "CONFIRMED" && (
         <div className="mt-3">
           <button
             onClick={() => setShowResolve(true)}

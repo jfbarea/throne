@@ -155,6 +155,7 @@ export function LoginForm() {
               onChange={(e) => setDisplayName(e.target.value)}
               autoComplete="username"
               required
+              maxLength={256}
               leadingIcon={<User size={16} />}
             />
           )}
@@ -173,6 +174,7 @@ export function LoginForm() {
               mode === "player" ? "current-password" : "current-password"
             }
             required
+            maxLength={256}
             leadingIcon={<Lock size={16} />}
             error={error ?? undefined}
           />
@@ -200,7 +202,7 @@ export function LoginForm() {
 
       {/* Footer */}
       <div className="mt-8">
-        <Eyebrow>throne · Hito 4</Eyebrow>
+        <Eyebrow>throne · Liga privada de Warhammer 40.000</Eyebrow>
       </div>
     </div>
   );
