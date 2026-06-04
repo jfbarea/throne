@@ -100,6 +100,7 @@ export function LoginForm() {
         aria-label="Tipo de acceso"
       >
         <button
+          type="button"
           role="tab"
           aria-selected={mode === "player"}
           onClick={() => {
@@ -115,10 +116,12 @@ export function LoginForm() {
             cursor: "pointer",
           }}
         >
-          <User size={16} />
+          {/* pointer-events:none so taps on the icon still hit the button (iOS Safari) */}
+          <User size={16} style={{ pointerEvents: "none" }} />
           Jugador
         </button>
         <button
+          type="button"
           role="tab"
           aria-selected={mode === "admin"}
           onClick={() => {
@@ -134,7 +137,8 @@ export function LoginForm() {
             cursor: "pointer",
           }}
         >
-          <ShieldStar size={16} />
+          {/* pointer-events:none so taps on the icon still hit the button (iOS Safari) */}
+          <ShieldStar size={16} style={{ pointerEvents: "none" }} />
           Admin
         </button>
       </div>
