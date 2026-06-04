@@ -123,57 +123,41 @@ export function LoginForm() {
         aria-label="Tipo de acceso"
       >
         <button
-          type="button"
           role="tab"
           aria-selected={mode === "player"}
           onClick={() => {
             setMode("player");
             clearError();
           }}
-          className="flex items-center justify-center gap-2 px-4 py-2 min-h-[44px] text-[13px] font-semibold rounded-[2px] transition-all duration-[120ms] select-none"
+          className="flex items-center gap-2 px-4 py-2 text-[13px] font-semibold rounded-[2px] transition-all duration-[120ms]"
           style={{
             fontFamily: "var(--font-sans)",
             background: mode === "player" ? "var(--bg-raised)" : "transparent",
             color: mode === "player" ? "var(--fg)" : "var(--fg-faint)",
             border: "none",
             cursor: "pointer",
-            // manipulation removes the double-tap-zoom delay/suppression on small
-            // touch targets in iOS Safari, which can swallow the first tap.
-            touchAction: "manipulation",
-            // Prevent iOS from starting a text selection / callout on the label,
-            // which swallows the tap before it becomes a click.
-            WebkitTouchCallout: "none",
           }}
         >
-          {/* pointer-events:none so taps on the icon still hit the button (iOS Safari) */}
-          <User size={16} style={{ pointerEvents: "none" }} />
+          <User size={16} />
           Jugador
         </button>
         <button
-          type="button"
           role="tab"
           aria-selected={mode === "admin"}
           onClick={() => {
             setMode("admin");
             clearError();
           }}
-          className="flex items-center justify-center gap-2 px-4 py-2 min-h-[44px] text-[13px] font-semibold rounded-[2px] transition-all duration-[120ms] select-none"
+          className="flex items-center gap-2 px-4 py-2 text-[13px] font-semibold rounded-[2px] transition-all duration-[120ms]"
           style={{
             fontFamily: "var(--font-sans)",
             background: mode === "admin" ? "var(--bg-raised)" : "transparent",
             color: mode === "admin" ? "var(--fg)" : "var(--fg-faint)",
             border: "none",
             cursor: "pointer",
-            // manipulation removes the double-tap-zoom delay/suppression on small
-            // touch targets in iOS Safari, which can swallow the first tap.
-            touchAction: "manipulation",
-            // Prevent iOS from starting a text selection / callout on the label,
-            // which swallows the tap before it becomes a click.
-            WebkitTouchCallout: "none",
           }}
         >
-          {/* pointer-events:none so taps on the icon still hit the button (iOS Safari) */}
-          <ShieldStar size={16} style={{ pointerEvents: "none" }} />
+          <ShieldStar size={16} />
           Admin
         </button>
       </div>
