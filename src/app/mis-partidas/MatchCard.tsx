@@ -51,11 +51,16 @@ const STATUS_LABEL: Record<
   DISPUTED: { label: "Disputada", variant: "ember" },
 };
 
-const OUTCOME_LABEL: Record<string, string> = {
-  HOME_WIN: "Victoria Local",
-  AWAY_WIN: "Victoria Visitante",
-  DRAW: "Empate",
-};
+function outcomeLabel(
+  outcome: string,
+  homeName: string,
+  awayName: string | null
+): string {
+  if (outcome === "HOME_WIN") return `Victoria de ${homeName}`;
+  if (outcome === "AWAY_WIN") return `Victoria de ${awayName ?? "Visitante"}`;
+  if (outcome === "DRAW") return "Empate";
+  return outcome;
+}
 
 export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
   const [showReport, setShowReport] = useState(false);
@@ -182,7 +187,11 @@ export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
                   {match.result.awayVP}
                 </strong>{" "}
                 VP ·{" "}
-                {OUTCOME_LABEL[match.result.outcome] ?? match.result.outcome}
+                {outcomeLabel(
+                  match.result.outcome,
+                  match.playerHomeName,
+                  match.playerAwayName
+                )}
               </span>
               {(match.result.bonusHome > 0 || match.result.bonusAway > 0) && (
                 <span style={{ color: "var(--accent)", fontSize: "12px" }}>
