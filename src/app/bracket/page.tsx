@@ -5,6 +5,7 @@
 import { requireAuth } from "@/lib/guards";
 import { prisma } from "@/lib/db";
 import { getBracket } from "@/server/playoff-actions";
+import { AppHeaderUser } from "@/components/AppHeaderUser";
 import { Trophy, Sword } from "@phosphor-icons/react/dist/ssr";
 import Link from "next/link";
 
@@ -159,6 +160,7 @@ export default async function BracketPage() {
               Admin
             </Link>
           )}
+          <AppHeaderUser />
         </nav>
       </header>
 

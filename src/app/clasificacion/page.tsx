@@ -8,6 +8,7 @@ import { computeStandings } from "@/server/standings";
 import { parseTiebreakers } from "@/lib/schemas";
 import { Eyebrow } from "@/components/Eyebrow";
 import { Card } from "@/components/Card";
+import { AppHeaderUser } from "@/components/AppHeaderUser";
 import Link from "next/link";
 import {
   Crown,
@@ -726,6 +727,7 @@ function PageShell({
               <span className="hidden sm:inline">Admin</span>
             </Link>
           )}
+          <AppHeaderUser />
         </nav>
       </header>
 

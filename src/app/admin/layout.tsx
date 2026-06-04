@@ -2,6 +2,7 @@
 // All routes under /admin are protected. SPEC §5.
 
 import { requireAdmin } from "@/lib/guards";
+import { AppHeaderUser } from "@/components/AppHeaderUser";
 import Link from "next/link";
 import { Crown, Gear, Users, Sword, Gavel, ChartBar, Trophy } from "@phosphor-icons/react/dist/ssr";
 
@@ -119,6 +120,7 @@ export default async function AdminLayout({
             <Trophy size={14} />
             <span className="hidden sm:inline">Playoffs</span>
           </Link>
+          <AppHeaderUser />
         </nav>
       </header>
 

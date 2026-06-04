@@ -8,6 +8,7 @@ import { requireAuth } from "@/lib/guards";
 import { Eyebrow } from "@/components/Eyebrow";
 import { Card } from "@/components/Card";
 import { MatchRow } from "./MatchRow";
+import { AppHeaderUser } from "@/components/AppHeaderUser";
 import Link from "next/link";
 import { Crown } from "@phosphor-icons/react/dist/ssr";
 
@@ -248,6 +249,7 @@ function CalendarioHeader({ isAdmin }: { isAdmin: boolean }) {
             <span className="hidden sm:inline">Admin</span>
           </Link>
         )}
+        <AppHeaderUser />
       </nav>
     </header>
   );
