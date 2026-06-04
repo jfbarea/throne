@@ -1,5 +1,5 @@
 {
-  "current": "deploy-netlify",
+  "current": null,
   "milestones": [
     {
       "slug": "scaffold-minimo",
@@ -274,7 +274,7 @@
     {
       "slug": "deploy-netlify",
       "title": "Configuracion de despliegue en Netlify (netlify.toml + plugin Next + docs)",
-      "status": "READY_FOR_REVIEW",
+      "status": "DONE",
       "commit_sha": "e5c08cf",
       "review_feedback": null,
       "files_changed": [
@@ -283,7 +283,7 @@
         "package-lock.json",
         "docs/despliegue.md"
       ],
-      "notes": "Implementado: (1) netlify.toml en la raiz: command='npm run build', NODE_VERSION='20', plugin [[plugins]] package='@netlify/plugin-nextjs'. (2) @netlify/plugin-nextjs@5.15.11 añadido como devDependency pinneada (version exacta, sin ^); npm install actualiza package-lock.json. El plugin no tiene peerDependencies de Next.js; engines: node>=18.0.0 — compatible con NODE_VERSION=20. El plugin no genera efecto alguno en build local (solo actua en el entorno de build de Netlify). (3) docs/despliegue.md: sección 6 'Despliegue en Netlify' añadida (subsecciones 6.1 conectar repo, 6.2 netlify.toml, 6.3 prisma generate sin binario nativo, 6.4 orden recomendado); seccion 5 actualizada con nota sobre disponibilidad de DATABASE_URL/DATABASE_AUTH_TOKEN en build; numeracion de secciones 7 y 8 actualizada. Contenido Turso (secciones 1-4) intacto. VERIFICACIONES: npm run lint: 0 errores. npm run test: 247/247 passed (sin red ni Turso). npm run build: 19 rutas generadas, 0 errores TypeScript. @netlify/plugin-nextjs version instalada: 5.15.11."
+      "notes": "APPROVED por Notum 2026-06-04. Verificaciones: (1) netlify.toml TOML valido: command=\"npm run build\", NODE_VERSION=\"20\", [[plugins]] package=\"@netlify/plugin-nextjs\" — exactamente lo requerido. (2) @netlify/plugin-nextjs@5.15.11 en devDependencies sin ^ (version pinneada); package-lock.json coherente (version 5.15.11 instalada); engines node>=18.0.0 compatible con NODE_VERSION=20; sin peerDependencies. (3) Diff limpio: solo netlify.toml (nuevo), package.json (+1 dep), package-lock.json, docs/despliegue.md y plan/_state.json — cero cambios en src/, prisma/schema.prisma ni tests/. Alcance correcto. (4) docs/despliegue.md: seccion 6 nueva con subsecciones 6.1-6.4 en espanol; contenido Turso (secciones 1-5) intacto; nota en 6.2 sobre plugin gestionado desde node_modules; 6.3 sobre prisma generate; 6.4 orden de primer despliegue. (5) NOTA DOCUMENTAL (sugerencia no bloqueante): la nota de seccion 5 lineas 103-106 afirma que DATABASE_URL/DATABASE_AUTH_TOKEN \"deben estar presentes en build\" porque \"prisma generate corre en postinstall\". Esto es impreciso: prisma generate solo lee schema.prisma y genera codigo TypeScript — no conecta a DB ni valida variables de entorno. Las 15 rutas dinamicas del proyecto son server-rendered on demand (marcadas con signo f en build), no se prerrenderizan con datos de DB. db.ts tiene fallback DATABASE_URL ?? \"file:./dev.db\". El build local confirma que completa sin DATABASE_AUTH_TOKEN. El texto es inofensivo (tener las vars antes del deploy es buena practica) pero el argumento tecnico es incorrecto y puede generar confusion. Texto correcto sugerido: \"DATABASE_URL y DATABASE_AUTH_TOKEN deben estar configuradas en el panel de Netlify antes del primer deploy para que la app funcione en runtime. El proceso de build en si (npm run build + prisma generate) no conecta a la base de datos y no requiere estas variables — pero la app fallara al arrancar si no las encuentra.\" (6) .env no trackeado (git log -- .env vacio). (7) npm run lint: 0 errores. npm run test: 247/247 passed (confirma claim del builder). npm run build: 19 rutas generadas (2 estaticas, 15 dinamicas, 2 API routes), 0 errores TypeScript (confirma claim del builder). (8) Plugin no genera efecto en build local — build completa limpiamente sin entorno Netlify. POST-REVIEW (S1 de Notum): docs/despliegue.md seccion 5 — corregida la justificacion imprecisa: las env vars se necesitan en RUNTIME, no en build (prisma generate no conecta a DB ni requiere DATABASE_URL/DATABASE_AUTH_TOKEN); la app falla al arrancar si faltan, por eso configurarlas en Netlify antes del primer deploy. Solo cambio de doc; no afecta lint/test/build."
     }
   ]
 }

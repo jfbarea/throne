@@ -100,10 +100,11 @@ Para generar un `SESSION_SECRET` seguro:
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-> **Nota:** `DATABASE_URL` y `DATABASE_AUTH_TOKEN` se necesitan también en build
-> porque `prisma generate` corre en `postinstall`. Con el driver adapter libSQL
-> (sin motor Rust nativo) esto no levanta una conexión real, pero las variables
-> deben estar presentes para que el proceso no falle por variables faltantes.
+> **Nota:** estas variables se necesitan en **runtime**, no en build. El proceso de
+> build (`npm run build` + `prisma generate` en `postinstall`) no abre ninguna
+> conexión a la base de datos y no requiere `DATABASE_URL` ni `DATABASE_AUTH_TOKEN`.
+> Pero la app **fallará al arrancar** si no las encuentra, así que configúralas en
+> Netlify antes del primer deploy. (Netlify las propaga a ambas fases de todos modos.)
 
 ---
 
