@@ -10,6 +10,7 @@ import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { Card, CardEyebrow, CardTitle } from "@/components/Card";
 import { Eyebrow } from "@/components/Eyebrow";
+import { Toast } from "@/components/Toast";
 import { Lock, User, ShieldStar } from "@phosphor-icons/react";
 
 type LoginMode = "player" | "admin";
@@ -25,12 +26,24 @@ export function LoginForm() {
   // Admin form state
   const [adminPasscode, setAdminPasscode] = useState("");
 
-  const [error, setError] = useState<string | null>(null);
+  // Toast carries an incrementing id so re-submitting with the same error
+  // remounts the Toast and restarts its auto-dismiss timer.
+  const [toast, setToast] = useState<{ id: number; message: string } | null>(
+    null
+  );
   const [loading, setLoading] = useState(false);
+
+  function showError(message: string) {
+    setToast((prev) => ({ id: (prev?.id ?? 0) + 1, message }));
+  }
+
+  function clearError() {
+    setToast(null);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
+    clearError();
     setLoading(true);
 
     try {
@@ -42,7 +55,7 @@ export function LoginForm() {
         });
         const data = await res.json();
         if (!res.ok) {
-          setError(data.error ?? "Error al iniciar sesión");
+          showError(data.error ?? "Error al iniciar sesión");
           return;
         }
         // Players land on their own matches, not the design showcase at "/".
@@ -55,14 +68,14 @@ export function LoginForm() {
         });
         const data = await res.json();
         if (!res.ok) {
-          setError(data.error ?? "Error al iniciar sesión");
+          showError(data.error ?? "Error al iniciar sesión");
           return;
         }
         // Admins land on the admin panel, not the design showcase at "/".
         router.push("/admin");
       }
     } catch {
-      setError("Error de red. Inténtalo de nuevo.");
+      showError("Error de red. Inténtalo de nuevo.");
     } finally {
       setLoading(false);
     }
@@ -73,6 +86,16 @@ export function LoginForm() {
       className="min-h-screen flex flex-col items-center justify-center px-4 py-12"
       style={{ background: "var(--bg)", color: "var(--fg)" }}
     >
+      {/* Error toast — prominent feedback on failed login */}
+      {toast && (
+        <Toast
+          key={toast.id}
+          message={toast.message}
+          type="error"
+          onClose={clearError}
+        />
+      )}
+
       {/* Masthead */}
       <div className="mb-10 text-center">
         <div className="flex items-center justify-center gap-2 mb-3">
@@ -105,15 +128,21 @@ export function LoginForm() {
           aria-selected={mode === "player"}
           onClick={() => {
             setMode("player");
-            setError(null);
+            clearError();
           }}
-          className="flex items-center gap-2 px-4 py-2 text-[13px] font-semibold rounded-[2px] transition-all duration-[120ms]"
+          className="flex items-center justify-center gap-2 px-4 py-2 min-h-[44px] text-[13px] font-semibold rounded-[2px] transition-all duration-[120ms] select-none"
           style={{
             fontFamily: "var(--font-sans)",
             background: mode === "player" ? "var(--bg-raised)" : "transparent",
             color: mode === "player" ? "var(--fg)" : "var(--fg-faint)",
             border: "none",
             cursor: "pointer",
+            // manipulation removes the double-tap-zoom delay/suppression on small
+            // touch targets in iOS Safari, which can swallow the first tap.
+            touchAction: "manipulation",
+            // Prevent iOS from starting a text selection / callout on the label,
+            // which swallows the tap before it becomes a click.
+            WebkitTouchCallout: "none",
           }}
         >
           {/* pointer-events:none so taps on the icon still hit the button (iOS Safari) */}
@@ -126,15 +155,21 @@ export function LoginForm() {
           aria-selected={mode === "admin"}
           onClick={() => {
             setMode("admin");
-            setError(null);
+            clearError();
           }}
-          className="flex items-center gap-2 px-4 py-2 text-[13px] font-semibold rounded-[2px] transition-all duration-[120ms]"
+          className="flex items-center justify-center gap-2 px-4 py-2 min-h-[44px] text-[13px] font-semibold rounded-[2px] transition-all duration-[120ms] select-none"
           style={{
             fontFamily: "var(--font-sans)",
             background: mode === "admin" ? "var(--bg-raised)" : "transparent",
             color: mode === "admin" ? "var(--fg)" : "var(--fg-faint)",
             border: "none",
             cursor: "pointer",
+            // manipulation removes the double-tap-zoom delay/suppression on small
+            // touch targets in iOS Safari, which can swallow the first tap.
+            touchAction: "manipulation",
+            // Prevent iOS from starting a text selection / callout on the label,
+            // which swallows the tap before it becomes a click.
+            WebkitTouchCallout: "none",
           }}
         >
           {/* pointer-events:none so taps on the icon still hit the button (iOS Safari) */}
@@ -182,7 +217,7 @@ export function LoginForm() {
             required
             maxLength={256}
             leadingIcon={<Lock size={16} />}
-            error={error ?? undefined}
+            invalid={Boolean(toast)}
           />
 
           <Button

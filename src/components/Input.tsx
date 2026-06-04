@@ -4,6 +4,8 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   helper?: string;
   error?: string;
+  /** Mark the field as invalid (red border) without rendering a message. */
+  invalid?: boolean;
   leadingIcon?: React.ReactNode;
 }
 
@@ -11,12 +13,14 @@ export function Input({
   label,
   helper,
   error,
+  invalid,
   leadingIcon,
   className = "",
   id,
   ...props
 }: InputProps) {
   const inputId = id ?? label?.toLowerCase().replace(/\s+/g, "-");
+  const showErrorBorder = Boolean(error) || Boolean(invalid);
 
   return (
     <div className="flex flex-col gap-[6px]">
@@ -37,7 +41,7 @@ export function Input({
           "bg-[var(--bg-raised)] border border-[var(--border)] rounded-[var(--radius-sm)]",
           "transition-all duration-[120ms]",
           "focus-within:border-[var(--accent)] focus-within:shadow-[0_0_0_2px_rgba(201,166,107,0.2)]",
-          error
+          showErrorBorder
             ? "border-[var(--danger)] focus-within:border-[var(--danger)] focus-within:shadow-[0_0_0_2px_rgba(184,92,60,0.2)]"
             : "",
           className,
