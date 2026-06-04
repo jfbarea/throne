@@ -186,7 +186,7 @@
       "slug": "playoffs-bracket",
       "title": "Transicion a playoffs y bracket de eliminatoria",
       "status": "READY_FOR_REVIEW",
-      "commit_sha": null,
+      "commit_sha": "61ecb82",
       "files_changed": [
         "src/server/bracket.ts",
         "src/server/playoff-actions.ts",
