@@ -67,6 +67,62 @@ export function generatePairings(players: PairingPlayer[]): Pairing[] {
 }
 
 // ---------------------------------------------------------------------------
+// missingPairings
+// ---------------------------------------------------------------------------
+
+/**
+ * An existing pair as stored in the DB — which player is home/away does not
+ * matter for the "is already paired?" check.  Accept either field name so
+ * callers can pass raw Prisma rows directly.
+ */
+export interface ExistingPair {
+  aId: string;
+  bId: string;
+}
+
+/**
+ * Compute the pairings that are missing from the set of existing league matches.
+ *
+ * Algorithm:
+ *   1. Generate the full round-robin between `players` via `generatePairings`.
+ *   2. Build a normalised key for every existing pair: sort the two IDs
+ *      lexicographically and join with "|" so that {A,B} and {B,A} collapse
+ *      to the same key (unordered comparison, SPEC §Hito-12).
+ *   3. Return only the generated pairings whose normalised key is NOT in the
+ *      existing set.
+ *
+ * Home/away assignment for new pairings follows the same lexicographic rule
+ * as `generatePairings` (lower ID → home).
+ *
+ * No DB access — pure and fully testable.
+ *
+ * @param players       - Active players that should participate in the league.
+ * @param existingPairs - Pairs already persisted.  Each entry carries the two
+ *                        player IDs; the naming (aId/bId) is home/away-agnostic.
+ * @returns Array of Pairing objects that are not yet present.  Empty array when
+ *          all pairs already exist or when `players` has fewer than 2 entries.
+ */
+export function missingPairings(
+  players: PairingPlayer[],
+  existingPairs: ExistingPair[]
+): Pairing[] {
+  // Build a set of normalised keys for the existing pairs.
+  // Normalise: sort the two IDs so {A,B} == {B,A}.
+  const existingKeys = new Set<string>(
+    existingPairs.map((p) => [p.aId, p.bId].sort().join("|"))
+  );
+
+  // Generate the full round-robin among the given players.
+  const all = generatePairings(players);
+
+  // Keep only pairs whose normalised key is absent from the existing set.
+  return all.filter((p) => {
+    const key = [p.homeId, p.awayId].sort().join("|");
+    return !existingKeys.has(key);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Utility: expected count for validation / testing
 // ---------------------------------------------------------------------------
 

@@ -7,7 +7,8 @@ import { Eyebrow } from "@/components/Eyebrow";
 import { Card } from "@/components/Card";
 import { Badge } from "@/components/Badge";
 import { GenerateButton } from "./GenerateButton";
-import { expectedPairingCount } from "@/server/pairings";
+import { SyncButton } from "./SyncButton";
+import { expectedPairingCount, missingPairings } from "@/server/pairings";
 import Link from "next/link";
 import { Users, CalendarBlank } from "@phosphor-icons/react/dist/ssr";
 
@@ -66,6 +67,8 @@ export default async function AdminEmparejamientosPage() {
     orderBy: { displayName: "asc" },
   });
 
+  // Select playerHomeId and playerAwayId (IDs) in addition to display names so
+  // we can feed them to missingPairings without an extra DB query.
   const leagueMatches = await prisma.match.findMany({
     where: { leagueId: league.id, phase: "LEAGUE" },
     select: {
@@ -73,6 +76,8 @@ export default async function AdminEmparejamientosPage() {
       status: true,
       scheduledAt: true,
       location: true,
+      playerHomeId: true,
+      playerAwayId: true,
       playerHome: { select: { displayName: true } },
       playerAway: { select: { displayName: true } },
     },
@@ -85,6 +90,19 @@ export default async function AdminEmparejamientosPage() {
   const hasConfirmedMatches = confirmedCount > 0;
   const activePlayerCount = activePlayers.length;
   const expectedCount = expectedPairingCount(activePlayerCount);
+
+  // Compute missing pairings using the already-loaded data — no extra DB query.
+  // activePlayers already has {id, displayName}, which matches PairingPlayer.
+  // leagueMatches already carries playerHomeId / playerAwayId.
+  // playerAwayId is nullable in the schema (playoff byes have no away player).
+  // League matches always have an away player, but we guard with filter to be safe.
+  const existingPairs = leagueMatches
+    .filter((m): m is typeof m & { playerAwayId: string } => m.playerAwayId !== null)
+    .map((m) => ({
+      aId: m.playerHomeId,
+      bId: m.playerAwayId,
+    }));
+  const missingCount = missingPairings(activePlayers, existingPairs).length;
 
   const STATUS_LABEL: Record<
     string,
@@ -170,7 +188,7 @@ export default async function AdminEmparejamientosPage() {
         </Card>
       </div>
 
-      {/* Generate action */}
+      {/* Generate action (regenerate — deletes everything) */}
       <Card featured>
         <p
           className="text-[15px] font-semibold mb-3"
@@ -210,6 +228,56 @@ export default async function AdminEmparejamientosPage() {
             hasConfirmedMatches={hasConfirmedMatches}
             currentMatchCount={leagueMatches.length}
           />
+        )}
+      </Card>
+
+      {/* Sync action (incremental — safe when league is in progress) */}
+      <Card>
+        <p
+          className="text-[15px] font-semibold mb-3"
+          style={{ fontFamily: "var(--font-sans)", color: "var(--fg)" }}
+        >
+          Añadir los que faltan
+        </p>
+        <p
+          className="text-[13px] mb-1"
+          style={{ color: "var(--fg-muted)", fontFamily: "var(--font-sans)" }}
+        >
+          Opción segura cuando la liga ya está en marcha. Añade{" "}
+          <strong style={{ color: "var(--fg)" }}>
+            {missingCount === 0
+              ? "0 partidas"
+              : `${missingCount} partida${missingCount !== 1 ? "s" : ""}`}
+          </strong>{" "}
+          que faltan entre los jugadores activos actuales.{" "}
+          <strong style={{ color: "var(--fg)" }}>
+            No borra nada
+          </strong>
+          : las fechas acordadas, resultados y partidas existentes se conservan
+          intactos.
+        </p>
+        <p
+          className="text-[12px] mb-4"
+          style={{ color: "var(--fg-faint)", fontFamily: "var(--font-sans)" }}
+        >
+          Útil cuando se da de alta a un jugador nuevo a mitad de temporada.
+          Funciona aunque ya haya partidas confirmadas.
+        </p>
+
+        {activePlayerCount < 2 ? (
+          <p
+            className="text-[13px] rounded p-3"
+            style={{
+              background: "rgba(220,85,0,0.10)",
+              border: "1px solid rgba(220,85,0,0.25)",
+              color: "var(--danger)",
+              fontFamily: "var(--font-sans)",
+            }}
+          >
+            Se necesitan al menos 2 jugadores activos.
+          </p>
+        ) : (
+          <SyncButton leagueId={league.id} missingCount={missingCount} />
         )}
       </Card>
 

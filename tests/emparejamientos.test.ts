@@ -183,6 +183,138 @@ describe("generatePairings", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 1b. missingPairings — pure function tests (Hito 12)
+// ---------------------------------------------------------------------------
+
+describe("missingPairings", () => {
+  async function getMissing(
+    players: { id: string; displayName: string }[],
+    existingPairs: { aId: string; bId: string }[]
+  ) {
+    const { missingPairings } = await import("@/server/pairings");
+    return missingPairings(players, existingPairs);
+  }
+
+  // ---- All pairs already present → [] ----
+  it("returns [] when all pairs are already present", async () => {
+    const players = makePlayers(3);
+    // Build all C(3,2)=3 pairs as existing.
+    const existingPairs = [
+      { aId: players[0].id, bId: players[1].id },
+      { aId: players[0].id, bId: players[2].id },
+      { aId: players[1].id, bId: players[2].id },
+    ];
+    const missing = await getMissing(players, existingPairs);
+    expect(missing).toHaveLength(0);
+  });
+
+  // ---- n players + 1 new → exactly n new pairs ----
+  it("n existing players + 1 new player → exactly n new pairs", async () => {
+    const n = 4;
+    const existing = makePlayers(n);
+    const newPlayer = { id: "player-new-999", displayName: "New Player" };
+    const allPlayers = [...existing, newPlayer];
+
+    // Existing pairs: only the C(n,2) pairs among the original n players.
+    const existingPairs = existing.flatMap((a, i) =>
+      existing.slice(i + 1).map((b) => ({ aId: a.id, bId: b.id }))
+    );
+
+    const missing = await getMissing(allPlayers, existingPairs);
+
+    // New player must be paired against each of the n existing players.
+    expect(missing).toHaveLength(n);
+
+    // Every new pair involves the new player.
+    for (const p of missing) {
+      const involveNew =
+        p.homeId === newPlayer.id || p.awayId === newPlayer.id;
+      expect(involveNew).toBe(true);
+    }
+
+    // No duplicates.
+    const keys = missing.map((p) => [p.homeId, p.awayId].sort().join("|"));
+    expect(new Set(keys).size).toBe(missing.length);
+  });
+
+  // ---- Inverted home/away in existing pair is recognised as present ----
+  it("recognises a pair as present even when home/away is inverted in existingPairs", async () => {
+    const players = makePlayers(2);
+    const [a, b] = players;
+
+    // Store the pair with IDs flipped (b as aId, a as bId).
+    const existingPairs = [{ aId: b.id, bId: a.id }];
+
+    const missing = await getMissing(players, existingPairs);
+    // The pair {a, b} already exists (unordered match) → nothing missing.
+    expect(missing).toHaveLength(0);
+  });
+
+  // ---- No auto-pairs (player paired with themselves) ----
+  it("never generates a pair of a player with themselves", async () => {
+    const players = makePlayers(5);
+    const missing = await getMissing(players, []);
+    for (const p of missing) {
+      expect(p.homeId).not.toBe(p.awayId);
+    }
+  });
+
+  // ---- Empty or single-player list → [] ----
+  it("returns [] for empty player list", async () => {
+    const missing = await getMissing([], []);
+    expect(missing).toHaveLength(0);
+  });
+
+  it("returns [] for a single player", async () => {
+    const missing = await getMissing(makePlayers(1), []);
+    expect(missing).toHaveLength(0);
+  });
+
+  // ---- No byes: all returned pairings have both homeId and awayId ----
+  it("all returned pairings have non-empty homeId and awayId (no byes)", async () => {
+    const players = makePlayers(5);
+    const missing = await getMissing(players, []);
+    for (const p of missing) {
+      expect(p.homeId).toBeTruthy();
+      expect(p.awayId).toBeTruthy();
+    }
+  });
+
+  // ---- Deterministic: same input → same output ----
+  it("is deterministic — same input produces identical output", async () => {
+    const { missingPairings } = await import("@/server/pairings");
+    const players = makePlayers(5);
+    // Pre-fill one existing pair to make it more interesting.
+    const existingPairs = [{ aId: players[0].id, bId: players[1].id }];
+    const first = missingPairings(players, existingPairs);
+    const second = missingPairings(players, existingPairs);
+    expect(first).toEqual(second);
+  });
+
+  // ---- Partial existing set: correct delta ----
+  it("returns only the truly missing pairs when some pairs already exist", async () => {
+    const players = makePlayers(4);
+    // Provide 2 of the 6 pairs as existing.
+    const existingPairs = [
+      { aId: players[0].id, bId: players[1].id },
+      { aId: players[2].id, bId: players[3].id },
+    ];
+    const missing = await getMissing(players, existingPairs);
+    // C(4,2)=6 total, 2 already present → 4 missing.
+    expect(missing).toHaveLength(4);
+
+    // None of the returned pairs should duplicate an existing one.
+    const existingKeys = new Set(
+      existingPairs.map((p) => [p.aId, p.bId].sort().join("|"))
+    );
+    for (const p of missing) {
+      const key = [p.homeId, p.awayId].sort().join("|");
+      expect(existingKeys.has(key)).toBe(false);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 2. Authorization: setMatchSchedule — server action
 // ---------------------------------------------------------------------------
 // These tests verify authorization logic through direct mocking patterns.

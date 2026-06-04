@@ -7,7 +7,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { requireAdmin, requireAuth } from "@/lib/guards";
-import { generatePairings } from "@/server/pairings";
+import { generatePairings, missingPairings } from "@/server/pairings";
 import { z } from "zod";
 
 // Re-export the ActionResult type consistent with league-actions.
@@ -153,6 +153,110 @@ export async function generateLeagueMatches(
   revalidatePath("/admin");
 
   return { ok: true, data: { count: pairings.length } };
+}
+
+// ---------------------------------------------------------------------------
+// Admin action: addMissingLeagueMatches
+// ---------------------------------------------------------------------------
+
+/**
+ * Incrementally add only the league match pairs that are not yet present.
+ *
+ * Unlike `generateLeagueMatches`, this action:
+ *   - NEVER deletes any existing matches, dates, or results.
+ *   - Works even when confirmed matches exist (no regeneration guard).
+ *   - Only creates pairs between currently ACTIVE players.
+ *   - If the league is still in SETUP and at least one new match is created,
+ *     transitions the league status to LEAGUE (same pattern as full generation).
+ *
+ * Guard (SPEC §5): requires ADMIN session.
+ *
+ * @returns { count } — number of new matches created (0 if none were missing).
+ */
+export async function addMissingLeagueMatches(
+  leagueId: string
+): Promise<ActionResult<{ count: number }>> {
+  await requireAdmin();
+
+  // Load league.
+  const league = await prisma.league.findUnique({
+    where: { id: leagueId },
+  });
+
+  if (!league) {
+    return { ok: false, error: "Liga no encontrada" };
+  }
+
+  // Load active players.
+  const players = await prisma.player.findMany({
+    where: { leagueId, active: true },
+    select: { id: true, displayName: true },
+  });
+
+  if (players.length < 2) {
+    return {
+      ok: false,
+      error:
+        "Se necesitan al menos 2 jugadores activos para generar emparejamientos",
+    };
+  }
+
+  // Load existing LEAGUE pairs (home/away IDs only).
+  const existingMatches = await prisma.match.findMany({
+    where: { leagueId, phase: "LEAGUE" },
+    select: { playerHomeId: true, playerAwayId: true },
+  });
+
+  // Map to ExistingPair shape (aId = home, bId = away — order is irrelevant for
+  // the unordered comparison inside missingPairings).
+  // playerAwayId is nullable in the schema (playoff byes); league matches always
+  // have an away player, but we guard with a filter to keep types clean.
+  const existingPairs = existingMatches
+    .filter(
+      (m): m is typeof m & { playerAwayId: string } => m.playerAwayId !== null
+    )
+    .map((m) => ({
+      aId: m.playerHomeId,
+      bId: m.playerAwayId,
+    }));
+
+  // Compute the pairs that are not yet present.
+  const newPairings = missingPairings(players, existingPairs);
+
+  if (newPairings.length === 0) {
+    // Nothing to create — report success with count 0.
+    return { ok: true, data: { count: 0 } };
+  }
+
+  // Persist new matches (and optionally transition league status) in a transaction.
+  await prisma.$transaction(async (tx) => {
+    await tx.match.createMany({
+      data: newPairings.map((p) => ({
+        leagueId,
+        phase: "LEAGUE" as const,
+        status: "SCHEDULED" as const,
+        playerHomeId: p.homeId,
+        playerAwayId: p.awayId,
+        scheduledAt: null,
+        location: null,
+        isBye: false,
+      })),
+    });
+
+    // If the league is still in SETUP, transition it to LEAGUE.
+    if (league.status === "SETUP") {
+      await tx.league.update({
+        where: { id: leagueId },
+        data: { status: "LEAGUE" },
+      });
+    }
+  });
+
+  revalidatePath("/admin/emparejamientos");
+  revalidatePath("/calendario");
+  revalidatePath("/admin");
+
+  return { ok: true, data: { count: newPairings.length } };
 }
 
 // ---------------------------------------------------------------------------
