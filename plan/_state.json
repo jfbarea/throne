@@ -232,7 +232,7 @@
       "slug": "documentacion-y-guion-pruebas",
       "title": "Documentacion de uso y configuracion + guion de pruebas manual (espanol)",
       "status": "READY_FOR_REVIEW",
-      "commit_sha": null,
+      "commit_sha": "68ce752237520980763f4c0a05fdde0aeb8d7441",
       "files_changed": [
         "docs/guia-de-uso.md",
         "docs/configuracion.md",
