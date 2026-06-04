@@ -441,6 +441,50 @@ Rust nativo), lo que evita los problemas habituales de Prisma en serverless.
 
 ---
 
+## Hito 14 — `deploy-netlify`
+
+**Objetivo:** dejar el repo listo para desplegar en **Netlify** (build serverless de
+Next.js 16), como capa de hosting sobre la persistencia ya migrada a Turso (Hito 13).
+Solo configuración de build y documentación: ninguna lógica de dominio ni schema.
+
+**Posición y justificación:** sucede a `persistencia-turso` (Hito 13). La capa de
+datos ya es agnóstica al host; este hito añade exclusivamente la configuración del
+host elegido (Netlify) y la guía de despliegue concreta. No reordena ni toca hitos
+previos.
+
+**Decisiones (acordadas con el usuario):**
+
+- **Host: Netlify** (el usuario ya tiene cuenta). Se usa el plugin oficial
+  `@netlify/plugin-nextjs`, pinneado como dependencia para build reproducible (no se
+  confía solo en la autodetección de Netlify).
+- **Reparto de responsabilidades.** Este hito cubre solo la **parte repo**
+  (`netlify.toml`, dependencia, docs). La provisión de la DB Turso, el alta de env
+  vars en el panel de Netlify y el push a `main` los hace el usuario, guiado por la
+  doc; no forman parte de los criterios de aceptación automatizables.
+
+**Alcance:**
+
+- `netlify.toml`: `command = "npm run build"`, `NODE_VERSION` fijado (Next 16 requiere
+  Node 20+), y `[[plugins]] package = "@netlify/plugin-nextjs"`.
+- `package.json` + `package-lock.json`: añadir `@netlify/plugin-nextjs` como
+  devDependency pinneada.
+- `docs/despliegue.md`: sección **Netlify** concreta — conectar el repo de GitHub,
+  configurar las 4 env vars (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `ADMIN_PASSCODE`,
+  `SESSION_SECRET`), y el flujo de deploy. Nota: `prisma generate` ya corre en
+  `postinstall`; el generador `prisma-client` + driver adapter no requiere motor
+  nativo → build serverless limpio.
+
+**Criterios de aceptación:**
+
+- `netlify.toml` existe con el build command, `NODE_VERSION` y el plugin
+  `@netlify/plugin-nextjs`.
+- `@netlify/plugin-nextjs` está en `devDependencies` y `package-lock.json` actualizado.
+- `docs/despliegue.md` incluye los pasos concretos de Netlify (repo, env vars, deploy).
+- `npm run lint`, `npm run test` y `npm run build` siguen en verde.
+- No se toca lógica de dominio, `schema.prisma` ni otros hitos.
+
+---
+
 ## Notas de portabilidad (transversal a todos los hitos)
 
 - Toda regla de negocio (standings, pairings, bracket, bonus) vive en funciones
