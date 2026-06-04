@@ -313,3 +313,79 @@ export async function deletePlayer(playerId: string): Promise<ActionResult> {
   revalidatePath("/admin/jugadores");
   return { ok: true, data: undefined };
 }
+
+// ---------------------------------------------------------------------------
+// League: reset (wipe the competition, keep players and config)
+// ---------------------------------------------------------------------------
+
+/**
+ * Reset the competition: delete all matches, results and the playoff bracket,
+ * and return the league to SETUP. Players and league configuration (points,
+ * bonus, playoffSize, tiebreakers) are preserved so the admin can re-generate
+ * pairings and start the season over with the same roster.
+ *
+ * Destructive and irreversible. Admin only.
+ */
+export async function resetLeague(leagueId: string): Promise<ActionResult> {
+  const session = await requireAdmin();
+
+  const league = await prisma.league.findUnique({ where: { id: leagueId } });
+  if (!league) {
+    return { ok: false, error: "Liga no encontrada" };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // 1. Delete results, then matches (Result → Match FK; Match → BracketSlot FK).
+    const matches = await tx.match.findMany({
+      where: { leagueId },
+      select: { id: true },
+    });
+    const matchIds = matches.map((m) => m.id);
+    if (matchIds.length > 0) {
+      await tx.result.deleteMany({ where: { matchId: { in: matchIds } } });
+      await tx.match.deleteMany({ where: { id: { in: matchIds } } });
+    }
+
+    // 2. Break the bracket slots' self-references before deleting them, then
+    //    delete slots and brackets for this league.
+    await tx.bracketSlot.updateMany({
+      where: { bracket: { leagueId } },
+      data: { feedsIntoSlotId: null },
+    });
+    await tx.bracketSlot.deleteMany({ where: { bracket: { leagueId } } });
+    await tx.bracket.deleteMany({ where: { leagueId } });
+
+    // 3. Back to SETUP.
+    await tx.league.update({
+      where: { id: leagueId },
+      data: { status: "SETUP" },
+    });
+
+    // 4. Audit trail (best-effort: requires an admin player in the session).
+    if (session.playerId) {
+      await tx.auditLog.create({
+        data: {
+          actorId: session.playerId,
+          action: "RESET_LEAGUE",
+          entityType: "League",
+          entityId: leagueId,
+          payload: JSON.stringify({
+            deletedMatches: matchIds.length,
+            previousStatus: league.status,
+          }),
+        },
+      });
+    }
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/liga");
+  revalidatePath("/admin/emparejamientos");
+  revalidatePath("/admin/playoffs");
+  revalidatePath("/calendario");
+  revalidatePath("/clasificacion");
+  revalidatePath("/bracket");
+  revalidatePath("/mis-partidas");
+
+  return { ok: true, data: undefined };
+}

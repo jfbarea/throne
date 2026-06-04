@@ -5,6 +5,7 @@
 import { prisma } from "@/lib/db";
 import { Eyebrow } from "@/components/Eyebrow";
 import { LeagueFormWrapper } from "./LeagueFormWrapper";
+import { ResetLeagueButton } from "./ResetLeagueButton";
 
 export default async function AdminLigaPage() {
   // In MVP there is a single active league. We load the most recent one.
@@ -34,6 +35,16 @@ export default async function AdminLigaPage() {
 
       {/* Client wrapper handles post-save redirect/toast */}
       <LeagueFormWrapper league={league ?? undefined} />
+
+      {/* Danger zone — only relevant once a league exists */}
+      {league && (
+        <div className="pt-2">
+          <Eyebrow>Zona de peligro</Eyebrow>
+          <div className="mt-3">
+            <ResetLeagueButton leagueId={league.id} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
