@@ -241,20 +241,22 @@ export async function startPlayoffs(
 }
 
 // ---------------------------------------------------------------------------
-// advancePlayoffWinner — called inside confirmResult transaction for PLAYOFF matches
+// advancePlayoffWinner — called inside reportResult transaction for PLAYOFF matches
 // ---------------------------------------------------------------------------
 
 /**
- * After a playoff match is confirmed, advance the winner to the next bracket slot.
+ * After a playoff match result is reported, advance the winner to the next bracket slot.
  * If both slots feeding into the next slot are resolved, create the next match.
  * If the match is the final, mark the league as FINISHED.
  *
+ * Hito 15: called from reportResult (no longer requires a separate confirm step).
+ *
  * This function MUST be called inside a Prisma transaction (receives `tx`).
- * It is not a Server Action itself — it's called from confirmResult/adminResolveResult.
+ * It is not a Server Action itself — it's called from reportResult.
  *
  * @param tx         Prisma transaction client.
- * @param matchId    The just-confirmed playoff match id.
- * @param outcome    The confirmed outcome.
+ * @param matchId    The just-reported playoff match id.
+ * @param outcome    The reported outcome.
  * @param leagueId   The league id.
  */
 export async function advancePlayoffWinner(

@@ -39,22 +39,24 @@ function makeMatch(
     bonusAway?: number;
   } = {}
 ): StandingsMatch {
+  const status = opts.status ?? "CONFIRMED";
+  // SCHEDULED and DISPUTED have no result. REPORTED and CONFIRMED have a result.
+  const hasResult = status !== "SCHEDULED" && status !== "DISPUTED";
   return {
     id: `match-${++matchCounter}`,
-    status: opts.status ?? "CONFIRMED",
+    status,
     phase: opts.phase ?? "LEAGUE",
     playerHomeId: homeId,
     playerAwayId: awayId,
-    result:
-      opts.status === "SCHEDULED" || opts.status === "REPORTED" || opts.status === "DISPUTED"
-        ? null
-        : {
-            homeVictoryPoints: homeVP,
-            awayVictoryPoints: awayVP,
-            outcome,
-            bonusHome: opts.bonusHome ?? 0,
-            bonusAway: opts.bonusAway ?? 0,
-          },
+    result: hasResult
+      ? {
+          homeVictoryPoints: homeVP,
+          awayVictoryPoints: awayVP,
+          outcome,
+          bonusHome: opts.bonusHome ?? 0,
+          bonusAway: opts.bonusAway ?? 0,
+        }
+      : null,
   };
 }
 
@@ -87,21 +89,36 @@ function dr(
 }
 
 // ---------------------------------------------------------------------------
-// isConfirmedForStandings
+// isConfirmedForStandings (Hito 15: REPORTED also counts)
 // ---------------------------------------------------------------------------
 
 describe("isConfirmedForStandings", () => {
-  it("returns true for CONFIRMED LEAGUE match with result", () => {
+  it("returns true for CONFIRMED LEAGUE match with result (legacy compatibility)", () => {
     const m = hw("p1", "p2");
     expect(isConfirmedForStandings(m)).toBe(true);
   });
 
-  it("returns false for REPORTED match", () => {
-    const m = makeMatch("p1", "p2", "HOME_WIN", 10, 5, { status: "REPORTED" });
-    expect(isConfirmedForStandings(m)).toBe(false);
+  it("returns true for REPORTED LEAGUE match with result (new flow, Hito 15)", () => {
+    // Hito 15: REPORTED is the new active status — counts immediately.
+    // makeMatch sets result=null for REPORTED by default, so build manually.
+    const m: StandingsMatch = {
+      id: "test-reported",
+      status: "REPORTED",
+      phase: "LEAGUE",
+      playerHomeId: "p1",
+      playerAwayId: "p2",
+      result: {
+        homeVictoryPoints: 10,
+        awayVictoryPoints: 5,
+        outcome: "HOME_WIN",
+        bonusHome: 0,
+        bonusAway: 0,
+      },
+    };
+    expect(isConfirmedForStandings(m)).toBe(true);
   });
 
-  it("returns false for DISPUTED match", () => {
+  it("returns false for DISPUTED match (legacy — not counted)", () => {
     const m = makeMatch("p1", "p2", "HOME_WIN", 10, 5, { status: "DISPUTED" });
     expect(isConfirmedForStandings(m)).toBe(false);
   });
@@ -113,30 +130,59 @@ describe("isConfirmedForStandings", () => {
     expect(isConfirmedForStandings(m)).toBe(false);
   });
 
-  it("returns false for PLAYOFF phase match", () => {
+  it("returns false for PLAYOFF phase match (REPORTED)", () => {
+    const m: StandingsMatch = {
+      id: "playoff-reported",
+      status: "REPORTED",
+      phase: "PLAYOFF",
+      playerHomeId: "p1",
+      playerAwayId: "p2",
+      result: {
+        homeVictoryPoints: 10,
+        awayVictoryPoints: 5,
+        outcome: "HOME_WIN",
+        bonusHome: 0,
+        bonusAway: 0,
+      },
+    };
+    expect(isConfirmedForStandings(m)).toBe(false);
+  });
+
+  it("returns false for PLAYOFF phase match (CONFIRMED)", () => {
     const m = makeMatch("p1", "p2", "HOME_WIN", 10, 5, { phase: "PLAYOFF" });
     expect(isConfirmedForStandings(m)).toBe(false);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Basic standings: only CONFIRMED results count
+// Basic standings: REPORTED and CONFIRMED count; SCHEDULED/DISPUTED do not
+// Hito 15: REPORTED is the new active status — counts immediately.
 // ---------------------------------------------------------------------------
 
-describe("computeStandings — only CONFIRMED results count", () => {
+describe("computeStandings — REPORTED and CONFIRMED count (Hito 15)", () => {
   it("empty match list returns empty standings", () => {
     expect(computeStandings([], makeConfig())).toEqual([]);
   });
 
-  it("REPORTED matches do not affect the table", () => {
+  it("REPORTED match counts for the table (new flow, Hito 15)", () => {
     const reported = makeMatch("p1", "p2", "HOME_WIN", 10, 5, {
       status: "REPORTED",
     });
     const standings = computeStandings([reported], makeConfig());
-    expect(standings).toEqual([]);
+    // REPORTED now counts — p1 and p2 should appear.
+    expect(standings).toHaveLength(2);
+    const p1 = standings.find((r) => r.playerId === "p1")!;
+    expect(p1.wins).toBe(1);
+    expect(p1.points).toBe(3);
   });
 
-  it("DISPUTED matches do not affect the table", () => {
+  it("CONFIRMED match counts for the table (legacy compatibility)", () => {
+    const confirmed = hw("p1", "p2", 10, 5);
+    const standings = computeStandings([confirmed], makeConfig());
+    expect(standings).toHaveLength(2);
+  });
+
+  it("DISPUTED matches do not affect the table (legacy — not gated)", () => {
     const disputed = makeMatch("p1", "p2", "HOME_WIN", 10, 5, {
       status: "DISPUTED",
     });
@@ -144,7 +190,7 @@ describe("computeStandings — only CONFIRMED results count", () => {
     expect(standings).toEqual([]);
   });
 
-  it("SCHEDULED matches do not affect the table", () => {
+  it("SCHEDULED matches do not affect the table (no result)", () => {
     const scheduled = makeMatch("p1", "p2", "HOME_WIN", 10, 5, {
       status: "SCHEDULED",
     });
@@ -160,15 +206,25 @@ describe("computeStandings — only CONFIRMED results count", () => {
     expect(standings).toEqual([]);
   });
 
-  it("a mix of statuses counts only CONFIRMED LEAGUE", () => {
-    const confirmed = hw("p1", "p2", 10, 5);
+  it("a mix: REPORTED and CONFIRMED both count, SCHEDULED and DISPUTED do not", () => {
+    const confirmed = hw("p1", "p2", 10, 5); // status CONFIRMED by default
     const reported = makeMatch("p1", "p3", "HOME_WIN", 10, 5, {
       status: "REPORTED",
     });
-    const standings = computeStandings([confirmed, reported], makeConfig());
-    // Only p1 and p2 appear.
+    const scheduled = makeMatch("p2", "p3", "HOME_WIN", 10, 5, {
+      status: "SCHEDULED",
+    });
+    const standings = computeStandings(
+      [confirmed, reported, scheduled],
+      makeConfig()
+    );
+    // p1 appears in both confirmed+reported; p2 in confirmed; p3 in reported; scheduled excluded.
     const ids = standings.map((r) => r.playerId).sort();
-    expect(ids).toEqual(["p1", "p2"]);
+    expect(ids).toEqual(["p1", "p2", "p3"]);
+    // p1 wins both matches → 2 wins, 6 pts.
+    const p1 = standings.find((r) => r.playerId === "p1")!;
+    expect(p1.wins).toBe(2);
+    expect(p1.played).toBe(2);
   });
 });
 

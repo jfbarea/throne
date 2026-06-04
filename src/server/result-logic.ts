@@ -1,6 +1,8 @@
-// Pure domain logic for result reporting and confirmation.
+// Pure domain logic for result reporting.
 // No DB imports — all functions are testable in isolation.
 // SPEC §7.1 (bonus), §7.5 (result flow), §4.5 (Result).
+// Hito 15: confirmación del rival y disputas eliminadas. Un participante (o admin)
+// apunta los VP y la partida cuenta de inmediato (status REPORTED).
 
 // ---------------------------------------------------------------------------
 // Types
@@ -118,8 +120,7 @@ export function validateOutcomeVsVP(
  * outcome — it is computed here from the numbers they enter.
  *
  * The rare W40k case of a mission-rules draw despite unequal VP is handled
- * explicitly upstream (a "force draw" flag at report time, or admin override),
- * not by this function.
+ * explicitly upstream (a "force draw" flag at report time), not by this function.
  */
 export function deriveOutcome(homeVP: number, awayVP: number): Outcome {
   if (homeVP > awayVP) return "HOME_WIN";
@@ -132,8 +133,9 @@ export function deriveOutcome(homeVP: number, awayVP: number): Outcome {
 // ---------------------------------------------------------------------------
 
 /**
- * Can this player report a result for this match?
- * Only home, away, or admin may report (SPEC §5).
+ * Can this player report (or edit) a result for this match?
+ * Both home and away players, as well as admin, can report/edit (Hito 15).
+ * SPEC §5 (participant or admin).
  */
 export function canReport(
   playerId: string | null,
@@ -146,53 +148,21 @@ export function canReport(
   return playerId === homeId || playerId === awayId;
 }
 
-/**
- * Can this player confirm/dispute a result?
- * SPEC §7.5 anti-dispute: only the RIVAL (not the reporter) may confirm or dispute.
- * Admin can also confirm/resolve.
- */
-export function canConfirmOrDispute(
-  playerId: string | null,
-  role: string,
-  homeId: string,
-  awayId: string | null,
-  reportedById: string
-): boolean {
-  if (role === "ADMIN") return true;
-  if (playerId === null) return false;
-  // Must be a participant but NOT the reporter.
-  const isParticipant = playerId === homeId || playerId === awayId;
-  const isReporter = playerId === reportedById;
-  return isParticipant && !isReporter;
-}
-
 // ---------------------------------------------------------------------------
 // Status transition guards
 // ---------------------------------------------------------------------------
 
 /**
- * Valid status transitions for reporting:
- * SCHEDULED → REPORTED (fresh report)
- * REPORTED  → REPORTED (update/overwrite by same or different participant)
- * DISPUTED  → REPORTED (re-report after admin decides the flow should restart)
+ * Valid statuses for reporting/editing a result (Hito 15):
+ *   SCHEDULED → REPORTED (fresh report)
+ *   REPORTED  → REPORTED (edit/overwrite by any participant or admin)
  *
- * Note: admin can re-report any match (handled in server action).
+ * Admin override: can act on any status (including CONFIRMED/DISPUTED legacy data).
+ *
+ * Note: DISPUTED is kept for legacy data compatibility but is not produced by
+ * the new flow. Admin can always override.
  */
 export function canReportInStatus(status: string, isAdmin: boolean): boolean {
   if (isAdmin) return true; // Admin override: any status.
-  return status === "SCHEDULED" || status === "REPORTED" || status === "DISPUTED";
-}
-
-/**
- * Confirms require status === REPORTED.
- */
-export function canConfirmInStatus(status: string): boolean {
-  return status === "REPORTED";
-}
-
-/**
- * Disputes require status === REPORTED.
- */
-export function canDisputeInStatus(status: string): boolean {
-  return status === "REPORTED";
+  return status === "SCHEDULED" || status === "REPORTED";
 }

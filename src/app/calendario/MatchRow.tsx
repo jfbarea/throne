@@ -21,12 +21,16 @@ interface MatchRowProps {
   canEdit: boolean;
 }
 
+// Status labels for the calendar view.
+// Hito 15: REPORTED = "Jugada/Apuntada" (counts for standings).
+// CONFIRMED and DISPUTED are legacy statuses from the old confirmation flow —
+// kept here for backward compatibility if legacy data is displayed.
 const STATUS_LABEL: Record<
   string,
   { label: string; variant: "brass" | "moss" | "ash" | "ember" | "neutral" }
 > = {
   SCHEDULED: { label: "Pendiente", variant: "neutral" },
-  REPORTED: { label: "Reportada", variant: "brass" },
+  REPORTED: { label: "Jugada", variant: "brass" },
   CONFIRMED: { label: "Confirmada", variant: "moss" },
   DISPUTED: { label: "Disputada", variant: "ember" },
 };

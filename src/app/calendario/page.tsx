@@ -91,6 +91,7 @@ export default async function CalendarioPage() {
   }
 
   // For filter context display.
+  // Hito 15: "jugadas" = REPORTED (new flow) or CONFIRMED (legacy).
   const now = new Date();
   const upcoming = scheduled.filter(
     (m) => m.scheduledAt !== null && new Date(m.scheduledAt) >= now
@@ -99,7 +100,7 @@ export default async function CalendarioPage() {
     (m) =>
       m.scheduledAt !== null &&
       new Date(m.scheduledAt) < now &&
-      m.status === "CONFIRMED"
+      (m.status === "REPORTED" || m.status === "CONFIRMED")
   );
 
   return (

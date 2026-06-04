@@ -4,7 +4,7 @@
 import { requireAdmin } from "@/lib/guards";
 import { AppHeaderUser } from "@/components/AppHeaderUser";
 import Link from "next/link";
-import { Crown, Gear, Users, Sword, Gavel, ChartBar, Trophy } from "@phosphor-icons/react/dist/ssr";
+import { Crown, Gear, Users, Sword, ChartBar, Trophy } from "@phosphor-icons/react/dist/ssr";
 
 export default async function AdminLayout({
   children,
@@ -86,17 +86,6 @@ export default async function AdminLayout({
           >
             <Sword size={14} />
             <span className="hidden sm:inline">Partidas</span>
-          </Link>
-          <Link
-            href="/admin/disputas"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[13px] font-semibold transition-colors duration-[120ms] no-underline"
-            style={{
-              fontFamily: "var(--font-sans)",
-              color: "var(--fg-muted)",
-            }}
-          >
-            <Gavel size={14} />
-            <span className="hidden sm:inline">Disputas</span>
           </Link>
           <Link
             href="/clasificacion"

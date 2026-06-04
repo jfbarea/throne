@@ -1,20 +1,20 @@
-// Server actions for result reporting and confirmation.
-// Hito 7: reportar-confirmar-resultados.
-// SPEC §7.5 (anti-dispute flow), §4.5 (Result), §4.7 (AuditLog), §5 (permisos).
+// Server actions for result reporting.
+// Hito 15: resultados-directos.
+// Un participante (o admin) apunta los VP cuando la partida se ha jugado y puede
+// editarlos después. La partida cuenta en standings de inmediato (status REPORTED).
+// No hay confirmación del rival, disputas ni validación del admin.
+// SPEC §7.5 (simplified), §4.5 (Result), §4.7 (AuditLog), §5 (permisos).
 
 "use server";
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { requireAuth, requireAdmin } from "@/lib/guards";
+import { requireAuth } from "@/lib/guards";
 import { z } from "zod";
 import {
   calculateBonus,
   canReport,
-  canConfirmOrDispute,
   canReportInStatus,
-  canConfirmInStatus,
-  canDisputeInStatus,
   deriveOutcome,
 } from "@/server/result-logic";
 import { advancePlayoffWinner } from "@/server/playoff-actions";
@@ -28,10 +28,8 @@ export type ActionResult<T = void> =
   | { ok: false; error: string };
 
 // ---------------------------------------------------------------------------
-// Input schemas
+// Input schema
 // ---------------------------------------------------------------------------
-
-const outcomeEnum = z.enum(["HOME_WIN", "AWAY_WIN", "DRAW"]);
 
 const victoryPointsShape = {
   homeVictoryPoints: z
@@ -44,8 +42,8 @@ const victoryPointsShape = {
     .min(0, "Los VP no pueden ser negativos"),
 };
 
-// Player report: the outcome is no longer chosen — it is derived from the VP
-// (SPEC §4.5). `forceDraw` covers the rare mission-rules draw despite unequal VP.
+// Both participants and admin report: outcome derived from VP (SPEC §4.5).
+// `forceDraw` covers the rare mission-rules draw despite unequal VP.
 const playerReportSchema = z.object({
   ...victoryPointsShape,
   forceDraw: z.boolean().optional(),
@@ -53,16 +51,8 @@ const playerReportSchema = z.object({
 
 export type PlayerReportInput = z.infer<typeof playerReportSchema>;
 
-// Admin override keeps an explicit outcome (dispute resolution, mission rulings).
-const reportResultSchema = z.object({
-  ...victoryPointsShape,
-  outcome: outcomeEnum,
-});
-
-export type ReportResultInput = z.infer<typeof reportResultSchema>;
-
 // ---------------------------------------------------------------------------
-// Helper: write an AuditLog entry inside or outside a transaction
+// Helper: write an AuditLog entry inside a transaction
 // ---------------------------------------------------------------------------
 
 async function writeAuditLog(
@@ -85,18 +75,22 @@ async function writeAuditLog(
 }
 
 // ---------------------------------------------------------------------------
-// reportResult — SPEC §7.5 step 1
+// reportResult — apuntar o editar el resultado de una partida (Hito 15)
 // ---------------------------------------------------------------------------
 
 /**
- * A participant (home or away) or an admin reports the result of a match.
+ * A participant (home or away) or an admin reports or edits the result of a match.
  *
- * - Identity from signed session cookie (never from client body).
- * - Creates or replaces the Result record.
- * - Transitions Match.status to REPORTED.
- * - Calculates and stores bonus at report time (SPEC §7.1).
- * - Writes AuditLog entry.
- * - The reporter cannot auto-confirm (SPEC anti-dispute: rival or admin must confirm).
+ * New model (Hito 15):
+ *  - Any participant or admin can appoint/edit VP, as many times as needed.
+ *  - The match counts for standings as soon as it has a Result (status REPORTED).
+ *  - No rival confirmation, no disputes, no admin resolution step.
+ *  - Identity always from the signed session cookie (never from client body).
+ *  - Creates or overwrites the Result record (SCHEDULED → REPORTED or REPORTED → REPORTED).
+ *  - Recalculates and persists bonus on every edit.
+ *  - Writes AuditLog entry (REPORT_RESULT for fresh, EDIT_RESULT for overwrite).
+ *  - DRAW is invalid in playoff matches (SPEC §7.4).
+ *  - If phase=PLAYOFF and !isBye, advances the winner within the transaction.
  */
 export async function reportResult(
   matchId: string,
@@ -135,7 +129,7 @@ export async function reportResult(
   const isAdmin = session.role === "ADMIN";
   const actorId = session.playerId;
 
-  // Authorization.
+  // Authorization: home player, away player, or admin.
   if (
     !canReport(actorId, session.role, match.playerHomeId, match.playerAwayId)
   ) {
@@ -145,11 +139,11 @@ export async function reportResult(
     };
   }
 
-  // Status guard.
+  // Status guard: SCHEDULED or REPORTED allowed (admin overrides any status).
   if (!canReportInStatus(match.status, isAdmin)) {
     return {
       ok: false,
-      error: `No se puede reportar una partida en estado ${match.status}`,
+      error: `No se puede apuntar un resultado en una partida en estado ${match.status}`,
     };
   }
 
@@ -173,10 +167,7 @@ export async function reportResult(
     }
   );
 
-  // We need a resolved actorId for the Result and AuditLog.
-  // Admin sessions may have playerId = null; in that case use a sentinel string
-  // that still references a real admin player. If there is truly no playerId we
-  // reject — admin should always have a playerId in this system (admin IS a player).
+  // Admin sessions must have a playerId for DB writes.
   if (!actorId) {
     return {
       ok: false,
@@ -188,14 +179,18 @@ export async function reportResult(
   let resultId: string;
 
   await prisma.$transaction(async (tx) => {
-    // Upsert Result (create or replace).
+    // Upsert Result (create or overwrite).
     const existing = await tx.result.findUnique({
       where: { matchId },
       select: { id: true },
     });
 
+    const auditAction = existing ? "EDIT_RESULT" : "REPORT_RESULT";
+
     if (existing) {
-      // Update existing result — reset confirmation fields.
+      // Overwrite existing result (edit); confirmedById/confirmedAt reset to null
+      // since the confirmation flow no longer exists. These columns are kept in
+      // schema for future use but are not populated by the new flow.
       await tx.result.update({
         where: { matchId },
         data: {
@@ -228,14 +223,14 @@ export async function reportResult(
       resultId = created.id;
     }
 
-    // Transition Match to REPORTED.
+    // Transition Match to REPORTED (or stay REPORTED on edits).
     await tx.match.update({
       where: { id: matchId },
       data: { status: "REPORTED" },
     });
 
     // AuditLog.
-    await writeAuditLog(tx, actorId, "REPORT_RESULT", "Match", matchId, {
+    await writeAuditLog(tx, actorId, auditAction, "Match", matchId, {
       matchId,
       resultId,
       homeVictoryPoints,
@@ -245,332 +240,8 @@ export async function reportResult(
       bonusAway,
       previousStatus: match.status,
     });
-  });
 
-  revalidatePath("/mis-partidas");
-  revalidatePath("/calendario");
-  revalidatePath("/admin/disputas");
-
-  return {
-    ok: true,
-    data: { resultId: resultId! },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// confirmResult — SPEC §7.5 step 2a
-// ---------------------------------------------------------------------------
-
-/**
- * The RIVAL (not the reporter) confirms the result.
- * Admin may also confirm any match.
- *
- * - Match transitions to CONFIRMED.
- * - Writes AuditLog entry.
- * - Only confirmed matches count for standings (SPEC §7.3, §4.5 note).
- */
-export async function confirmResult(
-  matchId: string
-): Promise<ActionResult> {
-  const session = await requireAuth();
-
-  const match = await prisma.match.findUnique({
-    where: { id: matchId },
-    include: { result: true },
-  });
-
-  if (!match) {
-    return { ok: false, error: "Partida no encontrada" };
-  }
-
-  if (!match.result) {
-    return { ok: false, error: "Esta partida no tiene resultado reportado" };
-  }
-
-  const actorId = session.playerId;
-  if (!actorId) {
-    return {
-      ok: false,
-      error:
-        "La sesión de administrador no tiene un jugador asociado.",
-    };
-  }
-
-  // Authorization: rival or admin (not the reporter).
-  if (
-    !canConfirmOrDispute(
-      actorId,
-      session.role,
-      match.playerHomeId,
-      match.playerAwayId,
-      match.result.reportedById
-    )
-  ) {
-    return {
-      ok: false,
-      error:
-        "Solo el rival (no quien reportó) o el admin pueden confirmar el resultado",
-    };
-  }
-
-  // Status guard.
-  if (!canConfirmInStatus(match.status)) {
-    return {
-      ok: false,
-      error: `No se puede confirmar una partida en estado ${match.status}`,
-    };
-  }
-
-  // SPEC §7.4: DRAW is invalid in playoff matches (also validated at report time,
-  // but re-check here in case of data inconsistency).
-  if (match.phase === "PLAYOFF" && match.result.outcome === "DRAW") {
-    return {
-      ok: false,
-      error: "Los empates no están permitidos en partidas de playoffs. Se requiere un ganador.",
-    };
-  }
-
-  const now = new Date();
-
-  await prisma.$transaction(async (tx) => {
-    await tx.result.update({
-      where: { matchId },
-      data: {
-        confirmedById: actorId,
-        confirmedAt: now,
-      },
-    });
-
-    await tx.match.update({
-      where: { id: matchId },
-      data: { status: "CONFIRMED" },
-    });
-
-    await writeAuditLog(tx, actorId, "CONFIRM_RESULT", "Match", matchId, {
-      matchId,
-      resultId: match.result!.id,
-      confirmedById: actorId,
-      confirmedAt: now.toISOString(),
-    });
-
-    // SPEC §7.4: advance winner in playoff bracket after confirmation.
-    if (match.phase === "PLAYOFF" && !match.isBye) {
-      await advancePlayoffWinner(
-        tx,
-        matchId,
-        match.result!.outcome,
-        match.leagueId,
-        match.playerHomeId,
-        match.playerAwayId
-      );
-    }
-  });
-
-  revalidatePath("/mis-partidas");
-  revalidatePath("/calendario");
-  revalidatePath("/admin/disputas");
-  revalidatePath("/bracket");
-
-  return { ok: true, data: undefined };
-}
-
-// ---------------------------------------------------------------------------
-// disputeResult — SPEC §7.5 step 2b
-// ---------------------------------------------------------------------------
-
-/**
- * The RIVAL disputes the reported result.
- * Match transitions to DISPUTED; requires admin resolution.
- */
-export async function disputeResult(
-  matchId: string
-): Promise<ActionResult> {
-  const session = await requireAuth();
-
-  const match = await prisma.match.findUnique({
-    where: { id: matchId },
-    include: { result: true },
-  });
-
-  if (!match) {
-    return { ok: false, error: "Partida no encontrada" };
-  }
-
-  if (!match.result) {
-    return { ok: false, error: "Esta partida no tiene resultado reportado" };
-  }
-
-  const actorId = session.playerId;
-  if (!actorId) {
-    return { ok: false, error: "La sesión no tiene jugador asociado." };
-  }
-
-  // Authorization: rival only (not the reporter, not admin for dispute — admin resolves instead).
-  const isAdmin = session.role === "ADMIN";
-  if (isAdmin) {
-    return {
-      ok: false,
-      error:
-        "El admin usa 'Resolver disputa' en lugar de disputar. Solo el rival puede disputar.",
-    };
-  }
-
-  if (
-    !canConfirmOrDispute(
-      actorId,
-      session.role,
-      match.playerHomeId,
-      match.playerAwayId,
-      match.result.reportedById
-    )
-  ) {
-    return {
-      ok: false,
-      error: "Solo el rival (no quien reportó) puede disputar el resultado",
-    };
-  }
-
-  // Status guard.
-  if (!canDisputeInStatus(match.status)) {
-    return {
-      ok: false,
-      error: `No se puede disputar una partida en estado ${match.status}`,
-    };
-  }
-
-  await prisma.$transaction(async (tx) => {
-    await tx.match.update({
-      where: { id: matchId },
-      data: { status: "DISPUTED" },
-    });
-
-    await writeAuditLog(tx, actorId, "DISPUTE_RESULT", "Match", matchId, {
-      matchId,
-      resultId: match.result!.id,
-      disputedById: actorId,
-      previousStatus: match.status,
-    });
-  });
-
-  revalidatePath("/mis-partidas");
-  revalidatePath("/calendario");
-  revalidatePath("/admin/disputas");
-
-  return { ok: true, data: undefined };
-}
-
-// ---------------------------------------------------------------------------
-// adminResolveResult — SPEC §7.5 step 3 (admin override)
-// ---------------------------------------------------------------------------
-
-/**
- * Admin resolves a disputed (or any) match, optionally editing the result.
- * If input is provided, the result is updated before confirming.
- * Always leaves a trace in AuditLog.
- */
-export async function adminResolveResult(
-  matchId: string,
-  input: ReportResultInput
-): Promise<ActionResult<{ resultId: string }>> {
-  const session = await requireAdmin();
-
-  const actorId = session.playerId;
-  if (!actorId) {
-    return { ok: false, error: "La sesión de administrador no tiene jugador asociado." };
-  }
-
-  // Validate input.
-  const parsed = reportResultSchema.safeParse(input);
-  if (!parsed.success) {
-    const flat = parsed.error.flatten();
-    const firstErr =
-      Object.values(flat.fieldErrors).flat()[0] ?? flat.formErrors[0];
-    return { ok: false, error: firstErr ?? "Datos inválidos" };
-  }
-  const { homeVictoryPoints, awayVictoryPoints, outcome } = parsed.data;
-
-  const match = await prisma.match.findUnique({
-    where: { id: matchId },
-    include: { league: true, result: true },
-  });
-
-  if (!match) {
-    return { ok: false, error: "Partida no encontrada" };
-  }
-
-  // SPEC §7.4: DRAW is invalid in playoff matches.
-  if (match.phase === "PLAYOFF" && outcome === "DRAW") {
-    return {
-      ok: false,
-      error: "Los empates no están permitidos en partidas de playoffs. Se requiere un ganador.",
-    };
-  }
-
-  // Calculate bonus.
-  const { bonusHome, bonusAway } = calculateBonus(
-    homeVictoryPoints,
-    awayVictoryPoints,
-    outcome,
-    {
-      bonusEnabled: match.league.bonusEnabled,
-      bonusMarginThreshold: match.league.bonusMarginThreshold,
-      bonusMinVP: match.league.bonusMinVP,
-    }
-  );
-
-  const now = new Date();
-  let resultId: string;
-
-  await prisma.$transaction(async (tx) => {
-    if (match.result) {
-      await tx.result.update({
-        where: { matchId },
-        data: {
-          homeVictoryPoints,
-          awayVictoryPoints,
-          outcome,
-          confirmedById: actorId,
-          confirmedAt: now,
-          bonusHome,
-          bonusAway,
-        },
-      });
-      resultId = match.result.id;
-    } else {
-      const created = await tx.result.create({
-        data: {
-          matchId,
-          homeVictoryPoints,
-          awayVictoryPoints,
-          outcome,
-          reportedById: actorId,
-          confirmedById: actorId,
-          confirmedAt: now,
-          bonusHome,
-          bonusAway,
-        },
-      });
-      resultId = created.id;
-    }
-
-    await tx.match.update({
-      where: { id: matchId },
-      data: { status: "CONFIRMED" },
-    });
-
-    await writeAuditLog(tx, actorId, "ADMIN_RESOLVE", "Match", matchId, {
-      matchId,
-      resultId,
-      homeVictoryPoints,
-      awayVictoryPoints,
-      outcome,
-      bonusHome,
-      bonusAway,
-      previousStatus: match.status,
-      resolvedAt: now.toISOString(),
-    });
-
-    // SPEC §7.4: advance winner in playoff bracket after admin resolution.
+    // SPEC §7.4: advance winner in playoff bracket immediately on reporting.
     if (match.phase === "PLAYOFF" && !match.isBye) {
       await advancePlayoffWinner(
         tx,
@@ -585,8 +256,13 @@ export async function adminResolveResult(
 
   revalidatePath("/mis-partidas");
   revalidatePath("/calendario");
-  revalidatePath("/admin/disputas");
+  revalidatePath("/clasificacion");
   revalidatePath("/bracket");
+  revalidatePath("/admin/emparejamientos");
+  revalidatePath("/admin/playoffs");
 
-  return { ok: true, data: { resultId: resultId! } };
+  return {
+    ok: true,
+    data: { resultId: resultId! },
+  };
 }

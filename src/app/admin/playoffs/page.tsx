@@ -74,11 +74,12 @@ export default async function AdminPlayoffsPage() {
 
   const playerMap = new Map(activePlayers.map((p) => [p.id, p]));
 
+  // Hito 15: "jugadas" = REPORTED (new flow) or CONFIRMED (legacy data).
   const confirmedCount = leagueMatches.filter(
-    (m) => m.status === "CONFIRMED"
+    (m) => m.status === "REPORTED" || m.status === "CONFIRMED"
   ).length;
   const pendingCount = leagueMatches.filter(
-    (m) => m.status !== "CONFIRMED"
+    (m) => m.status !== "REPORTED" && m.status !== "CONFIRMED"
   ).length;
 
   const canStart = league.status === "LEAGUE";
@@ -127,7 +128,7 @@ export default async function AdminPlayoffsPage() {
 
       {/* Stats summary */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
-        <StatCard label="Partidas confirmadas" value={confirmedCount} />
+        <StatCard label="Partidas jugadas" value={confirmedCount} />
         <StatCard label="Partidas pendientes" value={pendingCount} color={pendingCount > 0 ? "var(--ember-400)" : undefined} />
         <StatCard label="Clasifican a playoffs" value={league.playoffSize} />
       </div>
@@ -148,7 +149,7 @@ export default async function AdminPlayoffsPage() {
             Seeds actuales (top {league.playoffSize})
           </h2>
           <p className="text-[12px] mt-0.5" style={{ color: "var(--fg-muted)" }}>
-            Solo partidas confirmadas. El orden puede cambiar si hay pendientes.
+            Solo partidas con resultado apuntado. El orden puede cambiar si hay pendientes.
           </p>
         </div>
         <div>

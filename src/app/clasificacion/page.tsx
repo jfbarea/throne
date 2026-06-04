@@ -111,7 +111,10 @@ export default async function ClasificacionPage() {
 
   const tiebreakers = parseTiebreakers(league.tiebreakers);
 
-  const confirmedCount = rawMatches.filter((m) => m.status === "CONFIRMED").length;
+  // Hito 15: count matches with result (REPORTED or CONFIRMED legacy).
+  const confirmedCount = rawMatches.filter(
+    (m) => m.status === "REPORTED" || m.status === "CONFIRMED"
+  ).length;
   const totalMatches = rawMatches.length;
 
   return (
@@ -135,7 +138,7 @@ export default async function ClasificacionPage() {
             fontFamily: "var(--font-sans)",
           }}
         >
-          {league.season} · {confirmedCount} de {totalMatches} partidas confirmadas
+          {league.season} · {confirmedCount} de {totalMatches} partidas jugadas
         </p>
       </div>
 
@@ -158,7 +161,7 @@ export default async function ClasificacionPage() {
       )}
 
       {standings.length === 0 ? (
-        <EmptyState message="No hay partidas confirmadas todavía. La clasificación aparecerá aquí en cuanto se confirme el primer resultado." />
+        <EmptyState message="No hay partidas con resultado apuntado todavía. La clasificación aparecerá aquí en cuanto se apunte el primer resultado." />
       ) : (
         <>
           {/* Desktop table (md+) */}

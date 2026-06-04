@@ -84,8 +84,9 @@ export default async function AdminEmparejamientosPage() {
     orderBy: [{ scheduledAt: "asc" }, { createdAt: "asc" }],
   });
 
+  // Hito 15: block regeneration if any match has a result (REPORTED or CONFIRMED legacy).
   const confirmedCount = leagueMatches.filter(
-    (m) => m.status === "CONFIRMED"
+    (m) => m.status === "REPORTED" || m.status === "CONFIRMED"
   ).length;
   const hasConfirmedMatches = confirmedCount > 0;
   const activePlayerCount = activePlayers.length;
@@ -104,6 +105,7 @@ export default async function AdminEmparejamientosPage() {
     }));
   const missingCount = missingPairings(activePlayers, existingPairs).length;
 
+  // Hito 15: REPORTED = "Jugada" (new flow). CONFIRMED/DISPUTED = legacy labels.
   const STATUS_LABEL: Record<
     string,
     {
@@ -112,7 +114,7 @@ export default async function AdminEmparejamientosPage() {
     }
   > = {
     SCHEDULED: { label: "Pendiente", variant: "neutral" },
-    REPORTED: { label: "Reportada", variant: "brass" },
+    REPORTED: { label: "Jugada", variant: "brass" },
     CONFIRMED: { label: "Confirmada", variant: "moss" },
     DISPUTED: { label: "Disputada", variant: "ember" },
   };

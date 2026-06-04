@@ -88,12 +88,14 @@ export async function generateLeagueMatches(
   // TOCTOU fix: the confirmed-count check now lives INSIDE the transaction so the
   // read and the delete/create are atomic (no race between two concurrent requests).
   const guardResult = await prisma.$transaction(async (tx) => {
-    // Regeneration guard: block if any league match is CONFIRMED.
+    // Regeneration guard (Hito 15): block if any league match has a result
+    // apuntado (status REPORTED or CONFIRMED). REPORTED is the new active status;
+    // CONFIRMED is kept for legacy data compatibility.
     const confirmedCount = await tx.match.count({
       where: {
         leagueId,
         phase: "LEAGUE",
-        status: "CONFIRMED",
+        status: { in: ["REPORTED", "CONFIRMED"] },
       },
     });
 
@@ -144,7 +146,7 @@ export async function generateLeagueMatches(
     const count = guardResult.confirmedCount;
     return {
       ok: false,
-      error: `No se pueden regenerar los emparejamientos: hay ${count} partida${count !== 1 ? "s" : ""} con resultado confirmado. Finalizar o editar esas partidas antes de regenerar.`,
+      error: `No se pueden regenerar los emparejamientos: hay ${count} partida${count !== 1 ? "s" : ""} con resultado apuntado. Usa "Añadir los que faltan" en su lugar para no perder resultados existentes.`,
     };
   }
 

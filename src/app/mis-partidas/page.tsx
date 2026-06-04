@@ -83,11 +83,16 @@ export default async function MisPartidasPage() {
   });
 
   // Separate into groups for better UX.
+  // Hito 15: REPORTED = apuntada (counts for standings immediately).
+  // CONFIRMED only appears in legacy data. DISPUTED is legacy-only too.
   const pending = rawMatches.filter(
-    (m) => m.status === "SCHEDULED" || m.status === "DISPUTED"
+    (m) => m.status === "SCHEDULED"
   );
   const reported = rawMatches.filter((m) => m.status === "REPORTED");
-  const confirmed = rawMatches.filter((m) => m.status === "CONFIRMED");
+  // Legacy statuses: CONFIRMED and DISPUTED are kept for backward compatibility.
+  const legacy = rawMatches.filter(
+    (m) => m.status === "CONFIRMED" || m.status === "DISPUTED"
+  );
 
   function toCardProps(m: (typeof rawMatches)[number]) {
     return {
@@ -144,8 +149,8 @@ export default async function MisPartidasPage() {
           >
             {rawMatches.length} partida{rawMatches.length !== 1 ? "s" : ""} ·{" "}
             {pending.length} pendiente{pending.length !== 1 ? "s" : ""} ·{" "}
-            {reported.length} por confirmar · {confirmed.length} confirmada
-            {confirmed.length !== 1 ? "s" : ""}
+            {reported.length} apuntada{reported.length !== 1 ? "s" : ""} ·{" "}
+            {legacy.length} legado{legacy.length !== 1 ? "s" : ""}
           </p>
         </div>
 
@@ -181,10 +186,10 @@ export default async function MisPartidasPage() {
           </Card>
         )}
 
-        {/* Reported (pending confirmation) — priority section */}
+        {/* Reported (apuntadas) — counts for standings immediately */}
         {reported.length > 0 && (
           <section>
-            <Eyebrow>Por confirmar ({reported.length})</Eyebrow>
+            <Eyebrow>Apuntadas ({reported.length})</Eyebrow>
             <div className="mt-3 space-y-3">
               {reported.map((m) => {
                 const props = toCardProps(m);
@@ -201,7 +206,7 @@ export default async function MisPartidasPage() {
           </section>
         )}
 
-        {/* Pending / Disputed */}
+        {/* Pending (no result yet) */}
         {pending.length > 0 && (
           <section>
             <Eyebrow>Pendientes ({pending.length})</Eyebrow>
@@ -221,12 +226,12 @@ export default async function MisPartidasPage() {
           </section>
         )}
 
-        {/* Confirmed */}
-        {confirmed.length > 0 && (
+        {/* Legacy (CONFIRMED / DISPUTED from old flow — backward compatibility) */}
+        {legacy.length > 0 && (
           <section>
-            <Eyebrow>Confirmadas ({confirmed.length})</Eyebrow>
+            <Eyebrow>Historial ({legacy.length})</Eyebrow>
             <div className="mt-3 space-y-3">
-              {confirmed.map((m) => {
+              {legacy.map((m) => {
                 const props = toCardProps(m);
                 return (
                   <MatchCard

@@ -90,20 +90,24 @@ export interface StandingsRow {
 }
 
 // ---------------------------------------------------------------------------
-// isConfirmedForStandings — re-exported guard (same logic as result-logic.ts)
+// isConfirmedForStandings — re-exported guard
 // ---------------------------------------------------------------------------
 
 /**
- * A match counts for standings only when:
- *  - status === 'CONFIRMED'
- *  - result is not null
- *  - phase === 'LEAGUE'   (standings are league-only in this function)
+ * A match counts for standings when:
+ *  - result is not null  (a result has been recorded)
+ *  - status is REPORTED (new flow, Hito 15) or CONFIRMED (legacy data compatibility)
+ *  - phase === 'LEAGUE'  (standings are league-only in this function)
+ *
+ * Hito 15: matches count as soon as they have a Result (status REPORTED).
+ * CONFIRMED is kept for backward compatibility with data created under the
+ * old confirmation flow. DISPUTED/SCHEDULED do not count.
  *
  * SPEC §4.5 / §7.3.
  */
 export function isConfirmedForStandings(match: StandingsMatch): boolean {
   return (
-    match.status === "CONFIRMED" &&
+    (match.status === "REPORTED" || match.status === "CONFIRMED") &&
     match.result !== null &&
     match.phase === "LEAGUE"
   );

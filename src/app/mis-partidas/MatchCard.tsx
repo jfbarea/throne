@@ -1,15 +1,17 @@
 "use client";
 
 // MatchCard — a single match card for the "Mis partidas" view.
-// Shows match details and provides contextual actions based on the current user's role.
+// Hito 15: simplified flow — any participant (or admin) can report/edit the result.
+// No confirmation by rival, no disputes, no admin resolution.
 // SPEC §8: mobile-first, optimized for thumb-on-table use.
 
 import { useState } from "react";
 import { Badge } from "@/components";
 import { ReportForm } from "./ReportForm";
-import { ConfirmActions } from "./ConfirmActions";
 import { CalendarBlank, MapPin, Pencil, Flag } from "@phosphor-icons/react";
 
+// REPORTED and CONFIRMED are both "has result" statuses.
+// CONFIRMED only appears in legacy data (old confirmation flow); new matches use REPORTED.
 type MatchStatus = "SCHEDULED" | "REPORTED" | "CONFIRMED" | "DISPUTED";
 
 interface MatchCardProps {
@@ -37,12 +39,14 @@ interface MatchCardProps {
   isAdmin: boolean;
 }
 
+// Status labels: REPORTED = "Apuntada" (new flow), CONFIRMED = "Confirmada" (legacy).
+// Tolerant with DISPUTED (legacy data may exist).
 const STATUS_LABEL: Record<
-  MatchStatus,
+  string,
   { label: string; variant: "brass" | "moss" | "ash" | "ember" | "neutral" }
 > = {
   SCHEDULED: { label: "Pendiente", variant: "neutral" },
-  REPORTED: { label: "Reportada", variant: "brass" },
+  REPORTED: { label: "Apuntada", variant: "brass" },
   CONFIRMED: { label: "Confirmada", variant: "moss" },
   DISPUTED: { label: "Disputada", variant: "ember" },
 };
@@ -55,7 +59,6 @@ const OUTCOME_LABEL: Record<string, string> = {
 
 export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
   const [showReport, setShowReport] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
 
   const st = STATUS_LABEL[match.status] ?? {
     label: match.status,
@@ -66,23 +69,16 @@ export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
   const isAway = match.playerAwayId === currentPlayerId;
   const isParticipant = isHome || isAway;
 
-  // Determines if this player can report.
-  const canReport =
+  // Hito 15: both participants AND admin can report/edit.
+  // Allowed when status is SCHEDULED (fresh) or REPORTED (edit).
+  // Admin can always act (canReportInStatus handles admin override server-side).
+  const canReportOrEdit =
     isAdmin ||
     (isParticipant &&
-      (match.status === "SCHEDULED" ||
-        match.status === "REPORTED" ||
-        match.status === "DISPUTED"));
+      (match.status === "SCHEDULED" || match.status === "REPORTED"));
 
-  // Determines if this player can confirm/dispute.
-  // Only the RIVAL (not the reporter) can confirm/dispute; admin uses the admin view.
-  const isReporter =
-    match.result !== null && match.result.reportedById === currentPlayerId;
-  const canConfirmOrDispute =
-    !isAdmin &&
-    isParticipant &&
-    !isReporter &&
-    match.status === "REPORTED";
+  // Button label depends on whether a result already exists.
+  const reportButtonLabel = match.result ? "Editar resultado" : "Apuntar resultado";
 
   const formattedDate = match.scheduledAt
     ? new Date(match.scheduledAt).toLocaleDateString("es-ES", {
@@ -105,9 +101,7 @@ export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
       className="rounded border p-4"
       style={{
         background: "var(--surface)",
-        borderColor:
-          match.status === "DISPUTED" ? "var(--danger)" : "var(--border)",
-        borderWidth: match.status === "DISPUTED" ? "1px" : "1px",
+        borderColor: "var(--border)",
       }}
     >
       {/* Header: players */}
@@ -170,7 +164,7 @@ export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
             )}
           </div>
 
-          {/* Result summary (if reported or confirmed) */}
+          {/* Result summary (if a result has been recorded) */}
           {match.result && (
             <div
               className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]"
@@ -205,63 +199,32 @@ export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
         </div>
       </div>
 
-      {/* Action buttons (collapsed by default for cleanliness) */}
-      {!showReport && !showConfirm && (
+      {/* Action button: apuntar or editar (collapsed by default for cleanliness) */}
+      {!showReport && canReportOrEdit && (
         <div className="mt-3 flex flex-wrap gap-2">
-          {canReport && (
-            <button
-              onClick={() => {
-                setShowConfirm(false);
-                setShowReport(true);
-              }}
-              className="flex items-center gap-1 px-3 py-[7px] rounded text-[13px] font-semibold border transition-colors duration-[120ms] cursor-pointer"
-              style={{
-                background: "transparent",
-                borderColor: "var(--border-strong)",
-                color: "var(--fg-muted)",
-                fontFamily: "var(--font-sans)",
-              }}
-            >
-              <Flag size={13} />
-              {match.result ? "Actualizar resultado" : "Reportar resultado"}
-            </button>
-          )}
-          {canConfirmOrDispute && (
-            <button
-              onClick={() => {
-                setShowReport(false);
-                setShowConfirm(true);
-              }}
-              className="flex items-center gap-1 px-3 py-[7px] rounded text-[13px] font-semibold border transition-colors duration-[120ms] cursor-pointer"
-              style={{
-                background: "rgba(201,166,107,0.08)",
-                borderColor: "rgba(201,166,107,0.3)",
-                color: "var(--accent)",
-                fontFamily: "var(--font-sans)",
-              }}
-            >
-              <Pencil size={13} />
-              Confirmar / Disputar
-            </button>
-          )}
+          <button
+            onClick={() => setShowReport(true)}
+            className="flex items-center gap-1 px-3 py-[7px] rounded text-[13px] font-semibold border transition-colors duration-[120ms] cursor-pointer"
+            style={{
+              background: "transparent",
+              borderColor: "var(--border-strong)",
+              color: "var(--fg-muted)",
+              fontFamily: "var(--font-sans)",
+            }}
+          >
+            {match.result ? <Pencil size={13} /> : <Flag size={13} />}
+            {reportButtonLabel}
+          </button>
         </div>
       )}
 
-      {/* Report form */}
+      {/* Report / edit form */}
       {showReport && (
         <ReportForm
           matchId={match.id}
           playerHomeName={match.playerHomeName}
           playerAwayName={match.playerAwayName ?? "Visitante"}
           onDone={() => setShowReport(false)}
-        />
-      )}
-
-      {/* Confirm / dispute actions */}
-      {showConfirm && (
-        <ConfirmActions
-          matchId={match.id}
-          onDone={() => setShowConfirm(false)}
         />
       )}
     </div>

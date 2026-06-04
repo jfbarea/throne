@@ -1,13 +1,15 @@
-// Tests for Hito 7: reportar-confirmar-resultados
+// Tests for Hito 15: resultados-directos
 // Covers:
 //   1. calculateBonus — pure function (SPEC §7.1)
 //   2. validateOutcomeVsVP — advisory check
-//   3. Authorization: canReport, canConfirmOrDispute (SPEC §5, §7.5)
-//   4. Status transition guards
+//   2b. deriveOutcome — outcome inferred from VP
+//   3. Authorization: canReport (both participants + admin; third-party rejected)
+//   4. Status transition guards: canReportInStatus (SCHEDULED and REPORTED)
 //   5. Dimension independence: scheduledAt vs status are orthogonal
-//   6. Standings gate: only CONFIRMED matches count (status-level)
-//   7. TOCTOU fix: confirmedCount guard is inside the transaction (logic test)
-//   8. Admin dispute resolution leaves AuditLog trace (state/data test)
+//   6. New standings gate: REPORTED counts, SCHEDULED does not
+//   7. Regeneration guard: blocks on REPORTED (not just CONFIRMED)
+//   8. Playoff advance: apuntar triggers advancePlayoffWinner (logic test)
+//   9. DRAW invalid in playoff (logic test)
 
 import { describe, it, expect } from "vitest";
 
@@ -240,10 +242,10 @@ describe("deriveOutcome", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. Authorization: canReport, canConfirmOrDispute
+// 3. Authorization: canReport (Hito 15 — both participants + admin)
 // ---------------------------------------------------------------------------
 
-describe("canReport", () => {
+describe("canReport — both participants and admin can report/edit", () => {
   async function getCR() {
     const { canReport } = await import("@/server/result-logic");
     return canReport;
@@ -283,108 +285,56 @@ describe("canReport", () => {
     const cr = await getCR();
     expect(cr(null, "ADMIN", homeId, awayId)).toBe(true);
   });
-});
 
-describe("canConfirmOrDispute", () => {
-  async function getCOD() {
-    const { canConfirmOrDispute } = await import("@/server/result-logic");
-    return canConfirmOrDispute;
-  }
-
-  const homeId = "player-home";
-  const awayId = "player-away";
-  const reportedById = homeId; // home reported
-
-  it("away player (the rival) can confirm", async () => {
-    const cod = await getCOD();
-    expect(cod(awayId, "PLAYER", homeId, awayId, reportedById)).toBe(true);
+  // Hito 15: both participants can edit (not just the reporter).
+  it("home player can edit a result they did NOT originally report (away reported)", async () => {
+    const cr = await getCR();
+    // Home player edits — should be allowed (both participants can edit).
+    expect(cr(homeId, "PLAYER", homeId, awayId)).toBe(true);
   });
 
-  it("home player CANNOT confirm (they reported — anti-dispute rule)", async () => {
-    const cod = await getCOD();
-    expect(cod(homeId, "PLAYER", homeId, awayId, reportedById)).toBe(false);
-  });
-
-  it("admin can confirm any match", async () => {
-    const cod = await getCOD();
-    expect(cod("admin-id", "ADMIN", homeId, awayId, reportedById)).toBe(true);
-  });
-
-  it("third-party player cannot confirm a match they are not in", async () => {
-    const cod = await getCOD();
-    expect(cod("player-c", "PLAYER", homeId, awayId, reportedById)).toBe(false);
-  });
-
-  it("null playerId cannot confirm", async () => {
-    const cod = await getCOD();
-    expect(cod(null, "PLAYER", homeId, awayId, reportedById)).toBe(false);
-  });
-
-  it("away player reporting and home player as confirmer is valid", async () => {
-    const cod = await getCOD();
-    // Away reported, home confirms.
-    expect(cod(homeId, "PLAYER", homeId, awayId, awayId)).toBe(true);
+  it("away player can edit a result they did NOT originally report (home reported)", async () => {
+    const cr = await getCR();
+    // Away player edits — should be allowed.
+    expect(cr(awayId, "PLAYER", homeId, awayId)).toBe(true);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 4. Status transition guards
+// 4. Status transition guards (Hito 15)
 // ---------------------------------------------------------------------------
 
-describe("canReportInStatus", () => {
+describe("canReportInStatus — SCHEDULED and REPORTED allowed; admin overrides any", () => {
   async function getGuard() {
     const { canReportInStatus } = await import("@/server/result-logic");
     return canReportInStatus;
   }
 
-  it("player can report in SCHEDULED", async () => {
+  it("player can report in SCHEDULED (fresh report)", async () => {
     const g = await getGuard();
     expect(g("SCHEDULED", false)).toBe(true);
   });
 
-  it("player can overwrite in REPORTED (same or different participant)", async () => {
+  it("player can edit in REPORTED (overwrite existing result)", async () => {
     const g = await getGuard();
     expect(g("REPORTED", false)).toBe(true);
   });
 
-  it("player can re-report in DISPUTED (re-start the flow)", async () => {
-    const g = await getGuard();
-    expect(g("DISPUTED", false)).toBe(true);
-  });
-
-  it("player cannot report a CONFIRMED match", async () => {
+  it("player CANNOT act on a CONFIRMED match (legacy status)", async () => {
     const g = await getGuard();
     expect(g("CONFIRMED", false)).toBe(false);
   });
 
-  it("admin can report a CONFIRMED match (override)", async () => {
+  it("admin can act on a CONFIRMED match (override)", async () => {
     const g = await getGuard();
     expect(g("CONFIRMED", true)).toBe(true);
   });
-});
 
-describe("canConfirmInStatus / canDisputeInStatus", () => {
-  async function getGuards() {
-    const { canConfirmInStatus, canDisputeInStatus } = await import(
-      "@/server/result-logic"
-    );
-    return { canConfirmInStatus, canDisputeInStatus };
-  }
-
-  it("can confirm only when REPORTED", async () => {
-    const { canConfirmInStatus } = await getGuards();
-    expect(canConfirmInStatus("REPORTED")).toBe(true);
-    expect(canConfirmInStatus("SCHEDULED")).toBe(false);
-    expect(canConfirmInStatus("CONFIRMED")).toBe(false);
-    expect(canConfirmInStatus("DISPUTED")).toBe(false);
-  });
-
-  it("can dispute only when REPORTED", async () => {
-    const { canDisputeInStatus } = await getGuards();
-    expect(canDisputeInStatus("REPORTED")).toBe(true);
-    expect(canDisputeInStatus("SCHEDULED")).toBe(false);
-    expect(canDisputeInStatus("CONFIRMED")).toBe(false);
-    expect(canDisputeInStatus("DISPUTED")).toBe(false);
+  it("admin can act on any status including DISPUTED (legacy)", async () => {
+    const g = await getGuard();
+    expect(g("DISPUTED", true)).toBe(true);
+    expect(g("SCHEDULED", true)).toBe(true);
+    expect(g("REPORTED", true)).toBe(true);
   });
 });
 
@@ -398,7 +348,7 @@ describe("scheduledAt and status are independent dimensions", () => {
 
   interface MatchState {
     scheduledAt: string | null;
-    status: "SCHEDULED" | "REPORTED" | "CONFIRMED" | "DISPUTED";
+    status: "SCHEDULED" | "REPORTED" | "CONFIRMED";
   }
 
   // Simulate the effect of setMatchSchedule (only updates scheduledAt/location).
@@ -456,240 +406,211 @@ describe("scheduledAt and status are independent dimensions", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6. Standings gate: only CONFIRMED matches count
+// 6. New standings gate: REPORTED counts, SCHEDULED does not
 // ---------------------------------------------------------------------------
 
-describe("standings gate: only CONFIRMED matches count", () => {
-  // This models the constraint from SPEC §7.3 and §4.5:
-  // "A match does not enter standings until its Result is CONFIRMED."
-  // The actual standings computation lives in Hito 8; here we verify the
-  // filtering predicate that standings will use.
+describe("standings gate (Hito 15): REPORTED counts, SCHEDULED does not", () => {
+  // Hito 15 changes the gate: REPORTED and CONFIRMED (legacy) both count.
+  // SCHEDULED never counts.
 
   type Status = "SCHEDULED" | "REPORTED" | "CONFIRMED" | "DISPUTED";
 
   interface MatchWithResult {
     id: string;
     status: Status;
+    phase: string;
     result: { outcome: string } | null;
   }
 
-  // The standings gate: only CONFIRMED matches with results count.
-  function isConfirmedForStandings(match: MatchWithResult): boolean {
-    return match.status === "CONFIRMED" && match.result !== null;
+  // The updated standings gate (mirrors isConfirmedForStandings in standings.ts).
+  function countForStandings(match: MatchWithResult): boolean {
+    return (
+      (match.status === "REPORTED" || match.status === "CONFIRMED") &&
+      match.result !== null &&
+      match.phase === "LEAGUE"
+    );
   }
 
-  it("CONFIRMED match with result counts for standings", () => {
-    const match: MatchWithResult = {
-      id: "m1",
-      status: "CONFIRMED",
-      result: { outcome: "HOME_WIN" },
-    };
-    expect(isConfirmedForStandings(match)).toBe(true);
+  it("REPORTED match with result counts for standings (new flow)", () => {
+    expect(
+      countForStandings({
+        id: "m1",
+        status: "REPORTED",
+        phase: "LEAGUE",
+        result: { outcome: "HOME_WIN" },
+      })
+    ).toBe(true);
   });
 
-  it("REPORTED match does NOT count for standings (provisional)", () => {
-    const match: MatchWithResult = {
-      id: "m2",
-      status: "REPORTED",
-      result: { outcome: "HOME_WIN" },
-    };
-    expect(isConfirmedForStandings(match)).toBe(false);
+  it("CONFIRMED match with result counts for standings (legacy compatibility)", () => {
+    expect(
+      countForStandings({
+        id: "m2",
+        status: "CONFIRMED",
+        phase: "LEAGUE",
+        result: { outcome: "HOME_WIN" },
+      })
+    ).toBe(true);
   });
 
-  it("SCHEDULED match does NOT count for standings", () => {
-    const match: MatchWithResult = {
-      id: "m3",
-      status: "SCHEDULED",
-      result: null,
-    };
-    expect(isConfirmedForStandings(match)).toBe(false);
+  it("SCHEDULED match does NOT count for standings (no result)", () => {
+    expect(
+      countForStandings({
+        id: "m3",
+        status: "SCHEDULED",
+        phase: "LEAGUE",
+        result: null,
+      })
+    ).toBe(false);
   });
 
-  it("DISPUTED match does NOT count for standings", () => {
-    const match: MatchWithResult = {
-      id: "m4",
-      status: "DISPUTED",
-      result: { outcome: "AWAY_WIN" },
-    };
-    expect(isConfirmedForStandings(match)).toBe(false);
+  it("DISPUTED match does NOT count for standings (legacy, no gate)", () => {
+    expect(
+      countForStandings({
+        id: "m4",
+        status: "DISPUTED",
+        phase: "LEAGUE",
+        result: { outcome: "AWAY_WIN" },
+      })
+    ).toBe(false);
   });
 
-  it("filtering a list: only CONFIRMED matches are kept", () => {
+  it("REPORTED PLAYOFF match does NOT count for league standings", () => {
+    expect(
+      countForStandings({
+        id: "m5",
+        status: "REPORTED",
+        phase: "PLAYOFF",
+        result: { outcome: "HOME_WIN" },
+      })
+    ).toBe(false);
+  });
+
+  it("filtering a list: REPORTED and CONFIRMED count; SCHEDULED/DISPUTED do not", () => {
     const matches: MatchWithResult[] = [
-      { id: "m1", status: "CONFIRMED", result: { outcome: "HOME_WIN" } },
-      { id: "m2", status: "REPORTED", result: { outcome: "AWAY_WIN" } },
-      { id: "m3", status: "SCHEDULED", result: null },
-      { id: "m4", status: "DISPUTED", result: { outcome: "DRAW" } },
-      { id: "m5", status: "CONFIRMED", result: { outcome: "DRAW" } },
+      { id: "m1", status: "REPORTED", phase: "LEAGUE", result: { outcome: "HOME_WIN" } },
+      { id: "m2", status: "CONFIRMED", phase: "LEAGUE", result: { outcome: "AWAY_WIN" } },
+      { id: "m3", status: "SCHEDULED", phase: "LEAGUE", result: null },
+      { id: "m4", status: "DISPUTED", phase: "LEAGUE", result: { outcome: "DRAW" } },
     ];
 
-    const forStandings = matches.filter(isConfirmedForStandings);
+    const forStandings = matches.filter(countForStandings);
     expect(forStandings).toHaveLength(2);
-    expect(forStandings.map((m) => m.id)).toEqual(["m1", "m5"]);
+    expect(forStandings.map((m) => m.id)).toEqual(["m1", "m2"]);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 7. TOCTOU fix: regeneration guard inside transaction (logic test)
+// 7. Regeneration guard: blocks on REPORTED and CONFIRMED
 // ---------------------------------------------------------------------------
 
-describe("regeneration guard (TOCTOU fix): check happens inside transaction", () => {
-  // The guard logic is the same as before; what changed is WHERE it runs.
-  // We test the logic itself (the "inside transaction" aspect is architectural,
-  // verified by code review — the guard now returns { blocked, confirmedCount }
-  // from within the $transaction callback).
+describe("regeneration guard (Hito 15): blocks when results exist (REPORTED or CONFIRMED)", () => {
+  // The guard logic mirrors generateLeagueMatches in match-actions.ts.
+  // Hito 15: blocks on REPORTED (new active status) OR CONFIRMED (legacy).
 
-  // Mirrors the guard logic now inside the transaction in generateLeagueMatches.
-  function computeGuardResult(confirmedCount: number) {
-    if (confirmedCount > 0) {
-      return { blocked: true, confirmedCount } as const;
+  function computeGuardResult(reportedOrConfirmedCount: number) {
+    if (reportedOrConfirmedCount > 0) {
+      return { blocked: true, confirmedCount: reportedOrConfirmedCount } as const;
     }
     return { blocked: false } as const;
   }
 
-  it("allows regeneration when confirmed count is 0 (inside transaction)", () => {
+  it("allows regeneration when no results exist (count is 0)", () => {
     const result = computeGuardResult(0);
     expect(result.blocked).toBe(false);
   });
 
-  it("blocks regeneration when confirmed count is > 0 (inside transaction)", () => {
-    const result = computeGuardResult(3);
+  it("blocks regeneration when REPORTED matches exist", () => {
+    // This simulates matches in REPORTED status (new flow).
+    const result = computeGuardResult(2);
     expect(result.blocked).toBe(true);
-    if (result.blocked) {
-      expect(result.confirmedCount).toBe(3);
-    }
   });
 
-  it("error message includes the confirmed count", () => {
-    const result = computeGuardResult(5);
+  it("blocks regeneration when CONFIRMED matches exist (legacy)", () => {
+    // CONFIRMED legacy data also blocks regeneration.
+    const result = computeGuardResult(1);
+    expect(result.blocked).toBe(true);
+  });
+
+  it("error message includes the count of results-with-result", () => {
+    const result = computeGuardResult(3);
     if (result.blocked) {
-      const errorMsg = `No se pueden regenerar los emparejamientos: hay ${result.confirmedCount} partidas con resultado confirmado.`;
-      expect(errorMsg).toContain("5");
+      // New error message mentions "resultado apuntado" (not "confirmado").
+      const errorMsg = `No se pueden regenerar los emparejamientos: hay ${result.confirmedCount} partidas con resultado apuntado.`;
+      expect(errorMsg).toContain("3");
+      expect(errorMsg).toContain("apuntado");
     }
   });
 });
 
 // ---------------------------------------------------------------------------
-// 8. Admin dispute resolution: AuditLog trace (data/state test)
+// 8. DRAW invalid in playoff — guard logic
 // ---------------------------------------------------------------------------
 
-describe("admin dispute resolution: AuditLog entry", () => {
-  // We test the structure of the AuditLog payload that would be written
-  // by adminResolveResult. The actual DB write is integration; here we verify
-  // the payload shape is correct for dispute audit trail (SPEC §4.7).
-
-  interface AuditPayload {
-    matchId: string;
-    resultId: string;
-    homeVictoryPoints: number;
-    awayVictoryPoints: number;
-    outcome: string;
-    bonusHome: number;
-    bonusAway: number;
-    previousStatus: string;
-    resolvedAt: string;
+describe("DRAW invalid in playoff matches", () => {
+  // Mirrors the guard in reportResult for phase=PLAYOFF.
+  function isDrawInvalid(phase: string, outcome: string): boolean {
+    return phase === "PLAYOFF" && outcome === "DRAW";
   }
 
-  function buildAdminResolvePayload(params: {
-    matchId: string;
-    resultId: string;
-    homeVP: number;
-    awayVP: number;
+  it("DRAW is invalid in PLAYOFF phase", () => {
+    expect(isDrawInvalid("PLAYOFF", "DRAW")).toBe(true);
+  });
+
+  it("HOME_WIN is valid in PLAYOFF", () => {
+    expect(isDrawInvalid("PLAYOFF", "HOME_WIN")).toBe(false);
+  });
+
+  it("AWAY_WIN is valid in PLAYOFF", () => {
+    expect(isDrawInvalid("PLAYOFF", "AWAY_WIN")).toBe(false);
+  });
+
+  it("DRAW is valid in LEAGUE phase", () => {
+    expect(isDrawInvalid("LEAGUE", "DRAW")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. Playoff advance: apuntar triggers winner advance (logic test)
+// ---------------------------------------------------------------------------
+
+describe("playoff advance triggered by reportResult (logic test)", () => {
+  // In Hito 15, advancePlayoffWinner is called from WITHIN the reportResult
+  // transaction whenever phase=PLAYOFF and !isBye. This test documents the
+  // expected branching logic (the actual DB calls are in integration tests or e2e).
+
+  interface PlayoffMatchState {
+    phase: "LEAGUE" | "PLAYOFF";
+    isBye: boolean;
     outcome: string;
-    bonusHome: number;
-    bonusAway: number;
-    previousStatus: string;
-  }): { action: string; entityType: string; payload: AuditPayload } {
-    return {
-      action: "ADMIN_RESOLVE",
-      entityType: "Match",
-      payload: {
-        matchId: params.matchId,
-        resultId: params.resultId,
-        homeVictoryPoints: params.homeVP,
-        awayVictoryPoints: params.awayVP,
-        outcome: params.outcome,
-        bonusHome: params.bonusHome,
-        bonusAway: params.bonusAway,
-        previousStatus: params.previousStatus,
-        resolvedAt: new Date().toISOString(),
-      },
-    };
   }
 
-  it("admin resolve audit entry has action=ADMIN_RESOLVE", () => {
-    const entry = buildAdminResolvePayload({
-      matchId: "match-1",
-      resultId: "result-1",
-      homeVP: 50,
-      awayVP: 30,
-      outcome: "HOME_WIN",
-      bonusHome: 1,
-      bonusAway: 0,
-      previousStatus: "DISPUTED",
-    });
-    expect(entry.action).toBe("ADMIN_RESOLVE");
+  function shouldAdvanceWinner(match: PlayoffMatchState): boolean {
+    // DRAW is pre-blocked by the playoff guard, so we only get here with a winner.
+    return match.phase === "PLAYOFF" && !match.isBye;
+  }
+
+  it("advances winner for PLAYOFF non-bye match with HOME_WIN", () => {
+    expect(
+      shouldAdvanceWinner({ phase: "PLAYOFF", isBye: false, outcome: "HOME_WIN" })
+    ).toBe(true);
   });
 
-  it("admin resolve audit entry records entityType=Match", () => {
-    const entry = buildAdminResolvePayload({
-      matchId: "match-1",
-      resultId: "result-1",
-      homeVP: 50,
-      awayVP: 30,
-      outcome: "HOME_WIN",
-      bonusHome: 1,
-      bonusAway: 0,
-      previousStatus: "DISPUTED",
-    });
-    expect(entry.entityType).toBe("Match");
+  it("advances winner for PLAYOFF non-bye match with AWAY_WIN", () => {
+    expect(
+      shouldAdvanceWinner({ phase: "PLAYOFF", isBye: false, outcome: "AWAY_WIN" })
+    ).toBe(true);
   });
 
-  it("admin resolve audit entry records the previousStatus for traceability", () => {
-    const entry = buildAdminResolvePayload({
-      matchId: "match-1",
-      resultId: "result-1",
-      homeVP: 50,
-      awayVP: 30,
-      outcome: "HOME_WIN",
-      bonusHome: 1,
-      bonusAway: 0,
-      previousStatus: "DISPUTED",
-    });
-    expect(entry.payload.previousStatus).toBe("DISPUTED");
+  it("does NOT advance winner for bye matches (isBye=true)", () => {
+    expect(
+      shouldAdvanceWinner({ phase: "PLAYOFF", isBye: true, outcome: "HOME_WIN" })
+    ).toBe(false);
   });
 
-  it("admin resolve audit entry has a resolvedAt ISO timestamp", () => {
-    const entry = buildAdminResolvePayload({
-      matchId: "match-1",
-      resultId: "result-1",
-      homeVP: 60,
-      awayVP: 40,
-      outcome: "HOME_WIN",
-      bonusHome: 0,
-      bonusAway: 0,
-      previousStatus: "DISPUTED",
-    });
-    expect(() => new Date(entry.payload.resolvedAt)).not.toThrow();
-    expect(new Date(entry.payload.resolvedAt).getFullYear()).toBeGreaterThan(
-      2020
-    );
-  });
-
-  it("full audit payload is serialisable to JSON (for AuditLog.payload column)", () => {
-    const entry = buildAdminResolvePayload({
-      matchId: "match-1",
-      resultId: "result-1",
-      homeVP: 50,
-      awayVP: 30,
-      outcome: "HOME_WIN",
-      bonusHome: 1,
-      bonusAway: 0,
-      previousStatus: "DISPUTED",
-    });
-    expect(() => JSON.stringify(entry.payload)).not.toThrow();
-    const parsed = JSON.parse(JSON.stringify(entry.payload)) as AuditPayload;
-    expect(parsed.matchId).toBe("match-1");
-    expect(parsed.outcome).toBe("HOME_WIN");
+  it("does NOT advance winner for LEAGUE phase matches", () => {
+    expect(
+      shouldAdvanceWinner({ phase: "LEAGUE", isBye: false, outcome: "HOME_WIN" })
+    ).toBe(false);
   });
 });
