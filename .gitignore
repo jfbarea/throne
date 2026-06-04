@@ -40,3 +40,8 @@ Thumbs.db
 *.swp
 *.swo
 PLAN.html
+
+# Test/build artifacts
+playwright-report/
+test-results/
+tsconfig.tsbuildinfo

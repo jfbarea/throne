@@ -1,5 +1,5 @@
 {
-  "current": "documentacion-y-guion-pruebas",
+  "current": null,
   "milestones": [
     {
       "slug": "scaffold-minimo",
@@ -231,13 +231,13 @@
     {
       "slug": "documentacion-y-guion-pruebas",
       "title": "Documentacion de uso y configuracion + guion de pruebas manual (espanol)",
-      "status": "READY_FOR_REVIEW",
+      "status": "DONE",
       "commit_sha": "23a959a",
       "files_changed": [
         "docs/guion-de-pruebas.md",
         "docs/configuracion.md"
       ],
-      "notes": "Correcciones post-review de Notum: (B1) Paso 13 del guion corregido — Marak suma 5 pts (3 victoria + 2 bonus: masacre margen>=20 + minVP 85>=40) y Torvayne 1 pt (bonus minVP 45>=40); verificado contra calculateBonus en result-logic.ts. La frase de verificacion ahora especifica que Marak obtiene ambos bonus (masacre + minVP). (B2) Descripcion de bonusMinVP en configuracion.md corregida: aplica en cualquier resultado incluyendo DRAW y derrota; la descripcion de bonusMarginThreshold deja claro que ese es el que excluye el empate. Menor: typo 'Magos Drekh' → 'Magos Drekk' en paso 3. Revision de ambos docs completos: sin otros nombres incorrectos ni calculos de bonus erroneos. guia-de-uso.md no requeria cambios (descripcion de bonus ya era correcta). lint 0 errores, 226 tests en verde, build 19 rutas sin errores TypeScript.",
+      "notes": "Correcciones post-review de Notum: (B1) Paso 13 del guion corregido — Marak suma 5 pts (3 victoria + 2 bonus: masacre margen>=20 + minVP 85>=40) y Torvayne 1 pt (bonus minVP 45>=40); verificado contra calculateBonus en result-logic.ts. La frase de verificacion ahora especifica que Marak obtiene ambos bonus (masacre + minVP). (B2) Descripcion de bonusMinVP en configuracion.md corregida: aplica en cualquier resultado incluyendo DRAW y derrota; la descripcion de bonusMarginThreshold deja claro que ese es el que excluye el empate. Menor: typo 'Magos Drekh' → 'Magos Drekk' en paso 3. Revision de ambos docs completos: sin otros nombres incorrectos ni calculos de bonus erroneos. guia-de-uso.md no requeria cambios (descripcion de bonus ya era correcta). lint 0 errores, 226 tests en verde, build 19 rutas sin errores TypeScript. APPROVED por Notum en re-review 2026-06-04.",
       "review_feedback": null
     }
   ]
