@@ -1,5 +1,5 @@
 {
-  "current": "auth-sesion",
+  "current": "admin-liga-jugadores",
   "milestones": [
     {
       "slug": "scaffold-minimo",
@@ -78,8 +78,9 @@
     {
       "slug": "auth-sesion",
       "title": "Auth de admin y jugadores con sesion firmada",
-      "status": "READY_FOR_REVIEW",
+      "status": "DONE",
       "commit_sha": "39913cc",
+      "review_feedback": null,
       "files_changed": [
         "package.json",
         "package-lock.json",
@@ -95,9 +96,32 @@
         "src/app/unauthorized/page.tsx",
         "tests/auth.test.ts"
       ],
-      "notes": "Mecanismo: JWT HS256 firmado con SESSION_SECRET (lib jose), almacenado en cookie HttpOnly SameSite=Lax Secure-en-prod. Sin tabla Session en DB. src/lib/session.ts: signSession/verifySession/getSession/setSessionCookie/clearSessionCookie. src/lib/auth.ts: verifyAdminPasscode (timingSafeEqual de node:crypto, padding a 64 chars para evitar leak de longitud), verifyPlayerPasscode (bcrypt.compare). src/lib/guards.ts: requireAuth/requireAdmin/requirePlayer (redirect) y apiRequireAuth/apiRequireAdmin (Response). Route handlers: POST /api/auth/login-admin, POST /api/auth/login-player, POST /api/auth/logout. UI: /login con LoginForm (client component, mode player/admin, primitivos Button+Input+Card+Eyebrow), /unauthorized (page estatica). Tests: 20 tests en verde — verifyAdminPasscode (4 casos), bcrypt seed hash (3), JWT round-trip y tampering (5), identity-from-cookie invariant (2), guards de rol (4). vitest.config.ts inyecta SESSION_SECRET y ADMIN_PASSCODE en test env sin depender de .env real. .env no leido ni modificado."
+      "notes": "APPROVED por Notum 2026-06-04. Verificaciones de seguridad: (1) Cookie HttpOnly+SameSite=Lax+Secure-prod verificada en setSessionCookie/clearSessionCookie. (2) JWT HS256 firmado con SESSION_SECRET>=32 chars; jwtVerify con algorithms=['HS256']; tampering devuelve null — confirmado por tests. (3) Servidor deriva identidad SIEMPRE de cookie verificada; ninguna ruta usa playerId/rol del body/query para autorizar. (4) verifyAdminPasscode usa timingSafeEqual — funcional, sin bypass, sin falsos positivos. Nota técnica menor (no bloqueante): la guarda input.length===expected.length precede al timingSafeEqual, lo que hace el padEnd(64) redundante y filtra la longitud de ADMIN_PASSCODE por timing; para el modelo de amenaza de esta app (grupo cerrado, red local) es negligible. (5) bcrypt.compare en verifyPlayerPasscode; passcodeHash nunca se devuelve al cliente. (6) Guards: requireAdmin redirige a /login (sin sesión) o /unauthorized (rol incorrecto); apiRequireAdmin devuelve 401/403. (7) Logout limpia cookie con maxAge=0. (8) .env nunca commiteado (git log limpio); SESSION_SECRET y ADMIN_PASSCODE inyectados solo en vitest.config.ts env. (9) Alcance correcto: solo login/logout/guards, sin panel admin ni vistas de negocio. (10) UI: primitivos Hito 3, copy en español, dark mode, mobile-first. 20/20 tests en verde; npm run lint/test/build en verde."
     },
-    { "slug": "admin-liga-jugadores", "title": "Panel admin: config de liga y jugadores", "status": "PENDING", "commit_sha": null },
+    {
+      "slug": "admin-liga-jugadores",
+      "title": "Panel admin: config de liga y jugadores",
+      "status": "READY_FOR_REVIEW",
+      "commit_sha": null,
+      "files_changed": [
+        "package.json",
+        "package-lock.json",
+        "src/lib/schemas.ts",
+        "src/lib/passcode.ts",
+        "src/server/league-actions.ts",
+        "src/app/admin/layout.tsx",
+        "src/app/admin/page.tsx",
+        "src/app/admin/liga/page.tsx",
+        "src/app/admin/liga/LeagueForm.tsx",
+        "src/app/admin/liga/LeagueFormWrapper.tsx",
+        "src/app/admin/jugadores/page.tsx",
+        "src/app/admin/jugadores/PlayerCreateForm.tsx",
+        "src/app/admin/jugadores/PlayerList.tsx",
+        "src/app/admin/jugadores/PlayersPageClient.tsx",
+        "tests/admin-liga-jugadores.test.ts"
+      ],
+      "notes": "Implementado: (1) src/lib/schemas.ts — Zod v4 schemas compartidos cliente/servidor: leagueConfigSchema (nombre, temporada, puntos, bonus, playoffSize, tiebreakers), createPlayerSchema, updatePlayerSchema; serialiseTiebreakers/parseTiebreakers para la columna JSON del schema Prisma. (2) src/lib/passcode.ts — módulo puro: generatePasscode() aleatorio 8 chars sin ambiguos (excluye I,O,l,0,1), hashPasscode() bcrypt coste 10, generateHashedPasscode() devuelve {plain, hash}. (3) src/server/league-actions.ts — Server Actions con 'use server': createLeague, updateLeague (cross-validates playoffSize vs jugadores activos), createPlayer (genera+devuelve passcode plain UNA VEZ), updatePlayer, setPlayerActive (soft-delete), resetPlayerPasscode. Todas llaman requireAdmin() antes de operar. (4) src/app/admin/ — layout con guard requireAdmin; página dashboard; src/app/admin/liga/ con LeagueForm (edición inline de tiebreakers con flechas arriba/abajo) y LeagueFormWrapper; src/app/admin/jugadores/ con PlayerCreateForm (muestra passcode con banner dismiss), PlayerList (edit inline, reset passcode, activar/desactivar), PlayersPageClient. (5) tests/admin-liga-jugadores.test.ts — 30 tests nuevos (total 51 pasan): schemas Zod, generación/hash de passcode, serialización tiebreakers, guard de rol, cross-validation playoffSize. (6) Zod v4 (ya instalado como dep transitivo) añadido como dep directo; API invalida_type_error→error actualizada. Passcode muestra única: al crear o resetear un jugador, la Server Action devuelve {plain, hash}; el hash se persiste en DB; el plain se devuelve UNA VEZ al cliente (en el estado React del componente) dentro de un banner con botón 'Copiar' y botón 'He anotado el código — cerrar'; tras cerrar el banner el plain desaparece del cliente; nunca se almacena ni se puede recuperar. Tiebreakers en UI: lista reordenable con flechas arriba/abajo (sin drag-and-drop para máxima compatibilidad móvil); cada criterio muestra su etiqueta en español; el array se serializa/deserializa a JSON en la columna String del schema Prisma (por compatibilidad SQLite/Postgres, ADR-002). .env no tocado."
+    },
     { "slug": "emparejamientos-y-fechas", "title": "Generacion de emparejamientos round-robin y agendado por fecha libre", "status": "PENDING", "commit_sha": null },
     { "slug": "reportar-confirmar-resultados", "title": "Flujo de reportar y confirmar resultados", "status": "PENDING", "commit_sha": null },
     { "slug": "standings", "title": "Clasificacion con desempates", "status": "PENDING", "commit_sha": null },
