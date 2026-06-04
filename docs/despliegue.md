@@ -83,7 +83,9 @@ admin cree la liga desde la interfaz.
 
 ## 5. Variables de entorno en Netlify
 
-En el panel de Netlify (**Site → Environment variables**) configura:
+En el panel de Netlify (**Site settings → Environment variables**) configura las cuatro
+variables antes del primer despliegue. Deben estar disponibles tanto en **build** como
+en **runtime** (Netlify las propaga automáticamente a ambas fases).
 
 | Variable              | Valor de producción                                          |
 |-----------------------|--------------------------------------------------------------|
@@ -98,9 +100,69 @@ Para generar un `SESSION_SECRET` seguro:
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
+> **Nota:** `DATABASE_URL` y `DATABASE_AUTH_TOKEN` se necesitan también en build
+> porque `prisma generate` corre en `postinstall`. Con el driver adapter libSQL
+> (sin motor Rust nativo) esto no levanta una conexión real, pero las variables
+> deben estar presentes para que el proceso no falle por variables faltantes.
+
 ---
 
-## 6. Build serverless — sin motor nativo de Prisma
+## 6. Despliegue en Netlify
+
+### 6.1 Conectar el repositorio
+
+1. Entra en [app.netlify.com](https://app.netlify.com) y pulsa **Add new site →
+   Import an existing project**.
+2. Selecciona **GitHub** y autoriza el acceso al repositorio `throne`.
+3. Netlify detectará que es un proyecto Next.js. **No hace falta configurar
+   el directorio de publicación a mano**: el fichero `netlify.toml` del repositorio
+   y el plugin oficial `@netlify/plugin-nextjs` se encargan del build.
+
+### 6.2 Configuración de build (netlify.toml)
+
+El repositorio ya incluye `netlify.toml` en la raíz:
+
+```toml
+[build]
+  command = "npm run build"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+```
+
+- `NODE_VERSION = "20"` — Next.js 16 requiere Node 20+.
+- `@netlify/plugin-nextjs` — pinneado en `devDependencies` (versión `5.15.11`);
+  Netlify lo carga desde `node_modules` al instalar dependencias.
+- No se configura `publish` manualmente; el plugin gestiona la salida de Next.js.
+
+### 6.3 prisma generate — sin binario nativo
+
+throne usa el generador `prisma-client` con el driver adapter `@prisma/adapter-libsql`
+(libSQL, sin motor binario Rust). El hook `postinstall` del proyecto ejecuta
+`prisma generate` automáticamente tras `npm install`, por lo que Netlify no necesita
+ningún paso extra: el cliente se genera durante la fase de instalación, antes del build.
+
+### 6.4 Orden recomendado para el primer despliegue
+
+```
+1. Provisionar Turso y obtener URL + token  (ver secciones 1-2)
+2. Aplicar migraciones al remoto Turso      (ver sección 3)
+3. Configurar las 4 variables de entorno en Netlify  (ver sección 5)
+4. Conectar el repo en Netlify              (ver sección 6.1)
+5. Netlify lanza el primer deploy:
+   └─ npm install  →  postinstall: prisma generate
+   └─ npm run build  →  Next.js build serverless (App Router)
+```
+
+Asegúrate de aplicar las migraciones a Turso **antes** del primer deploy en Netlify:
+la app arrancará con la base de datos ya inicializada.
+
+---
+
+## 7. Build serverless — sin motor nativo de Prisma
 
 throne usa el generador `prisma-client` con el driver adapter `@prisma/adapter-libsql`,
 lo que elimina la dependencia del motor binario de Prisma (el Rust query engine).
@@ -111,22 +173,9 @@ El hook `postinstall` ya se encarga de ejecutar `prisma generate` automáticamen
 después de `npm install`, por lo que Netlify no necesita ningún paso extra de build
 para generar el cliente.
 
-Configuración de build en Netlify (o `netlify.toml`):
-
-```toml
-[build]
-  command   = "npm run build"
-  publish   = ".next"
-
-[build.environment]
-  NODE_VERSION = "20"
-```
-
-Netlify detecta automáticamente Next.js y usa el plugin oficial para App Router.
-
 ---
 
-## 7. Flujo completo de despliegue
+## 8. Flujo completo de despliegue
 
 ```
 1. Desarrollar en local con SQLite (file:./dev.db)
@@ -139,7 +188,7 @@ Netlify detecta automáticamente Next.js y usa el plugin oficial para App Router
 
 4. Netlify detecta el push y despliega automáticamente
    └─ npm install  →  postinstall: prisma generate
-   └─ npm run build  →  Next.js build serverless
+   └─ npm run build  →  Next.js build serverless (App Router)
 ```
 
 ---

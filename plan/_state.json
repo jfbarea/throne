@@ -1,5 +1,5 @@
 {
-  "current": "persistencia-turso",
+  "current": "deploy-netlify",
   "milestones": [
     {
       "slug": "scaffold-minimo",
@@ -270,6 +270,20 @@
         "README.md"
       ],
       "notes": "APPROVED por Notum 2026-06-04. Verificaciones: (1) Regresión local correcta: db.ts lee DATABASE_AUTH_TOKEN como undefined cuando no está presente; PrismaLibSql({ url, authToken: undefined }) se comporta idénticamente al PrismaLibSql({ url }) anterior — sin red, sin credenciales, sin cambio de contrato. (2) Diff limpio: solo 6 ficheros (db.ts, .env.example, package.json, scripts/migrate-turso.sh, docs/despliegue.md, README.md) — ningún fichero de dominio, schema.prisma, app/, server/, components/ ni tests/ tocado. Alcance correcto. (3) scripts/migrate-turso.sh: valida DATABASE_URL (libsql://), DATABASE_AUTH_TOKEN y presencia de turso CLI antes de actuar; set -euo pipefail; aplica migration.sql en orden cronológico (find|sort sobre directorios con prefijo timestamp). No se ejecuta en build/dev/test (solo script npm explícito db:migrate:turso). (4) docs/despliegue.md: en español, 7 secciones, comandos correctos y copiables, cubre todos los criterios del PLAN. (5) .env no versionado (git log -- .env vacío). (6) npm run lint: 0 errores, 0 warnings. npm run test: 243/243 passed (idéntico al hito anterior — sin regresión). npm run build: 19 rutas generadas sin errores TypeScript. Sugerencias para futura iteración: (S1) scripts/migrate-turso.sh usa mapfile que requiere bash 4+ — falla en macOS con bash 3.2 de sistema si el usuario intenta ejecutarlo localmente sin homebrew bash; en Linux/Netlify (bash 5+) funciona correctamente. Alternativa compatible: sustituir mapfile por while read loop o usar find -exec directamente. (S2) docs/despliegue.md líneas 55-57 afirma que el SQL puede re-ejecutarse si es idempotente — las migraciones Prisma no lo son (CREATE TABLE sin IF NOT EXISTS); la afirmación puede confundir: el flujo normal aplica cada migración una sola vez al desplegar. (S3) El script indica en su cabecera que requiere turso autenticado pero en realidad --auth-token es suficiente sin turso auth login. POST-REVIEW (correcciones de sugerencias de Notum): (S1) scripts/migrate-turso.sh — reemplazado mapfile (bash 4+) por bucle while read compatible con bash 3.2.57 (bash por defecto en macOS, confirmado en el entorno del usuario); bash -n valida sintaxis OK. (S2) docs/despliegue.md — corregida la afirmacion de idempotencia: las migraciones Prisma NO son idempotentes (CREATE/DROP TABLE), el script aplica TODAS las migraciones y debe usarse sobre base Turso recien creada; documentado el comando manual para aplicar solo migraciones nuevas posteriores. (S3) cabecera del script aclara que --auth-token autentica cada comando, sin necesidad de turso auth login interactivo. Cambios solo en script y doc; no afectan lint/test/build (243 tests ya verificados en verde por el reviewer)."
+    },
+    {
+      "slug": "deploy-netlify",
+      "title": "Configuracion de despliegue en Netlify (netlify.toml + plugin Next + docs)",
+      "status": "READY_FOR_REVIEW",
+      "commit_sha": "PENDING_COMMIT",
+      "review_feedback": null,
+      "files_changed": [
+        "netlify.toml",
+        "package.json",
+        "package-lock.json",
+        "docs/despliegue.md"
+      ],
+      "notes": "Implementado: (1) netlify.toml en la raiz: command='npm run build', NODE_VERSION='20', plugin [[plugins]] package='@netlify/plugin-nextjs'. (2) @netlify/plugin-nextjs@5.15.11 añadido como devDependency pinneada (version exacta, sin ^); npm install actualiza package-lock.json. El plugin no tiene peerDependencies de Next.js; engines: node>=18.0.0 — compatible con NODE_VERSION=20. El plugin no genera efecto alguno en build local (solo actua en el entorno de build de Netlify). (3) docs/despliegue.md: sección 6 'Despliegue en Netlify' añadida (subsecciones 6.1 conectar repo, 6.2 netlify.toml, 6.3 prisma generate sin binario nativo, 6.4 orden recomendado); seccion 5 actualizada con nota sobre disponibilidad de DATABASE_URL/DATABASE_AUTH_TOKEN en build; numeracion de secciones 7 y 8 actualizada. Contenido Turso (secciones 1-4) intacto. VERIFICACIONES: npm run lint: 0 errores. npm run test: 247/247 passed (sin red ni Turso). npm run build: 19 rutas generadas, 0 errores TypeScript. @netlify/plugin-nextjs version instalada: 5.15.11."
     }
   ]
 }
