@@ -1,0 +1,18 @@
+// Prisma schema — throne
+// Full domain models are added in milestone 2 (modelo-datos-prisma).
+// This initial schema is a placeholder to validate Prisma + SQLite setup.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// Placeholder model — replaced by full domain model in milestone 2
+model Placeholder {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+}

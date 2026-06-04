@@ -1,0 +1,14 @@
+{
+  "current": "scaffold-minimo",
+  "milestones": [
+    { "slug": "scaffold-minimo", "title": "Esqueleto Next.js + TS + Tailwind + Prisma (SQLite)", "status": "PENDING", "commit_sha": null },
+    { "slug": "modelo-datos-prisma", "title": "Modelo de datos en schema.prisma + seed (sin Round; Match con scheduledAt/location)", "status": "PENDING", "commit_sha": null },
+    { "slug": "auth-sesion", "title": "Auth de admin y jugadores con sesion firmada", "status": "PENDING", "commit_sha": null },
+    { "slug": "admin-liga-jugadores", "title": "Panel admin: config de liga y jugadores", "status": "PENDING", "commit_sha": null },
+    { "slug": "emparejamientos-y-fechas", "title": "Generacion de emparejamientos round-robin y agendado por fecha libre", "status": "PENDING", "commit_sha": null },
+    { "slug": "reportar-confirmar-resultados", "title": "Flujo de reportar y confirmar resultados", "status": "PENDING", "commit_sha": null },
+    { "slug": "standings", "title": "Clasificacion con desempates", "status": "PENDING", "commit_sha": null },
+    { "slug": "playoffs-bracket", "title": "Transicion a playoffs y bracket de eliminatoria", "status": "PENDING", "commit_sha": null },
+    { "slug": "pulido-responsive-e2e", "title": "Pulido mobile-first y tests e2e", "status": "PENDING", "commit_sha": null }
+  ]
+}
