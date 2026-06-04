@@ -15,7 +15,8 @@
     "seed": "tsx prisma/seed.ts",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
-    "e2e:report": "playwright show-report"
+    "e2e:report": "playwright show-report",
+    "db:migrate:turso": "bash scripts/migrate-turso.sh"
   },
   "dependencies": {
     "@libsql/client": "^0.17.3",

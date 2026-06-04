@@ -76,11 +76,12 @@ throne/
 
 ## Variables de entorno
 
-| Variable          | Descripción                                   |
-|-------------------|-----------------------------------------------|
-| `DATABASE_URL`    | Ruta al fichero SQLite, p.ej. `file:./dev.db` |
-| `ADMIN_PASSCODE`  | Contraseña del administrador de la liga       |
-| `SESSION_SECRET`  | Secreto para firmar cookies de sesión (32+ chars) |
+| Variable              | Descripción                                                                 |
+|-----------------------|-----------------------------------------------------------------------------|
+| `DATABASE_URL`        | Local: `file:./dev.db`. Producción: `libsql://<db>-<org>.turso.io`        |
+| `DATABASE_AUTH_TOKEN` | Token de Turso (solo en producción; dejar vacío en local)                  |
+| `ADMIN_PASSCODE`      | Contraseña del administrador de la liga                                     |
+| `SESSION_SECRET`      | Secreto para firmar cookies de sesión (32+ chars)                          |
 
 ## Documentación
 
@@ -89,6 +90,7 @@ throne/
 | [docs/guia-de-uso.md](docs/guia-de-uso.md) | Manual de usuario: flujo completo para admin y jugadores, con la terminología del dominio |
 | [docs/configuracion.md](docs/configuracion.md) | Variables de entorno, comandos, configuración de la liga, base de datos y nota sobre despliegue |
 | [docs/guion-de-pruebas.md](docs/guion-de-pruebas.md) | Walkthrough paso a paso para probar la app de extremo a extremo en local |
+| [docs/despliegue.md](docs/despliegue.md) | Guía de despliegue en producción con Turso (libSQL) y Netlify |
 
 ## Stack tecnológico
 

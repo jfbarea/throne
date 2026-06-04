@@ -1,0 +1,149 @@
+# Guía de despliegue — throne en Netlify + Turso
+
+Esta guía explica cómo desplegar throne en un hosting serverless (Netlify) usando
+**Turso** como base de datos remota. En desarrollo y tests se sigue usando SQLite
+en fichero local — no se requiere Turso ni red para trabajar en local.
+
+---
+
+## 1. Instalar la CLI de Turso
+
+```bash
+curl -sSfL https://get.tur.so/install.sh | bash
+turso auth login
+```
+
+Comprueba que está disponible:
+
+```bash
+turso --version
+```
+
+---
+
+## 2. Crear la base de datos en Turso
+
+```bash
+# Crear la base de datos (elige un nombre descriptivo)
+turso db create throne-prod
+
+# Obtener la URL de conexión (DATABASE_URL de producción)
+turso db show throne-prod --url
+# Salida de ejemplo: libsql://throne-prod-mi-org.turso.io
+
+# Crear un token de autenticación (DATABASE_AUTH_TOKEN)
+turso db tokens create throne-prod
+# Guarda el token; solo se muestra una vez.
+```
+
+---
+
+## 3. Aplicar las migraciones al remoto
+
+Las migraciones están en `prisma/migrations/` en formato SQLite, que es compatible
+con libSQL (el motor de Turso). No es necesario cambiar el dialecto.
+
+Usa el script incluido en el repositorio:
+
+```bash
+DATABASE_URL="libsql://throne-prod-mi-org.turso.io" \
+DATABASE_AUTH_TOKEN="<tu-token>" \
+npm run db:migrate:turso
+```
+
+El script aplica cada `migration.sql` de `prisma/migrations/` en orden cronológico
+usando la CLI de Turso. Si una migración ya fue aplicada anteriormente y el SQL
+es idempotente (CREATE TABLE IF NOT EXISTS, etc.), puede ejecutarse de nuevo sin
+problema; en caso contrario, ejecuta solo las migraciones nuevas.
+
+> **Nota:** `db:migrate:turso` no sustituye a `prisma migrate dev`. El flujo de
+> trabajo es el mismo de siempre: creates las migraciones en local con
+> `npx prisma migrate dev`, las versionas en git y luego las aplicas al remoto
+> con este script cuando vayas a desplegar.
+
+---
+
+## 4. Sembrar datos iniciales (opcional)
+
+Si quieres partir de una liga de ejemplo, puedes ejecutar el seed apuntando a Turso:
+
+```bash
+DATABASE_URL="libsql://throne-prod-mi-org.turso.io" \
+DATABASE_AUTH_TOKEN="<tu-token>" \
+npm run seed
+```
+
+En producción real lo habitual es empezar con la base de datos vacía y que el
+admin cree la liga desde la interfaz.
+
+---
+
+## 5. Variables de entorno en Netlify
+
+En el panel de Netlify (**Site → Environment variables**) configura:
+
+| Variable              | Valor de producción                                          |
+|-----------------------|--------------------------------------------------------------|
+| `DATABASE_URL`        | `libsql://throne-prod-mi-org.turso.io`                      |
+| `DATABASE_AUTH_TOKEN` | Token obtenido con `turso db tokens create throne-prod`     |
+| `ADMIN_PASSCODE`      | Contraseña del administrador de la liga (elige una segura)  |
+| `SESSION_SECRET`      | Secreto aleatorio de al menos 32 caracteres                 |
+
+Para generar un `SESSION_SECRET` seguro:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+---
+
+## 6. Build serverless — sin motor nativo de Prisma
+
+throne usa el generador `prisma-client` con el driver adapter `@prisma/adapter-libsql`,
+lo que elimina la dependencia del motor binario de Prisma (el Rust query engine).
+Esto lo hace compatible de forma nativa con entornos serverless como Netlify
+Functions o Vercel Edge, sin configuración adicional.
+
+El hook `postinstall` ya se encarga de ejecutar `prisma generate` automáticamente
+después de `npm install`, por lo que Netlify no necesita ningún paso extra de build
+para generar el cliente.
+
+Configuración de build en Netlify (o `netlify.toml`):
+
+```toml
+[build]
+  command   = "npm run build"
+  publish   = ".next"
+
+[build.environment]
+  NODE_VERSION = "20"
+```
+
+Netlify detecta automáticamente Next.js y usa el plugin oficial para App Router.
+
+---
+
+## 7. Flujo completo de despliegue
+
+```
+1. Desarrollar en local con SQLite (file:./dev.db)
+   └─ npx prisma migrate dev  →  nueva migración versionada en prisma/migrations/
+
+2. Hacer commit y push a main
+
+3. Aplicar la nueva migración al remoto Turso
+   └─ DATABASE_URL=... DATABASE_AUTH_TOKEN=... npm run db:migrate:turso
+
+4. Netlify detecta el push y despliega automáticamente
+   └─ npm install  →  postinstall: prisma generate
+   └─ npm run build  →  Next.js build serverless
+```
+
+---
+
+## Véase también
+
+- [Documentación de Turso](https://docs.turso.tech/)
+- [CLI de Turso](https://docs.turso.tech/cli/introduction)
+- [Prisma Driver Adapters](https://www.prisma.io/docs/orm/overview/databases/driver-adapters)
+- [Netlify Next.js Plugin](https://docs.netlify.com/frameworks/next-js/overview/)
