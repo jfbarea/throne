@@ -82,6 +82,14 @@ throne/
 | `ADMIN_PASSCODE`  | Contraseña del administrador de la liga       |
 | `SESSION_SECRET`  | Secreto para firmar cookies de sesión (32+ chars) |
 
+## Documentación
+
+| Documento | Descripción |
+|-----------|-------------|
+| [docs/guia-de-uso.md](docs/guia-de-uso.md) | Manual de usuario: flujo completo para admin y jugadores, con la terminología del dominio |
+| [docs/configuracion.md](docs/configuracion.md) | Variables de entorno, comandos, configuración de la liga, base de datos y nota sobre despliegue |
+| [docs/guion-de-pruebas.md](docs/guion-de-pruebas.md) | Walkthrough paso a paso para probar la app de extremo a extremo en local |
+
 ## Stack tecnológico
 
 | Capa        | Tecnología                                |

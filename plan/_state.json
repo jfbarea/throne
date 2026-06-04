@@ -1,5 +1,5 @@
 {
-  "current": "pulido-responsive-e2e",
+  "current": "documentacion-y-guion-pruebas",
   "milestones": [
     {
       "slug": "scaffold-minimo",
@@ -204,7 +204,7 @@
     {
       "slug": "pulido-responsive-e2e",
       "title": "Pulido mobile-first y tests e2e",
-      "status": "READY_FOR_REVIEW",
+      "status": "DONE",
       "commit_sha": "27a770b",
       "files_changed": [
         "README.md",
@@ -225,13 +225,22 @@
         "src/server/bracket.ts",
         "plan/_state.json"
       ],
-      "notes": "Playwright e2e instalado (@playwright/test ^1.60.0) con playwright.config.ts (chromium + mobile-chrome Pixel 7, 1 worker, globalSetup, webServer :3001). Tests e2e en tests/e2e/: global-setup.ts borra e2e.db y aplica migraciones+seed fresco; seed-e2e.ts crea liga + admin + 6 jugadores; full-journey.spec.ts cubre recorrido completo 11 pasos (login→emparejamientos→fecha→reportar→confirmar→standings→playoffs→bracket), 5 tests overflow móvil y 2 estados vacíos — 37 passed 1 skipped. vitest.config.ts excluye tests/e2e/**. Correcciones menor: Card.tsx a11y (role/tabIndex/onKeyDown cuando onClick presente), LoginForm.tsx maxLength=256 y footer texto, DisputaCard.tsx oculta Resolver para CONFIRMED, bracket/page.tsx seeds solo ronda 1, clasificacion/page.tsx orderBy determinista, result-actions.ts DISPUTE_RESULT incluye previousStatus, bracket.ts propagateByes documentado como stub con JSDoc, standings.test.ts añade test H2H ciclo 3-way documentando comportamiento no-transitivo."
+      "notes": "Playwright e2e instalado (@playwright/test ^1.60.0) con playwright.config.ts (chromium + mobile-chrome Pixel 7, 1 worker, globalSetup, webServer :3001). Tests e2e en tests/e2e/: global-setup.ts borra e2e.db y aplica migraciones+seed fresco; seed-e2e.ts crea liga + admin + 6 jugadores; full-journey.spec.ts cubre recorrido completo 11 pasos (login→emparejamientos→fecha→reportar→confirmar→standings→playoffs→bracket), 5 tests overflow móvil y 2 estados vacíos — 37 passed 1 skipped. vitest.config.ts excluye tests/e2e/**. Correcciones menor: Card.tsx a11y (role/tabIndex/onKeyDown cuando onClick presente), LoginForm.tsx maxLength=256 y footer texto, DisputaCard.tsx oculta Resolver para CONFIRMED, bracket/page.tsx seeds solo ronda 1, clasificacion/page.tsx orderBy determinista, result-actions.ts DISPUTE_RESULT incluye previousStatus, bracket.ts propagateByes documentado como stub con JSDoc, standings.test.ts añade test H2H ciclo 3-way documentando comportamiento no-transitivo. APPROVED por Notum 2026-06-04. Verificaciones: (1) e2e Playwright ejecutado: 37 passed 1 skipped (test 10 mobile-chrome skipped por graceful-skip cuando no hay datos suficientes — comportamiento correcto y documentado). Recorrido completo 11 pasos + 5 overflow móvil + 2 estados vacíos, todo en verde. Chromium + mobile-chrome Pixel 7. (2) Aislamiento DB/credenciales: globalSetup borra e2e.db antes de cada run y aplica migraciones via npx prisma migrate deploy con DATABASE_URL=file:e2e.db; credenciales hardcoded en playwright.config.ts/seed-e2e.ts; .env no leído ni modificado; *.db y .env en .gitignore. (3) Vitest excluye tests/e2e/** — 226 unit tests en verde sin colisión. (4) Responsive: overflow checks en 4 vistas en viewport 390px, todos <= 391px; bracket usa overflow-x-auto interno correcto. (5) Card a11y: role=button + tabIndex=0 + onKeyDown (Enter/Space) cuando onClick presente — correcto. (6) LoginForm: maxLength=256 en ambos inputs de contraseña — correcto. (7) DisputaCard: condición match.status !== CONFIRMED oculta el botón Resolver para partidas ya confirmadas — correcto. (8) bracket/page.tsx: seed prop solo pasa cuando roundNum===1 — correcto. (9) clasificacion/page.tsx: orderBy createdAt asc en prisma.match.findMany — determinista. (10) DISPUTE_RESULT AuditLog: previousStatus incluido en payload (deuda de hito 7 saldada). (11) propagateByes: documentado como stub con JSDoc explicando por qué no se necesita en seeding estándar — correcto y honesto. (12) Test H2H ciclo 3-way: documenta comportamiento no-transitivo con test de consistencia (same input → same output). (13) npm run lint: 0 errores. npm run build: 19 rutas generadas sin errores TypeScript. README actualizado con comandos e2e y nota de aislamiento DB. Nota técnica: el test 10 (iniciar playoffs) se salta en mobile-chrome porque las condiciones de DB cambian entre chromium y mobile-chrome al ejecutarse secuencialmente — el skip es explícito y correcto (test.skip()). No hay riesgo de flakiness dado 1 worker secuencial.",
+      "review_feedback": null
     },
     {
       "slug": "documentacion-y-guion-pruebas",
       "title": "Documentacion de uso y configuracion + guion de pruebas manual (espanol)",
-      "status": "PENDING",
-      "commit_sha": null
+      "status": "READY_FOR_REVIEW",
+      "commit_sha": null,
+      "files_changed": [
+        "docs/guia-de-uso.md",
+        "docs/configuracion.md",
+        "docs/guion-de-pruebas.md",
+        "README.md",
+        "plan/_state.json"
+      ],
+      "notes": "Tres documentos en docs/ (español): guia-de-uso (roles admin+jugador, flujo completo dominio con terminología SPEC), configuracion (variables de entorno reales + openssl rand -hex 32 para SESSION_SECRET, comandos reales de package.json, config de liga con tiebreakers, nota despliegue futuro Postgres-ready), guion-de-pruebas (19 pasos con resultado esperado, apoyado en seed con passcode '1234'). README actualizado con sección Documentación que enlaza los tres docs. Variables y comandos verificados contra .env.example y package.json reales. .env no tocado. lint 0 errores, 226 tests en verde, build 19 rutas sin errores."
     }
   ]
 }
