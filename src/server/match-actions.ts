@@ -81,29 +81,27 @@ export async function generateLeagueMatches(
     };
   }
 
-  // Regeneration guard: block if any league match is CONFIRMED.
-  const confirmedCount = await prisma.match.count({
-    where: {
-      leagueId,
-      phase: "LEAGUE",
-      status: "CONFIRMED",
-    },
-  });
-
-  if (confirmedCount > 0) {
-    return {
-      ok: false,
-      error: `No se pueden regenerar los emparejamientos: hay ${confirmedCount} partida${confirmedCount !== 1 ? "s" : ""} con resultado confirmado. Finalizar o editar esas partidas antes de regenerar.`,
-    };
-  }
-
-  // Generate pure pairings.
+  // Generate pure pairings (before transaction — pure computation, no DB).
   const pairings = generatePairings(players);
 
-  // Transactionally: delete old league matches (and their results via cascade
-  // awareness — Result has matchId FK; delete matches deletes orphaned results
-  // since Match is the owning side). Then create new ones.
-  await prisma.$transaction(async (tx) => {
+  // Transactionally: check regeneration guard, delete old matches, create new ones.
+  // TOCTOU fix: the confirmed-count check now lives INSIDE the transaction so the
+  // read and the delete/create are atomic (no race between two concurrent requests).
+  const guardResult = await prisma.$transaction(async (tx) => {
+    // Regeneration guard: block if any league match is CONFIRMED.
+    const confirmedCount = await tx.match.count({
+      where: {
+        leagueId,
+        phase: "LEAGUE",
+        status: "CONFIRMED",
+      },
+    });
+
+    if (confirmedCount > 0) {
+      // Return the count so the caller can build the error message.
+      return { blocked: true, confirmedCount } as const;
+    }
+
     // Delete existing league matches for this league.
     // Results are tied to matches; we delete results first due to FK constraints.
     const existingMatchIds = await tx.match.findMany({
@@ -138,7 +136,17 @@ export async function generateLeagueMatches(
         data: { status: "LEAGUE" },
       });
     }
+
+    return { blocked: false } as const;
   });
+
+  if (guardResult.blocked) {
+    const count = guardResult.confirmedCount;
+    return {
+      ok: false,
+      error: `No se pueden regenerar los emparejamientos: hay ${count} partida${count !== 1 ? "s" : ""} con resultado confirmado. Finalizar o editar esas partidas antes de regenerar.`,
+    };
+  }
 
   revalidatePath("/admin/emparejamientos");
   revalidatePath("/calendario");

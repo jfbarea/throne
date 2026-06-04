@@ -1,5 +1,5 @@
 {
-  "current": "emparejamientos-y-fechas",
+  "current": "reportar-confirmar-resultados",
   "milestones": [
     {
       "slug": "scaffold-minimo",
@@ -126,8 +126,9 @@
     {
       "slug": "emparejamientos-y-fechas",
       "title": "Generacion de emparejamientos round-robin y agendado por fecha libre",
-      "status": "READY_FOR_REVIEW",
+      "status": "DONE",
       "commit_sha": "df6f1490306c232f571169e0a23f79d90b3379a6",
+      "review_feedback": null,
       "files_changed": [
         "src/server/pairings.ts",
         "src/server/match-actions.ts",
@@ -140,13 +141,29 @@
         "src/app/admin/page.tsx",
         "tests/emparejamientos.test.ts"
       ],
-      "notes": "Funcion pura generatePairings: itera pares (i,j) sobre array ordenado por id → C(n,2) pares deterministas; home = id lexicograficamente menor. Home/away estable sin equilibrado por ronda (ADR-007: no hay rondas). Guarda de regeneracion: blockeada si hay >= 1 Match CONFIRMED en fase LEAGUE; si no hay confirmados, borra resultados huerfanos antes de borrar matches (FK constraint), luego crea nuevos. Transicion automatica de liga SETUP → LEAGUE al generar. Accion setMatchSchedule: identidad derivada 100% de cookie; isAdmin OR (playerId == homeId OR awayId); campo scheduledAt y location independientes y opcionales (omitir = no tocar). ZodError manejado con flatten() para compatibilidad Zod v4. Vista /calendario: unscheduled primero, luego scheduled en orden cronologico; MatchRow con ScheduleForm inline (set/edit/clear); canEdit per-match. Admin panel /admin/emparejamientos con stats C(n,2), lista de jugadores activos y listado de partidas. Layout admin ampliado con enlace a Partidas. npm run lint/test/build en verde; 77 tests pasados (26 nuevos). .env no tocado."
+      "notes": "APPROVED por Notum 2026-06-04. Verificaciones: (1) generatePairings pura, sin DB: doble bucle i<j sobre array ordenado por id → exactamente C(n,2) pares, sin autopar, sin duplicados, sin byes. (2) Tests cubren n=2,3,4,5,6,11,12 (pares e impares), n=0/1 (vacío), deduplicación, estabilidad home/away, fórmula C(n,2) para n=2..15, test 'odd n no byes' para n=3,5,7,9,11. (3) generateLeagueMatches: requireAdmin() en primera línea; matches nacen con phase=LEAGUE, status=SCHEDULED, scheduledAt=null, isBye=false; transición automática SETUP→LEAGUE correcta. (4) Guarda de regeneración: consulta confirmedCount fuera de la transacción (TOCTOU teórico, pero imposible en este hito por ausencia de acción confirmar; se corregirá cuando exista). Dentro de la transacción: borra Result antes de Match respetando FK RESTRICT — correcto. (5) setMatchSchedule: identidad exclusivamente de requireAuth() (cookie firmada); isAdmin OR isParticipant; campo scheduledAt y location independientes (solo se actualizan los presentes); clear explícito con null. (6) Alcance correcto: sin reportar/confirmar, standings ni playoffs. (7) UI: vista /calendario separa 'sin fecha' de 'agendadas' (cronológico); canEdit per-match correcto; MatchRow + ScheduleForm con primitivos Hito 3, español, dark, mobile-first. Admin nav ampliado con enlace Partidas. (8) .env no commiteado. (9) npm run lint/test/build en verde; 77 tests pasados. Sugerencia futura: mover la consulta confirmedCount dentro de la transacción (con SELECT FOR UPDATE si Postgres) para eliminar el TOCTOU antes del hito de reportar/confirmar."
     },
     {
       "slug": "reportar-confirmar-resultados",
       "title": "Flujo de reportar y confirmar resultados",
-      "status": "PENDING",
-      "commit_sha": null
+      "status": "READY_FOR_REVIEW",
+      "commit_sha": null,
+      "files_changed": [
+        "src/server/result-logic.ts",
+        "src/server/result-actions.ts",
+        "src/server/match-actions.ts",
+        "src/app/mis-partidas/page.tsx",
+        "src/app/mis-partidas/MatchCard.tsx",
+        "src/app/mis-partidas/ReportForm.tsx",
+        "src/app/mis-partidas/ConfirmActions.tsx",
+        "src/app/admin/disputas/page.tsx",
+        "src/app/admin/disputas/DisputaCard.tsx",
+        "src/app/admin/disputas/AdminResolveForm.tsx",
+        "src/app/admin/layout.tsx",
+        "tests/reportar-confirmar.test.ts",
+        "plan/_state.json"
+      ],
+      "notes": "Auto-confirmación: NO — el reporter no puede confirmarse su propio resultado; solo el rival o el admin pueden confirmar (espíritu anti-disputa §7.5). Cálculo de bonus: función pura calculateBonus en result-logic.ts, sin DB; combina massacre bonus (margen >= umbral, excluye DRAW) + min-VP bonus (independiente del outcome); almacenado al reportar para reproducibilidad (§9). TOCTOU fix: la query confirmedCount en generateLeagueMatches se movió DENTRO de la $transaction, que ahora devuelve {blocked, confirmedCount} / {blocked: false}; el caller maneja el bloqueo tras la transacción. Admin override: adminResolveResult en result-actions.ts crea/actualiza Result + confirma Match en cualquier estado, con traza en AuditLog (action=ADMIN_RESOLVE, previousStatus incluido). Vista Mis partidas: /mis-partidas muestra partidas del jugador logueado (o todas si admin) con secciones Por confirmar / Pendientes / Confirmadas; acciones contextuales inline; admin ve todas las partidas. Vista Admin disputas: /admin/disputas accesible desde el layout admin (nuevo enlace Disputas con ícono Gavel). Dimensiones independientes verificadas en tests: applySchedule no cambia status, applyReport no cambia scheduledAt. Standings gate: isConfirmedForStandings solo devuelve true para status=CONFIRMED con result != null. 131 tests en verde; lint y build en verde."
     },
     {
       "slug": "standings",
