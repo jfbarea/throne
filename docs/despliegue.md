@@ -6,7 +6,11 @@ en fichero local — no se requiere Turso ni red para trabajar en local.
 
 ---
 
-## 1. Instalar la CLI de Turso
+## 1. Instalar la CLI de Turso (solo para crear la DB y el token)
+
+La CLI se usa **únicamente** para crear la base de datos y emitir el token; las
+migraciones se aplican con un script de Node (sección 3), no con la CLI. Si prefieres,
+puedes hacer la creación desde el panel web de Turso y saltarte este paso.
 
 ```bash
 curl -sSfL https://get.tur.so/install.sh | bash
@@ -43,7 +47,15 @@ turso db tokens create throne-prod
 Las migraciones están en `prisma/migrations/` en formato SQLite, que es compatible
 con libSQL (el motor de Turso). No es necesario cambiar el dialecto.
 
-Usa el script incluido en el repositorio:
+Usa el script incluido en el repositorio. Lee `DATABASE_URL` y `DATABASE_AUTH_TOKEN`
+del `.env` automáticamente (`node --env-file-if-exists=.env`); si esas variables ya
+están en `.env` apuntando a Turso, basta con:
+
+```bash
+npm run db:migrate:turso
+```
+
+O bien pasándolas en línea (útil si tu `.env` apunta a SQLite local):
 
 ```bash
 DATABASE_URL="libsql://throne-prod-mi-org.turso.io" \
@@ -51,13 +63,18 @@ DATABASE_AUTH_TOKEN="<tu-token>" \
 npm run db:migrate:turso
 ```
 
-El script aplica cada `migration.sql` de `prisma/migrations/` en orden cronológico
-usando la CLI de Turso. **Importante:** aplica *todas* las migraciones versionadas,
-no solo las nuevas. Las migraciones de Prisma no son idempotentes (`CREATE TABLE`,
-`DROP TABLE`, etc.), así que re-ejecutar este script sobre una base que ya las tiene
-fallará. Úsalo sobre una **base Turso recién creada** (vacía) la primera vez; para
-migraciones posteriores, aplica a mano solo el `migration.sql` nuevo con
-`turso db shell "$DATABASE_URL" --auth-token "$DATABASE_AUTH_TOKEN" < ruta/al/nuevo/migration.sql`.
+El script (`scripts/migrate-turso.mjs`) usa `@libsql/client` directamente —el mismo
+cliente que el adapter de Prisma— para autenticarse con el token, sin depender de la
+CLI de Turso ni de sus flags. Aplica cada `migration.sql` en orden cronológico.
+**Importante:** aplica *todas* las migraciones versionadas, no solo las nuevas. Las
+migraciones de Prisma no son idempotentes (`CREATE TABLE`, `DROP TABLE`, etc.), así
+que re-ejecutarlo sobre una base que ya las tiene fallará. Úsalo sobre una **base
+Turso recién creada** (vacía) la primera vez; para migraciones posteriores, aplica a
+mano solo el `migration.sql` nuevo, por ejemplo:
+
+```bash
+node --env-file-if-exists=.env -e "import('@libsql/client').then(async ({createClient})=>{const c=createClient({url:process.env.DATABASE_URL,authToken:process.env.DATABASE_AUTH_TOKEN});await c.executeMultiple(require('fs').readFileSync('prisma/migrations/<nueva>/migration.sql','utf8'));c.close();})"
+```
 
 > **Nota:** `db:migrate:turso` no sustituye a `prisma migrate dev`. El flujo de
 > trabajo es el mismo de siempre: creates las migraciones en local con
