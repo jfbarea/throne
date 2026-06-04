@@ -8,7 +8,7 @@ import { Eyebrow } from "@/components/Eyebrow";
 import { Card } from "@/components/Card";
 import { MatchCard } from "./MatchCard";
 import Link from "next/link";
-import { Crown, CalendarBlank } from "@phosphor-icons/react/dist/ssr";
+import { Crown, CalendarBlank, ChartBar } from "@phosphor-icons/react/dist/ssr";
 
 export default async function MisPartidasPage() {
   const session = await requireAuth();
@@ -268,6 +268,17 @@ function MisPartidasHeader({ isAdmin }: { isAdmin: boolean }) {
       </Link>
 
       <nav className="flex items-center gap-1">
+        <Link
+          href="/clasificacion"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[13px] font-semibold transition-colors duration-[120ms] no-underline"
+          style={{
+            fontFamily: "var(--font-sans)",
+            color: "var(--fg-muted)",
+          }}
+        >
+          <ChartBar size={14} />
+          <span className="hidden sm:inline">Clasificación</span>
+        </Link>
         <Link
           href="/mis-partidas"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[13px] font-semibold transition-colors duration-[120ms] no-underline"
