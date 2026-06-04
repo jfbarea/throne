@@ -275,7 +275,7 @@
       "slug": "deploy-netlify",
       "title": "Configuracion de despliegue en Netlify (netlify.toml + plugin Next + docs)",
       "status": "READY_FOR_REVIEW",
-      "commit_sha": "PENDING_COMMIT",
+      "commit_sha": "e5c08cf",
       "review_feedback": null,
       "files_changed": [
         "netlify.toml",
