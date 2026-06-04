@@ -82,23 +82,29 @@ export function ReportForm({
       </p>
 
       {/* VP fields */}
+      {/* min-w-0 on each cell overrides the browser default min-width:auto so the
+          grid columns can shrink below their content on narrow (390 px) viewports. */}
       <div className="grid grid-cols-2 gap-3">
-        <Input
-          label={`VP ${playerHomeName}`}
-          type="number"
-          min="0"
-          value={homeVP}
-          onChange={(e) => setHomeVP(e.target.value)}
-          placeholder="0"
-        />
-        <Input
-          label={`VP ${playerAwayName}`}
-          type="number"
-          min="0"
-          value={awayVP}
-          onChange={(e) => setAwayVP(e.target.value)}
-          placeholder="0"
-        />
+        <div className="min-w-0">
+          <Input
+            label={`VP ${playerHomeName}`}
+            type="number"
+            min="0"
+            value={homeVP}
+            onChange={(e) => setHomeVP(e.target.value)}
+            placeholder="0"
+          />
+        </div>
+        <div className="min-w-0">
+          <Input
+            label={`VP ${playerAwayName}`}
+            type="number"
+            min="0"
+            value={awayVP}
+            onChange={(e) => setAwayVP(e.target.value)}
+            placeholder="0"
+          />
+        </div>
       </div>
 
       {/* Outcome selector */}
