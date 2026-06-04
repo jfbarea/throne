@@ -147,7 +147,7 @@
       "slug": "reportar-confirmar-resultados",
       "title": "Flujo de reportar y confirmar resultados",
       "status": "READY_FOR_REVIEW",
-      "commit_sha": null,
+      "commit_sha": "0910a8541ae329fe6d56ce95b6c9956a5a10d67d",
       "files_changed": [
         "src/server/result-logic.ts",
         "src/server/result-actions.ts",
