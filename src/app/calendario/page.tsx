@@ -8,9 +8,8 @@ import { requireAuth } from "@/lib/guards";
 import { Eyebrow } from "@/components/Eyebrow";
 import { Card } from "@/components/Card";
 import { MatchRow } from "./MatchRow";
-import { AppHeaderUser } from "@/components/AppHeaderUser";
+import { AppHeader } from "@/components/AppHeader";
 import Link from "next/link";
-import { Crown } from "@phosphor-icons/react/dist/ssr";
 
 export default async function CalendarioPage() {
   const session = await requireAuth();
@@ -27,7 +26,7 @@ export default async function CalendarioPage() {
         className="min-h-screen flex flex-col"
         style={{ background: "var(--bg)", color: "var(--fg)" }}
       >
-        <CalendarioHeader isAdmin={isAdmin} />
+        <AppHeader active="calendario" />
         <main className="flex-1 px-4 py-6 max-w-2xl mx-auto w-full">
           <Card className="text-center py-10">
             <p
@@ -108,7 +107,7 @@ export default async function CalendarioPage() {
       className="min-h-screen flex flex-col"
       style={{ background: "var(--bg)", color: "var(--fg)" }}
     >
-      <CalendarioHeader isAdmin={isAdmin} />
+      <AppHeader active="calendario" />
 
       <main className="flex-1 px-4 py-6 max-w-2xl mx-auto w-full space-y-8">
         {/* League info */}
@@ -200,58 +199,5 @@ export default async function CalendarioPage() {
         )}
       </main>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Shared header sub-component
-// ---------------------------------------------------------------------------
-
-function CalendarioHeader({ isAdmin }: { isAdmin: boolean }) {
-  return (
-    <header
-      className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b"
-      style={{
-        background: "var(--bg-raised)",
-        borderColor: "var(--border)",
-      }}
-    >
-      <Link href="/" className="flex items-center gap-2 no-underline">
-        <span style={{ color: "var(--accent)" }}>✦</span>
-        <span
-          className="text-[20px] font-semibold leading-none"
-          style={{ fontFamily: "var(--font-display)", color: "var(--fg)" }}
-        >
-          throne
-        </span>
-      </Link>
-
-      <nav className="flex items-center gap-1">
-        <Link
-          href="/calendario"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[13px] font-semibold transition-colors duration-[120ms] no-underline"
-          style={{
-            fontFamily: "var(--font-sans)",
-            color: "var(--accent)",
-          }}
-        >
-          Calendario
-        </Link>
-        {isAdmin && (
-          <Link
-            href="/admin"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[13px] font-semibold transition-colors duration-[120ms] no-underline"
-            style={{
-              fontFamily: "var(--font-sans)",
-              color: "var(--fg-muted)",
-            }}
-          >
-            <Crown size={14} />
-            <span className="hidden sm:inline">Admin</span>
-          </Link>
-        )}
-        <AppHeaderUser />
-      </nav>
-    </header>
   );
 }

@@ -8,11 +8,8 @@ import { computeStandings } from "@/server/standings";
 import { parseTiebreakers } from "@/lib/schemas";
 import { Eyebrow } from "@/components/Eyebrow";
 import { Card } from "@/components/Card";
-import { AppHeaderUser } from "@/components/AppHeaderUser";
-import Link from "next/link";
+import { AppHeader } from "@/components/AppHeader";
 import {
-  Crown,
-  CalendarBlank,
   Trophy,
   Sword,
   ChartBar,
@@ -24,7 +21,6 @@ import {
 
 export default async function ClasificacionPage() {
   const session = await requireAuth();
-  const isAdmin = session.role === "ADMIN";
 
   // MVP: single active league.
   const league = await prisma.league.findFirst({
@@ -33,7 +29,7 @@ export default async function ClasificacionPage() {
 
   if (!league) {
     return (
-      <PageShell isAdmin={isAdmin}>
+      <PageShell>
         <EmptyState message="No hay ninguna liga configurada todavía." />
       </PageShell>
     );
@@ -118,7 +114,7 @@ export default async function ClasificacionPage() {
   const totalMatches = rawMatches.length;
 
   return (
-    <PageShell isAdmin={isAdmin}>
+    <PageShell>
       {/* Header section */}
       <div className="mb-6">
         <Eyebrow>
@@ -664,75 +660,13 @@ function EmptyState({ message }: { message: string }) {
 // Page shell with navigation
 // ---------------------------------------------------------------------------
 
-function PageShell({
-  isAdmin,
-  children,
-}: {
-  isAdmin: boolean;
-  children: React.ReactNode;
-}) {
+function PageShell({ children }: { children: React.ReactNode }) {
   return (
     <div
       className="min-h-screen flex flex-col"
       style={{ background: "var(--bg)", color: "var(--fg)" }}
     >
-      <header
-        className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b"
-        style={{
-          background: "var(--bg-raised)",
-          borderColor: "var(--border)",
-        }}
-      >
-        <Link href="/" className="flex items-center gap-2 no-underline">
-          <span style={{ color: "var(--accent)" }}>✦</span>
-          <span
-            className="text-[20px] font-semibold leading-none"
-            style={{ fontFamily: "var(--font-display)", color: "var(--fg)" }}
-          >
-            throne
-          </span>
-        </Link>
-
-        <nav className="flex items-center gap-1">
-          <Link
-            href="/clasificacion"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[13px] font-semibold no-underline"
-            style={{ fontFamily: "var(--font-sans)", color: "var(--accent)" }}
-          >
-            <ChartBar size={14} />
-            <span className="hidden sm:inline">Clasificación</span>
-          </Link>
-          <Link
-            href="/mis-partidas"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[13px] font-semibold no-underline"
-            style={{ fontFamily: "var(--font-sans)", color: "var(--fg-muted)" }}
-          >
-            <CalendarBlank size={14} />
-            <span className="hidden sm:inline">Mis partidas</span>
-          </Link>
-          <Link
-            href="/calendario"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[13px] font-semibold no-underline"
-            style={{ fontFamily: "var(--font-sans)", color: "var(--fg-muted)" }}
-          >
-            <span className="hidden sm:inline">Calendario</span>
-          </Link>
-          {isAdmin && (
-            <Link
-              href="/admin"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[13px] font-semibold no-underline"
-              style={{
-                fontFamily: "var(--font-sans)",
-                color: "var(--fg-muted)",
-              }}
-            >
-              <Crown size={14} />
-              <span className="hidden sm:inline">Admin</span>
-            </Link>
-          )}
-          <AppHeaderUser />
-        </nav>
-      </header>
+      <AppHeader active="clasificacion" />
 
       <main className="flex-1 px-4 py-6 max-w-4xl mx-auto w-full">
         {children}

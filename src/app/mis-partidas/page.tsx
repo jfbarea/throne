@@ -7,9 +7,8 @@ import { requireAuth } from "@/lib/guards";
 import { Eyebrow } from "@/components/Eyebrow";
 import { Card } from "@/components/Card";
 import { MatchCard } from "./MatchCard";
-import { AppHeaderUser } from "@/components/AppHeaderUser";
+import { AppHeader } from "@/components/AppHeader";
 import Link from "next/link";
-import { Crown, CalendarBlank, ChartBar } from "@phosphor-icons/react/dist/ssr";
 
 export default async function MisPartidasPage() {
   const session = await requireAuth();
@@ -27,7 +26,7 @@ export default async function MisPartidasPage() {
         className="min-h-screen flex flex-col"
         style={{ background: "var(--bg)", color: "var(--fg)" }}
       >
-        <MisPartidasHeader isAdmin={isAdmin} />
+        <AppHeader active="mis-partidas" />
         <main className="flex-1 px-4 py-6 max-w-2xl mx-auto w-full">
           <Card className="text-center py-10">
             <p
@@ -126,7 +125,7 @@ export default async function MisPartidasPage() {
       className="min-h-screen flex flex-col"
       style={{ background: "var(--bg)", color: "var(--fg)" }}
     >
-      <MisPartidasHeader isAdmin={isAdmin} />
+      <AppHeader active="mis-partidas" />
 
       <main className="flex-1 px-4 py-6 max-w-2xl mx-auto w-full space-y-8">
         {/* Header */}
@@ -247,80 +246,5 @@ export default async function MisPartidasPage() {
         )}
       </main>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Shared header
-// ---------------------------------------------------------------------------
-
-function MisPartidasHeader({ isAdmin }: { isAdmin: boolean }) {
-  return (
-    <header
-      className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b"
-      style={{
-        background: "var(--bg-raised)",
-        borderColor: "var(--border)",
-      }}
-    >
-      <Link href="/" className="flex items-center gap-2 no-underline">
-        <span style={{ color: "var(--accent)" }}>✦</span>
-        <span
-          className="text-[20px] font-semibold leading-none"
-          style={{ fontFamily: "var(--font-display)", color: "var(--fg)" }}
-        >
-          throne
-        </span>
-      </Link>
-
-      <nav className="flex items-center gap-1">
-        <Link
-          href="/clasificacion"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[13px] font-semibold transition-colors duration-[120ms] no-underline"
-          style={{
-            fontFamily: "var(--font-sans)",
-            color: "var(--fg-muted)",
-          }}
-        >
-          <ChartBar size={14} />
-          <span className="hidden sm:inline">Clasificación</span>
-        </Link>
-        <Link
-          href="/mis-partidas"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[13px] font-semibold transition-colors duration-[120ms] no-underline"
-          style={{
-            fontFamily: "var(--font-sans)",
-            color: "var(--accent)",
-          }}
-        >
-          <CalendarBlank size={14} />
-          <span className="hidden sm:inline">Mis partidas</span>
-        </Link>
-        <Link
-          href="/calendario"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[13px] font-semibold transition-colors duration-[120ms] no-underline"
-          style={{
-            fontFamily: "var(--font-sans)",
-            color: "var(--fg-muted)",
-          }}
-        >
-          Calendario
-        </Link>
-        {isAdmin && (
-          <Link
-            href="/admin"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[13px] font-semibold transition-colors duration-[120ms] no-underline"
-            style={{
-              fontFamily: "var(--font-sans)",
-              color: "var(--fg-muted)",
-            }}
-          >
-            <Crown size={14} />
-            <span className="hidden sm:inline">Admin</span>
-          </Link>
-        )}
-        <AppHeaderUser />
-      </nav>
-    </header>
   );
 }

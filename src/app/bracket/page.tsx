@@ -5,7 +5,7 @@
 import { requireAuth } from "@/lib/guards";
 import { prisma } from "@/lib/db";
 import { getBracket } from "@/server/playoff-actions";
-import { AppHeaderUser } from "@/components/AppHeaderUser";
+import { AppHeader } from "@/components/AppHeader";
 import { Trophy, Sword } from "@phosphor-icons/react/dist/ssr";
 import Link from "next/link";
 
@@ -22,43 +22,46 @@ export default async function BracketPage() {
   if (!league) {
     return (
       <div
-        className="min-h-screen flex flex-col items-center justify-center px-4"
+        className="min-h-screen flex flex-col"
         style={{ background: "var(--bg)", color: "var(--fg)" }}
       >
-        <div
-          className="text-center max-w-sm p-8 rounded-[var(--radius-sm)] border"
-          style={{ borderColor: "var(--border)", background: "var(--bg-raised)" }}
-        >
-          <Sword size={40} style={{ color: "var(--fg-faint)" }} className="mx-auto mb-4" />
-          <h1
-            className="text-xl font-semibold mb-2"
-            style={{ fontFamily: "var(--font-display)", color: "var(--fg)" }}
+        <AppHeader active="bracket" />
+        <main className="flex-1 flex flex-col items-center justify-center px-4">
+          <div
+            className="text-center max-w-sm p-8 rounded-[var(--radius-sm)] border"
+            style={{ borderColor: "var(--border)", background: "var(--bg-raised)" }}
           >
-            Playoffs no iniciados
-          </h1>
-          <p
-            className="text-sm"
-            style={{ color: "var(--fg-muted)", fontFamily: "var(--font-sans)" }}
-          >
-            La fase de playoffs aún no ha comenzado. Vuelve cuando el admin
-            cierre la fase de liga.
-          </p>
-          {isAdmin && (
-            <div className="mt-4">
-              <Link
-                href="/admin/playoffs"
-                className="inline-block px-4 py-2 rounded-[var(--radius-sm)] text-sm font-semibold no-underline"
-                style={{
-                  background: "var(--accent)",
-                  color: "var(--ink-900)",
-                  fontFamily: "var(--font-sans)",
-                }}
-              >
-                Ir al panel de admin
-              </Link>
-            </div>
-          )}
-        </div>
+            <Sword size={40} style={{ color: "var(--fg-faint)" }} className="mx-auto mb-4" />
+            <h1
+              className="text-xl font-semibold mb-2"
+              style={{ fontFamily: "var(--font-display)", color: "var(--fg)" }}
+            >
+              Playoffs no iniciados
+            </h1>
+            <p
+              className="text-sm"
+              style={{ color: "var(--fg-muted)", fontFamily: "var(--font-sans)" }}
+            >
+              La fase de playoffs aún no ha comenzado. Vuelve cuando el admin
+              cierre la fase de liga.
+            </p>
+            {isAdmin && (
+              <div className="mt-4">
+                <Link
+                  href="/admin/playoffs"
+                  className="inline-block px-4 py-2 rounded-[var(--radius-sm)] text-sm font-semibold no-underline"
+                  style={{
+                    background: "var(--accent)",
+                    color: "var(--ink-900)",
+                    fontFamily: "var(--font-sans)",
+                  }}
+                >
+                  Ir al panel de admin
+                </Link>
+              </div>
+            )}
+          </div>
+        </main>
       </div>
     );
   }
@@ -124,45 +127,7 @@ export default async function BracketPage() {
       style={{ background: "var(--bg)", color: "var(--fg)" }}
     >
       {/* Header */}
-      <header
-        className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b"
-        style={{
-          background: "var(--bg-raised)",
-          borderColor: "var(--border)",
-        }}
-      >
-        <Link href="/" className="flex items-center gap-2 no-underline">
-          <span style={{ color: "var(--accent)" }}>✦</span>
-          <span
-            className="text-[20px] font-semibold leading-none"
-            style={{ fontFamily: "var(--font-display)", color: "var(--fg)" }}
-          >
-            throne
-          </span>
-        </Link>
-        <nav className="flex items-center gap-2">
-          <Link
-            href="/clasificacion"
-            className="text-[13px] font-semibold no-underline"
-            style={{ color: "var(--fg-muted)", fontFamily: "var(--font-sans)" }}
-          >
-            Clasificación
-          </Link>
-          {isAdmin && (
-            <Link
-              href="/admin"
-              className="text-[13px] font-semibold no-underline"
-              style={{
-                color: "var(--fg-muted)",
-                fontFamily: "var(--font-sans)",
-              }}
-            >
-              Admin
-            </Link>
-          )}
-          <AppHeaderUser />
-        </nav>
-      </header>
+      <AppHeader active="bracket" />
 
       <main className="px-4 py-6 max-w-5xl mx-auto w-full">
         {/* Title */}
