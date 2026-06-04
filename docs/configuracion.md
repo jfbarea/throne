@@ -146,8 +146,8 @@ La configuración se gestiona desde el panel de admin en `/admin/liga`. Los camp
 | Campo | Por defecto | Descripción |
 |-------|-------------|-------------|
 | `bonusEnabled` | false | Activa o desactiva los bonus |
-| `bonusMarginThreshold` | 20 | Diferencia de VP para el bonus de masacre (el ganador supera al rival por este margen) |
-| `bonusMinVP` | 40 | VP mínimos para el bonus por jugar agresivo (aplica aunque se pierda; no aplica en empates de masacre) |
+| `bonusMarginThreshold` | 20 | Diferencia de VP para el bonus de masacre; se otorga al ganador si supera al rival por este margen o más. No aplica en empates (no hay ganador) |
+| `bonusMinVP` | 40 | VP mínimos para el bonus por jugar agresivo; se otorga a cualquier jugador que alcance este umbral, independientemente del resultado (aplica en victoria, derrota y empate) |
 
 Los bonus se calculan y almacenan en el momento de reportar cada resultado (`Result.bonusHome` / `Result.bonusAway`). Cambiar la config después no altera resultados ya registrados.
 

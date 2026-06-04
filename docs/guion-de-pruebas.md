@@ -69,7 +69,7 @@ Cambia el nombre de la liga a "Liga de Prueba" y guarda. Comprueba que el cambio
 1. Ve a `/admin/jugadores`.
 
 **Resultado esperado:**
-- Aparecen los 12 jugadores del seed: `Comisario Valdris` (ADMIN), `Inquisidor Marak`, `Capitán Torvayne`, `Magos Drekh`, `Señor Fantasma Aelyr`, `Patriarca Vex`, `Señora de la Guerra Kovash`, `Archon Nyss`, `Shas'O Vior'la`, `Gran Tirano Skrell`, `Señor del Caos Rhan`, `Overlord Zahndrekh`.
+- Aparecen los 12 jugadores del seed: `Comisario Valdris` (ADMIN), `Inquisidor Marak`, `Capitán Torvayne`, `Magos Drekk`, `Señor Fantasma Aelyr`, `Patriarca Vex`, `Señora de la Guerra Kovash`, `Archon Nyss`, `Shas'O Vior'la`, `Gran Tirano Skrell`, `Señor del Caos Rhan`, `Overlord Zahndrekh`.
 - Todos están activos.
 
 ---
@@ -213,10 +213,10 @@ Cierra el banner. Recarga la página. Comprueba que el passcode ya no se muestra
 1. Ve a `/clasificacion`.
 
 **Resultado esperado:**
-- `Inquisidor Marak` aparece en la tabla con 1 victoria, 3 puntos, 85 VP+, 45 VP-.
-- `Capitán Torvayne` aparece con 1 derrota, 0 puntos, 45 VP+, 85 VP-.
+- `Inquisidor Marak` aparece en la tabla con 1 victoria, **5 puntos** (3 de victoria + 2 de bonus), 85 VP+, 45 VP-.
+- `Capitán Torvayne` aparece con 1 derrota, **1 punto** (0 de derrota + 1 de bonus), 45 VP+, 85 VP-.
 - El resto de jugadores aparecen con 0 partidas jugadas (todos los resultados están en `SCHEDULED`).
-- Si el bonus está habilitado: comprueba si la diferencia de 40 VP (85-45) supera el umbral de 20 → sí, `Inquisidor Marak` tiene bonus de masacre; `Capitán Torvayne` tiene 45 VP, que supera el mínimo de 40 → también tiene bonus por VP mínimos.
+- Con el bonus habilitado (umbral masacre 20 VP, mínimo VP 40): el margen es 85-45=40, que supera el umbral de 20 → `Inquisidor Marak` obtiene **ambos** bonus: masacre (margen ≥ 20) + mínimo VP (85 ≥ 40), sumando 2 puntos de bonus. `Capitán Torvayne` obtiene el bonus de mínimo VP (45 ≥ 40, y este bonus aplica independientemente del resultado), sumando 1 punto de bonus. El bonus de masacre **no** aplica al perdedor.
 
 ---
 
