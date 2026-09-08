@@ -2,5 +2,22 @@
   "status": "BUILDING",
   "spec": "plan/specs/rondas-con-fecha.md",
   "branch": "feat/rondas-con-fecha",
-  "milestones": []
+  "milestones": [
+    {
+      "id": "H1",
+      "slug": "modelo-datos-rondas",
+      "status": "READY_FOR_REVIEW",
+      "commit_sha": "2bf830cfaaa73152d8916617878fbd43ae69e83f",
+      "files_changed": [
+        "prisma/schema.prisma",
+        "prisma/migrations/20260908154638_add_rounds_and_resolution/migration.sql",
+        "prisma/seed.ts",
+        "tests/e2e/seed-e2e.ts",
+        "tests/db-global-setup.ts",
+        "tests/modelo-datos-rondas.test.ts",
+        "vitest.config.ts"
+      ],
+      "notes": "Esquema y datos de partida, sin comportamiento (H1 del plan). model Round con @@unique([leagueId, index]); Match.roundId nullable (playoffs sin ronda); Result.resolution enum PLAYED|WALKOVER|UNPLAYED_DRAW con @default(PLAYED); League.matchesPerRound @default(2) y League.startMonth. Decisión no trivial: startMonth lleva @default(now()) solo por compatibilidad de esquema con createLeague (src/server/league-actions.ts), que H1 no toca (fuera de su alcance: 'nada de acciones'); es un valor transitorio hasta que H3 conecte el input real (Zod + LeagueForm) a esa acción. Sin este default, prisma.league.create() en createLeague dejaba de compilar y rompía npm run build, lo cual habría violado el requisito global de árbol compilando en cada commit. tests/e2e/global-setup.ts no necesitó cambios (no crea League directamente, solo invoca migrate + seed-e2e.ts). Nuevo tests/db-global-setup.ts + vitest.config.ts: aplica prisma migrate deploy contra file:./test.db antes de la suite (mismo patrón que tests/e2e/global-setup.ts para e2e.db), necesario porque los criterios de H1 exigen tests de escritura reales (constraint P2002, defaults) y no existía infraestructura previa que migrara test.db. Criterio 1 (migrate+generate) -> tests/modelo-datos-rondas.test.ts describe('H1-AC1'). Criterio 2 (roundId nullable + resolution default PLAYED) -> describe('H1-AC2'), 3 tests incluyendo Match sin roundId, Match con roundId, y Result sin resolution explícito. Criterio 3 (@@unique constraint) -> describe('H1-AC3'), test que espera rejects.toMatchObject({code:'P2002'}) y test positivo de mismo índice en ligas distintas. Criterio 4 (npm run seed dota matchesPerRound/startMonth) -> describe('H1-AC4'), ejecuta prisma/seed.ts real contra test.db vía execSync y verifica la liga seed-league-001. Criterio 5 (lint/test/e2e/build verdes) -> verificado ejecutando los cuatro comandos directamente (no es un test anidado, sería circular), documentado en el informe del builder. HALLAZGO A ESCALAR: npm run e2e está en rojo (34/38 tests fallan) por un bug preexistente y ajeno a esta feature: tests/e2e/full-journey.spec.ts:45 y :53 esperan que tras login la URL quede en '/', pero src/app/page.tsx redirige inmediatamente '/' -> '/admin' o '/mis-partidas' según el rol (comportamiento de producto correcto, la aserción del test quedó desactualizada). Confirmado que es preexistente en la rama base (no causado por H1): reproducido el mismo fallo con git stash de todos los cambios de este hito y prisma generate contra el schema original. Fuera del alcance de H1 (no toca src/app ni tests/e2e/full-journey.spec.ts, que el propio plan asigna a H10). No se ha tocado ese fichero ni la lógica de redirección; lo escalo para que se decida si se corrige antes de seguir con H2 o se documenta como deuda hasta H10, que ya reescribe ese fichero 'al flujo con rondas'."
+    }
+  ]
 }
