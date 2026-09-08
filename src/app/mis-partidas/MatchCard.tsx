@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { Badge } from "@/components";
 import { ReportForm } from "./ReportForm";
+import { WalkoverForm } from "./WalkoverForm";
 import { CalendarBlank, MapPin, Pencil, Flag } from "@phosphor-icons/react";
 
 // REPORTED and CONFIRMED are both "has result" statuses.
@@ -31,6 +32,10 @@ interface MatchCardProps {
       reportedById: string;
       bonusHome: number;
       bonusAway: number;
+      // Rondas-con-fecha (Hito 5): how this Result came to be. Only WALKOVER
+      // is labeled here — the systematic labeling of the three values across
+      // this view and calendario is Hito 6's job (plan/rondas-con-fecha).
+      resolution: string;
     } | null;
   };
   // The logged-in player's ID.
@@ -64,6 +69,7 @@ function outcomeLabel(
 
 export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
   const [showReport, setShowReport] = useState(false);
+  const [showWalkover, setShowWalkover] = useState(false);
 
   const st = STATUS_LABEL[match.status] ?? {
     label: match.status,
@@ -198,6 +204,9 @@ export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
                   Bonus: +{match.result.bonusHome} / +{match.result.bonusAway}
                 </span>
               )}
+              {match.result.resolution === "WALKOVER" && (
+                <Badge variant="ember">incomparecencia</Badge>
+              )}
             </div>
           )}
         </div>
@@ -208,8 +217,10 @@ export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
         </div>
       </div>
 
-      {/* Action button: apuntar or editar (collapsed by default for cleanliness) */}
-      {!showReport && canReportOrEdit && (
+      {/* Action buttons: apuntar/editar y declarar incomparecencia (collapsed
+          by default for cleanliness). Incomparecencia needs a real rival —
+          it never applies to a bye. */}
+      {!showReport && !showWalkover && canReportOrEdit && (
         <div className="mt-3 flex flex-wrap gap-2">
           <button
             onClick={() => setShowReport(true)}
@@ -224,6 +235,21 @@ export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
             {match.result ? <Pencil size={13} /> : <Flag size={13} />}
             {reportButtonLabel}
           </button>
+          {match.playerAwayId && (
+            <button
+              onClick={() => setShowWalkover(true)}
+              className="flex items-center gap-1 px-3 py-[7px] rounded text-[13px] font-semibold border transition-colors duration-[120ms] cursor-pointer"
+              style={{
+                background: "transparent",
+                borderColor: "var(--border-strong)",
+                color: "var(--fg-muted)",
+                fontFamily: "var(--font-sans)",
+              }}
+            >
+              <Flag size={13} />
+              Incomparecencia
+            </button>
+          )}
         </div>
       )}
 
@@ -234,6 +260,18 @@ export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
           playerHomeName={match.playerHomeName}
           playerAwayName={match.playerAwayName ?? "Visitante"}
           onDone={() => setShowReport(false)}
+        />
+      )}
+
+      {/* Walkover (incomparecencia) form */}
+      {showWalkover && match.playerAwayId && (
+        <WalkoverForm
+          matchId={match.id}
+          playerHomeId={match.playerHomeId}
+          playerAwayId={match.playerAwayId}
+          playerHomeName={match.playerHomeName}
+          playerAwayName={match.playerAwayName ?? "Visitante"}
+          onDone={() => setShowWalkover(false)}
         />
       )}
     </div>

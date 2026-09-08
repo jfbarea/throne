@@ -17,6 +17,7 @@ import {
   canReportGivenRoundClosed,
   canReportInStatus,
   deriveOutcome,
+  WALKOVER_VICTORY_POINTS,
 } from "@/server/result-logic";
 import { advancePlayoffWinner } from "@/server/playoff-actions";
 
@@ -288,6 +289,225 @@ export async function reportResult(
   revalidatePath("/bracket");
   revalidatePath("/admin/emparejamientos");
   revalidatePath("/admin/playoffs");
+
+  return {
+    ok: true,
+    data: { resultId: resultId! },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// declareWalkover — declarar incomparecencia (Hito 5, rondas-con-fecha §4.8-§4.10)
+// ---------------------------------------------------------------------------
+
+const declareWalkoverSchema = z.object({
+  // The winner is a player id (SPEC §4.10: "cualquiera de los dos ... declara
+  // la incomparecencia eligiendo al vencedor"). Validated below against the
+  // match's actual two participants — this schema only checks shape, not
+  // whether the id belongs to this match, so nobody can crown a third party.
+  winnerId: z.string().min(1, "El vencedor es obligatorio"),
+});
+
+export type DeclareWalkoverInput = z.infer<typeof declareWalkoverSchema>;
+
+/**
+ * A participant (home or away) or an admin declares a walkover
+ * (incomparecencia): the two players agreed on a winner outside the app and
+ * this just records the outcome (SPEC §4.10 — the pact happens elsewhere).
+ *
+ *  - Result: WALKOVER_VICTORY_POINTS-0 in favor of the winner, `outcome`
+ *    HOME_WIN/AWAY_WIN, `resolution = WALKOVER`.
+ *  - Bonus is forced to `{0, 0}` WITHOUT going through `calculateBonus`
+ *    (SPEC §4.8, criterio 24): a walkover never earns bonus points, no matter
+ *    the league's bonus config.
+ *  - Same authorization/status/round-closed guards as `reportResult`, reused
+ *    as-is (SPEC §4.10: "Reutiliza canReport / canReportInStatus tal cual"):
+ *    any participant or admin can declare it, and either participant can
+ *    later overwrite it — with a different winner (this action again) or
+ *    with the real result if the match does get played (`reportResult`,
+ *    which forces `resolution` back to PLAYED on every write). Symmetrically,
+ *    this action can also overwrite a previously PLAYED result: the same
+ *    "no se previene la autoadjudicación, se corrige" trust model (§4.10)
+ *    that lets a participant overwrite a walkover with reportResult lets the
+ *    other participant correct a false walkover back with the real score.
+ *  - Scoped to `phase = LEAGUE`: incomparecencia is a round-deadline
+ *    mechanism (§4.4, §4.7) and playoff matches have no round at all, so the
+ *    concept doesn't apply there. Rejected explicitly for PLAYOFF matches
+ *    rather than silently generalized.
+ *  - Rejected for matches without a real opponent (`playerAwayId === null`,
+ *    i.e. playoff byes never reach here anyway given the LEAGUE-only scope,
+ *    kept as a defensive guard): there is nobody to declare a walkover
+ *    against.
+ */
+export async function declareWalkover(
+  matchId: string,
+  input: DeclareWalkoverInput
+): Promise<ActionResult<{ resultId: string }>> {
+  const session = await requireAuth();
+
+  const parsed = declareWalkoverSchema.safeParse(input);
+  if (!parsed.success) {
+    const flat = parsed.error.flatten();
+    const firstErr =
+      Object.values(flat.fieldErrors).flat()[0] ?? flat.formErrors[0];
+    return { ok: false, error: firstErr ?? "Datos inválidos" };
+  }
+  const { winnerId } = parsed.data;
+
+  // Load match + round (to check the round-closed guard), same shape as
+  // reportResult. `round` is null for playoff matches and for league matches
+  // whose round is still open.
+  const match = await prisma.match.findUnique({
+    where: { id: matchId },
+    include: { round: true },
+  });
+
+  if (!match) {
+    return { ok: false, error: "Partida no encontrada" };
+  }
+
+  if (match.phase !== "LEAGUE") {
+    return {
+      ok: false,
+      error:
+        "La incomparecencia solo aplica a partidas de la fase de liga.",
+    };
+  }
+
+  if (!match.playerAwayId) {
+    return {
+      ok: false,
+      error: "No se puede declarar incomparecencia en una partida sin rival",
+    };
+  }
+
+  const isAdmin = session.role === "ADMIN";
+  const actorId = session.playerId;
+
+  // Authorization: home player, away player, or admin (reused as-is).
+  if (
+    !canReport(actorId, session.role, match.playerHomeId, match.playerAwayId)
+  ) {
+    return {
+      ok: false,
+      error: "No eres participante de esta partida ni admin",
+    };
+  }
+
+  // Status guard: SCHEDULED or REPORTED allowed (admin overrides any status).
+  if (!canReportInStatus(match.status, isAdmin)) {
+    return {
+      ok: false,
+      error: `No se puede apuntar un resultado en una partida en estado ${match.status}`,
+    };
+  }
+
+  // Round-closed guard (SPEC §4.10: closing the round is the point of no
+  // return; only admin can still touch the result afterwards).
+  if (!canReportGivenRoundClosed(match.round?.closedAt ?? null, isAdmin)) {
+    return {
+      ok: false,
+      error:
+        "La ronda de esta partida ya está cerrada. Solo el admin puede editar el resultado.",
+    };
+  }
+
+  // The winner must be one of the two real participants — nobody can crown a
+  // third party.
+  if (winnerId !== match.playerHomeId && winnerId !== match.playerAwayId) {
+    return {
+      ok: false,
+      error: "El vencedor debe ser uno de los dos participantes de la partida",
+    };
+  }
+
+  // Admin sessions must have a playerId for DB writes.
+  if (!actorId) {
+    return {
+      ok: false,
+      error:
+        "La sesión de administrador no tiene un jugador asociado. Usa un jugador con rol ADMIN.",
+    };
+  }
+
+  const outcome: "HOME_WIN" | "AWAY_WIN" =
+    winnerId === match.playerHomeId ? "HOME_WIN" : "AWAY_WIN";
+  const homeVictoryPoints =
+    outcome === "HOME_WIN" ? WALKOVER_VICTORY_POINTS : 0;
+  const awayVictoryPoints =
+    outcome === "AWAY_WIN" ? WALKOVER_VICTORY_POINTS : 0;
+
+  let resultId: string;
+
+  await prisma.$transaction(async (tx) => {
+    const existing = await tx.result.findUnique({
+      where: { matchId },
+      select: { id: true },
+    });
+
+    const auditAction = existing ? "EDIT_RESULT" : "REPORT_RESULT";
+
+    if (existing) {
+      // Overwrite (either a previous walkover with a new winner, or a played
+      // result being corrected to a walkover — see docstring above).
+      // Bonus is forced to {0, 0} WITHOUT calculateBonus (criterio 24).
+      await tx.result.update({
+        where: { matchId },
+        data: {
+          homeVictoryPoints,
+          awayVictoryPoints,
+          outcome,
+          resolution: "WALKOVER",
+          reportedById: actorId,
+          reportedAt: new Date(),
+          confirmedById: null,
+          confirmedAt: null,
+          bonusHome: 0,
+          bonusAway: 0,
+        },
+      });
+      resultId = existing.id;
+    } else {
+      const created = await tx.result.create({
+        data: {
+          matchId,
+          resolution: "WALKOVER",
+          homeVictoryPoints,
+          awayVictoryPoints,
+          outcome,
+          reportedById: actorId,
+          confirmedById: null,
+          bonusHome: 0,
+          bonusAway: 0,
+        },
+      });
+      resultId = created.id;
+    }
+
+    // Transition Match to REPORTED (or stay REPORTED on overwrite).
+    await tx.match.update({
+      where: { id: matchId },
+      data: { status: "REPORTED" },
+    });
+
+    // AuditLog (criterio 25: REPORT_RESULT on first declaration, EDIT_RESULT
+    // on overwrite — same convention as reportResult).
+    await writeAuditLog(tx, actorId, auditAction, "Match", matchId, {
+      matchId,
+      resultId,
+      winnerId,
+      homeVictoryPoints,
+      awayVictoryPoints,
+      outcome,
+      resolution: "WALKOVER",
+      previousStatus: match.status,
+    });
+  });
+
+  revalidatePath("/mis-partidas");
+  revalidatePath("/calendario");
+  revalidatePath("/clasificacion");
+  revalidatePath("/admin/emparejamientos");
 
   return {
     ok: true,

@@ -76,6 +76,7 @@ export default async function MisPartidasPage() {
           reportedById: true,
           bonusHome: true,
           bonusAway: true,
+          resolution: true,
         },
       },
     },
@@ -112,6 +113,7 @@ export default async function MisPartidasPage() {
               reportedById: m.result.reportedById,
               bonusHome: m.result.bonusHome,
               bonusAway: m.result.bonusAway,
+              resolution: m.result.resolution,
             }
           : null,
       },

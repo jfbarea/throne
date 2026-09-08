@@ -10,6 +10,18 @@
 
 export type Outcome = "HOME_WIN" | "AWAY_WIN" | "DRAW";
 
+// ---------------------------------------------------------------------------
+// Walkover constant (rondas-con-fecha spec §4.8, §4.9, Hito 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fixed victory-point score credited to the winner of a walkover
+ * (incomparecencia): the loser is credited 0. Not derived from any real VP —
+ * the match was never played. Named so `declareWalkover`
+ * (src/server/result-actions.ts) never hardcodes the number inline.
+ */
+export const WALKOVER_VICTORY_POINTS = 80;
+
 export interface BonusConfig {
   bonusEnabled: boolean;
   // VP margin the winner must exceed over the loser to earn the massacre bonus.
