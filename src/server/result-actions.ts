@@ -31,6 +31,22 @@ export type ActionResult<T = void> =
   | { ok: false; error: string };
 
 // ---------------------------------------------------------------------------
+// Round-closed guard: TOCTOU sentinel shared by reportResult and
+// declareWalkover (H5b, plan/rondas-con-fecha/PLAN.md)
+// ---------------------------------------------------------------------------
+
+/**
+ * Internal sentinel thrown inside a transaction (by `reportResult` or
+ * `declareWalkover`) to abort it when the round-closed guard
+ * (`canReportGivenRoundClosed`) fails on the re-read done with `tx` — see the
+ * docstrings on each action. Caught right outside the corresponding
+ * `prisma.$transaction` call and turned into the same user-facing rejection
+ * the fast-path check returns; scoped with `instanceof` so a real DB failure
+ * inside the transaction is never mistaken for "the round is closed".
+ */
+class RoundClosedDuringTransactionError extends Error {}
+
+// ---------------------------------------------------------------------------
 // Input schema
 // ---------------------------------------------------------------------------
 
@@ -94,6 +110,20 @@ async function writeAuditLog(
  *  - Writes AuditLog entry (REPORT_RESULT for fresh, EDIT_RESULT for overwrite).
  *  - DRAW is invalid in playoff matches (SPEC §7.4).
  *  - If phase=PLAYOFF and !isBye, advances the winner within the transaction.
+ *
+ * Round-closed guard checked TWICE against the same predicate
+ * (`canReportGivenRoundClosed`), H5b sweep (plan/rondas-con-fecha/PLAN.md):
+ * once below, before opening the transaction (fast-path rejection — good
+ * UX, no point opening a transaction just to abort it, and it's where the
+ * Spanish error message comes from), and once more INSIDE
+ * `prisma.$transaction` with `tx.round.findUnique` as the very first thing
+ * the transaction does. The outer read can go stale in the window between
+ * it and the transaction opening — a concurrent admin `closeRound` landing
+ * in between, which would otherwise let this write land in a round that's
+ * now closed, breaking criterio 21. The inner re-read, against the
+ * transaction's own client, is the one that actually decides — it aborts
+ * the transaction by throwing `RoundClosedDuringTransactionError`, caught
+ * right outside and turned into the same rejection.
  */
 export async function reportResult(
   matchId: string,
@@ -169,7 +199,8 @@ export async function reportResult(
   if (match.phase === "PLAYOFF" && outcome === "DRAW") {
     return {
       ok: false,
-      error: "Los empates no están permitidos en partidas de playoffs. Se requiere un ganador.",
+      error:
+        "Los empates no están permitidos en partidas de playoffs. Se requiere un ganador.",
     };
   }
 
@@ -196,93 +227,123 @@ export async function reportResult(
 
   let resultId: string;
 
-  await prisma.$transaction(async (tx) => {
-    // Upsert Result (create or overwrite).
-    const existing = await tx.result.findUnique({
-      where: { matchId },
-      select: { id: true },
-    });
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Authoritative re-read (H5b, TOCTOU): a concurrent admin `closeRound`
+      // could have landed in the window between the fast-path read above and
+      // this transaction opening. `match.roundId` itself is immutable once
+      // set (nothing in this codebase updates it), so only the Round's
+      // `closedAt` needs refreshing — with `tx`, as the very first thing the
+      // transaction does. A playoff match (`match.roundId === null`) has no
+      // Round to re-check, same as the fast-path check above.
+      if (match.roundId) {
+        const currentRound = await tx.round.findUnique({
+          where: { id: match.roundId },
+          select: { closedAt: true },
+        });
+        if (
+          !canReportGivenRoundClosed(currentRound?.closedAt ?? null, isAdmin)
+        ) {
+          throw new RoundClosedDuringTransactionError();
+        }
+      }
 
-    const auditAction = existing ? "EDIT_RESULT" : "REPORT_RESULT";
-
-    if (existing) {
-      // Overwrite existing result (edit); confirmedById/confirmedAt reset to null
-      // since the confirmation flow no longer exists. These columns are kept in
-      // schema for future use but are not populated by the new flow.
-      //
-      // resolution is forced back to PLAYED here (rondas-con-fecha spec §4.9,
-      // §5.9, criterio 21): this action is the "a participant/admin reports a
-      // played game" path, as opposed to the incomparecencia action (WALKOVER,
-      // Hito 5) or closeRound (UNPLAYED_DRAW, Hito 4). Without this, editing a
-      // match that a round-close had settled to UNPLAYED_DRAW — the admin
-      // override the round-closed guard exists for — would leave `resolution`
-      // stuck at UNPLAYED_DRAW forever, wrongly counting a real, played game as
-      // "saldada sin jugar" in the standings (SPEC §4.6, §4.9).
-      await tx.result.update({
+      // Upsert Result (create or overwrite).
+      const existing = await tx.result.findUnique({
         where: { matchId },
-        data: {
-          homeVictoryPoints,
-          awayVictoryPoints,
-          outcome,
-          resolution: "PLAYED",
-          reportedById: actorId,
-          reportedAt: new Date(),
-          confirmedById: null,
-          confirmedAt: null,
-          bonusHome,
-          bonusAway,
-        },
+        select: { id: true },
       });
-      resultId = existing.id;
-    } else {
-      // Create fresh result. resolution defaults to PLAYED (schema default),
-      // set explicitly here for the same reason as the update branch above.
-      const created = await tx.result.create({
-        data: {
-          matchId,
-          resolution: "PLAYED",
-          homeVictoryPoints,
-          awayVictoryPoints,
-          outcome,
-          reportedById: actorId,
-          confirmedById: null,
-          bonusHome,
-          bonusAway,
-        },
+
+      const auditAction = existing ? "EDIT_RESULT" : "REPORT_RESULT";
+
+      if (existing) {
+        // Overwrite existing result (edit); confirmedById/confirmedAt reset to null
+        // since the confirmation flow no longer exists. These columns are kept in
+        // schema for future use but are not populated by the new flow.
+        //
+        // resolution is forced back to PLAYED here (rondas-con-fecha spec §4.9,
+        // §5.9, criterio 21): this action is the "a participant/admin reports a
+        // played game" path, as opposed to the incomparecencia action (WALKOVER,
+        // Hito 5) or closeRound (UNPLAYED_DRAW, Hito 4). Without this, editing a
+        // match that a round-close had settled to UNPLAYED_DRAW — the admin
+        // override the round-closed guard exists for — would leave `resolution`
+        // stuck at UNPLAYED_DRAW forever, wrongly counting a real, played game as
+        // "saldada sin jugar" in the standings (SPEC §4.6, §4.9).
+        await tx.result.update({
+          where: { matchId },
+          data: {
+            homeVictoryPoints,
+            awayVictoryPoints,
+            outcome,
+            resolution: "PLAYED",
+            reportedById: actorId,
+            reportedAt: new Date(),
+            confirmedById: null,
+            confirmedAt: null,
+            bonusHome,
+            bonusAway,
+          },
+        });
+        resultId = existing.id;
+      } else {
+        // Create fresh result. resolution defaults to PLAYED (schema default),
+        // set explicitly here for the same reason as the update branch above.
+        const created = await tx.result.create({
+          data: {
+            matchId,
+            resolution: "PLAYED",
+            homeVictoryPoints,
+            awayVictoryPoints,
+            outcome,
+            reportedById: actorId,
+            confirmedById: null,
+            bonusHome,
+            bonusAway,
+          },
+        });
+        resultId = created.id;
+      }
+
+      // Transition Match to REPORTED (or stay REPORTED on edits).
+      await tx.match.update({
+        where: { id: matchId },
+        data: { status: "REPORTED" },
       });
-      resultId = created.id;
-    }
 
-    // Transition Match to REPORTED (or stay REPORTED on edits).
-    await tx.match.update({
-      where: { id: matchId },
-      data: { status: "REPORTED" },
-    });
-
-    // AuditLog.
-    await writeAuditLog(tx, actorId, auditAction, "Match", matchId, {
-      matchId,
-      resultId,
-      homeVictoryPoints,
-      awayVictoryPoints,
-      outcome,
-      bonusHome,
-      bonusAway,
-      previousStatus: match.status,
-    });
-
-    // SPEC §7.4: advance winner in playoff bracket immediately on reporting.
-    if (match.phase === "PLAYOFF" && !match.isBye) {
-      await advancePlayoffWinner(
-        tx,
+      // AuditLog.
+      await writeAuditLog(tx, actorId, auditAction, "Match", matchId, {
         matchId,
+        resultId,
+        homeVictoryPoints,
+        awayVictoryPoints,
         outcome,
-        match.leagueId,
-        match.playerHomeId,
-        match.playerAwayId
-      );
+        bonusHome,
+        bonusAway,
+        previousStatus: match.status,
+      });
+
+      // SPEC §7.4: advance winner in playoff bracket immediately on reporting.
+      if (match.phase === "PLAYOFF" && !match.isBye) {
+        await advancePlayoffWinner(
+          tx,
+          matchId,
+          outcome,
+          match.leagueId,
+          match.playerHomeId,
+          match.playerAwayId
+        );
+      }
+    });
+  } catch (err) {
+    if (err instanceof RoundClosedDuringTransactionError) {
+      return {
+        ok: false,
+        error:
+          "La ronda de esta partida ya está cerrada. Solo el admin puede editar el resultado.",
+      };
     }
-  });
+    throw err;
+  }
 
   revalidatePath("/mis-partidas");
   revalidatePath("/calendario");
@@ -336,7 +397,10 @@ class WalkoverBlockedByPlayedResultError extends Error {}
  *    any participant or admin can declare it, and either participant can
  *    later overwrite it — with a different winner (this action again) or
  *    with the real result if the match does get played (`reportResult`,
- *    which forces `resolution` back to PLAYED on every write).
+ *    which forces `resolution` back to PLAYED on every write). The
+ *    round-closed guard is checked twice, same TOCTOU pattern as the D5
+ *    guard right below — see `reportResult`'s docstring for the shared
+ *    `RoundClosedDuringTransactionError` mechanics (H5b sweep).
  *  - D5 (plan/rondas-con-fecha/PLAN.md, ratified after H5's first review):
  *    a participant CANNOT use this action to turn an already-`PLAYED` result
  *    into a walkover — that would let a legitimate winner unilaterally
@@ -394,8 +458,7 @@ export async function declareWalkover(
   if (match.phase !== "LEAGUE") {
     return {
       ok: false,
-      error:
-        "La incomparecencia solo aplica a partidas de la fase de liga.",
+      error: "La incomparecencia solo aplica a partidas de la fase de liga.",
     };
   }
 
@@ -492,6 +555,26 @@ export async function declareWalkover(
 
   try {
     await prisma.$transaction(async (tx) => {
+      // Authoritative re-read of the round-closed guard (H5b, TOCTOU sweep):
+      // a concurrent admin `closeRound` could have landed in the window
+      // between the fast-path check above and this transaction opening,
+      // which would otherwise let a walkover land in a round that's now
+      // closed (same defect as reportResult, breaking criterio 21).
+      // `match.roundId` is immutable once set, so only the Round's
+      // `closedAt` needs refreshing — with `tx`, as the very first thing the
+      // transaction does.
+      if (match.roundId) {
+        const currentRound = await tx.round.findUnique({
+          where: { id: match.roundId },
+          select: { closedAt: true },
+        });
+        if (
+          !canReportGivenRoundClosed(currentRound?.closedAt ?? null, isAdmin)
+        ) {
+          throw new RoundClosedDuringTransactionError();
+        }
+      }
+
       // Authoritative re-read (D5, TOCTOU fix): a concurrent write (e.g. a
       // real `reportResult` from the other participant) could have landed in
       // the window between the fast-path read above and this transaction
@@ -572,6 +655,13 @@ export async function declareWalkover(
       });
     });
   } catch (err) {
+    if (err instanceof RoundClosedDuringTransactionError) {
+      return {
+        ok: false,
+        error:
+          "La ronda de esta partida ya está cerrada. Solo el admin puede editar el resultado.",
+      };
+    }
     if (err instanceof WalkoverBlockedByPlayedResultError) {
       return {
         ok: false,

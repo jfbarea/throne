@@ -15,6 +15,27 @@ export type ActionResult<T = void> =
   | { ok: false; error: string };
 
 // ---------------------------------------------------------------------------
+// closeRound TOCTOU sentinel (H5b sweep, plan/rondas-con-fecha/PLAN.md)
+// ---------------------------------------------------------------------------
+
+/**
+ * Internal sentinel thrown inside `closeRound`'s transaction to abort it
+ * when the authoritative re-read of the round (with `tx`) finds it already
+ * closed or its deadline no longer due — see the docstring on `closeRound`.
+ * Caught right outside `prisma.$transaction` and turned into the same
+ * user-facing rejection the corresponding fast-path check above returns;
+ * scoped with `instanceof` so a real DB failure inside the transaction is
+ * never mistaken for one of these two guards.
+ */
+class CloseRoundGuardFailedError extends Error {
+  constructor(
+    public readonly reason: "not_found" | "already_closed" | "not_due"
+  ) {
+    super();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Schema: edit a round's deadline
 // ---------------------------------------------------------------------------
 
@@ -33,7 +54,9 @@ const updateRoundDeadlineSchema = z.object({
     }),
 });
 
-export type UpdateRoundDeadlineInput = z.input<typeof updateRoundDeadlineSchema>;
+export type UpdateRoundDeadlineInput = z.input<
+  typeof updateRoundDeadlineSchema
+>;
 
 // ---------------------------------------------------------------------------
 // Admin action: updateRoundDeadline
@@ -133,6 +156,21 @@ export async function updateRoundDeadline(
  *
  * Everything — settling the pending matches, sealing `closedAt`, and the
  * `AuditLog` entry — happens in one `prisma.$transaction` (SPEC §7.1).
+ *
+ * TOCTOU hardening (H5b sweep, plan/rondas-con-fecha/PLAN.md): `closedAt`
+ * and `deadline` are read once above for a fast, friendly rejection, then
+ * re-read with `tx` as the very first thing inside the transaction. This
+ * closes an admin-vs-admin race (only admin actions ever touch `Round`):
+ * two overlapping `closeRound` calls on the same round would otherwise both
+ * pass the outer checks and the second would silently "succeed" again
+ * (`settledCount: 0`, `closedAt` overwritten with a later timestamp, a
+ * redundant `CLOSE_ROUND` audit entry) instead of being rejected as
+ * "ya está cerrada" — the exact double-close `updateRoundDeadline` and this
+ * docstring both say can't happen. Per-match settlement (criterio 18) was
+ * already race-safe: `unresolvedMatches` below is read with `tx`, not from a
+ * stale snapshot, so a match a participant reports mid-race is correctly
+ * excluded either way. Behavior in the non-racing path is unchanged — same
+ * checks, same messages, same happy path.
  */
 export async function closeRound(
   roundId: string
@@ -167,59 +205,97 @@ export async function closeRound(
   }
   const actorId = session.playerId;
 
-  const settledCount = await prisma.$transaction(async (tx) => {
-    // Only matches of this round without a Result yet — matches that already
-    // have one are never touched (criterio 19).
-    const unresolvedMatches = await tx.match.findMany({
-      where: { roundId, result: null },
-      select: { id: true },
+  let settledCount: number;
+  try {
+    settledCount = await prisma.$transaction(async (tx) => {
+      // Authoritative re-read (H5b, TOCTOU): the outer checks above are a
+      // fast-path shortcut and can be stale by the time the transaction
+      // actually runs — re-verify against `tx`, the transaction's own
+      // client, as the very first thing it does.
+      const currentRound = await tx.round.findUnique({
+        where: { id: roundId },
+        select: { closedAt: true, deadline: true },
+      });
+      if (!currentRound) {
+        throw new CloseRoundGuardFailedError("not_found");
+      }
+      if (currentRound.closedAt !== null) {
+        throw new CloseRoundGuardFailedError("already_closed");
+      }
+      if (currentRound.deadline.getTime() > Date.now()) {
+        throw new CloseRoundGuardFailedError("not_due");
+      }
+
+      // Only matches of this round without a Result yet — matches that already
+      // have one are never touched (criterio 19). Read with `tx`, not from a
+      // stale snapshot, so a match a participant reported mid-race is
+      // correctly excluded either way (already race-safe before H5b).
+      const unresolvedMatches = await tx.match.findMany({
+        where: { roundId, result: null },
+        select: { id: true },
+      });
+      const ids = unresolvedMatches.map((m) => m.id);
+
+      if (ids.length > 0) {
+        await tx.result.createMany({
+          data: ids.map((matchId) => ({
+            matchId,
+            homeVictoryPoints: 0,
+            awayVictoryPoints: 0,
+            outcome: "DRAW" as const,
+            resolution: "UNPLAYED_DRAW" as const,
+            reportedById: actorId,
+            bonusHome: 0,
+            bonusAway: 0,
+          })),
+        });
+
+        // A Match with a Result counts for standings via isConfirmedForStandings
+        // (src/server/standings.ts), which requires status REPORTED/CONFIRMED
+        // AND a Result — so the settled matches must transition too.
+        await tx.match.updateMany({
+          where: { id: { in: ids } },
+          data: { status: "REPORTED" },
+        });
+      }
+
+      await tx.round.update({
+        where: { id: roundId },
+        data: { closedAt: new Date() },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: "CLOSE_ROUND",
+          entityType: "Round",
+          entityId: roundId,
+          payload: JSON.stringify({
+            leagueId: round.leagueId,
+            roundIndex: round.index,
+            settledCount: ids.length,
+          }),
+        },
+      });
+
+      return ids.length;
     });
-    const ids = unresolvedMatches.map((m) => m.id);
-
-    if (ids.length > 0) {
-      await tx.result.createMany({
-        data: ids.map((matchId) => ({
-          matchId,
-          homeVictoryPoints: 0,
-          awayVictoryPoints: 0,
-          outcome: "DRAW" as const,
-          resolution: "UNPLAYED_DRAW" as const,
-          reportedById: actorId,
-          bonusHome: 0,
-          bonusAway: 0,
-        })),
-      });
-
-      // A Match with a Result counts for standings via isConfirmedForStandings
-      // (src/server/standings.ts), which requires status REPORTED/CONFIRMED
-      // AND a Result — so the settled matches must transition too.
-      await tx.match.updateMany({
-        where: { id: { in: ids } },
-        data: { status: "REPORTED" },
-      });
+  } catch (err) {
+    if (err instanceof CloseRoundGuardFailedError) {
+      if (err.reason === "not_found") {
+        return { ok: false, error: "Ronda no encontrada" };
+      }
+      if (err.reason === "already_closed") {
+        return { ok: false, error: "La ronda ya está cerrada" };
+      }
+      return {
+        ok: false,
+        error:
+          "No se puede cerrar la ronda antes de su fecha de cierre. Si quieres cerrarla antes, mueve primero la fecha.",
+      };
     }
-
-    await tx.round.update({
-      where: { id: roundId },
-      data: { closedAt: new Date() },
-    });
-
-    await tx.auditLog.create({
-      data: {
-        actorId,
-        action: "CLOSE_ROUND",
-        entityType: "Round",
-        entityId: roundId,
-        payload: JSON.stringify({
-          leagueId: round.leagueId,
-          roundIndex: round.index,
-          settledCount: ids.length,
-        }),
-      },
-    });
-
-    return ids.length;
-  });
+    throw err;
+  }
 
   revalidatePath("/admin/rondas");
   revalidatePath("/mis-partidas");
