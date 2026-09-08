@@ -454,11 +454,27 @@ function misraGriesColoring(pairs: Pairing[], sortedIds: string[]): Pairing[][] 
 
   function smallestFreeColor(x: number): number {
     const used = new Set(color[x].values());
-    // Vizing's premise guarantees a free color always exists here:
-    // |used| <= degree(x) <= maxDegree < colorCount. A non-null assertion
-    // documents that guarantee instead of a defensive branch that could
-    // never actually run (and so could never be covered honestly).
-    return allColors.find((c) => !used.has(c))!;
+    const free = allColors.find((c) => !used.has(c));
+    if (free !== undefined) {
+      return free;
+    } /* v8 ignore start -- @preserve */ else {
+      /*
+       * Unreachable with a correct Misra & Gries: |used| <= degree(x) <=
+       * maxDegree < colorCount, so a free color always exists (Vizing's
+       * whole premise). Kept as an explicit, named failure rather than
+       * removed: a reviewer forced this invariant to break by hand
+       * (shrinking colorCount on a live 5-cycle) and found that without
+       * this guard the algorithm doesn't fail here — it corrupts state and
+       * throws an unrelated "Cannot read properties of undefined" several
+       * calls later, in a different function, with no clue what actually
+       * went wrong. This trades a single branch of blind coverage for a
+       * diagnosable failure exactly at the invariant that broke.
+       */
+      throw new Error(
+        `misraGriesColoring: no free color at vertex index ${x} (colorCount=${colorCount}, used=[${[...used].join(",")}]) — Vizing invariant violated, this is an algorithm bug`
+      );
+      /* v8 ignore stop */
+    }
   }
 
   function isFreeAt(x: number, c: number): boolean {

@@ -47,6 +47,55 @@ function fullRoundRobin(ids: string[]): Pairing[] {
   return pairs;
 }
 
+/**
+ * The three properties that actually make a reparto correct, not just "the
+ * right number of rounds" or "within Δ+1 colors" (SPEC §4.3, §8 criterio 2):
+ *
+ *   1. No round has any player appearing more than `maxPerRound` times —
+ *      with `maxPerRound = 1` this literally means "no repeated player in
+ *      the round" (the property a bare color-count assertion can miss
+ *      entirely: a coloring can respect Δ+1 colors and still double-book a
+ *      player if a round is built from the wrong color classes).
+ *   2. The exact multiset of `expectedPairs` is covered by the output:
+ *      every one of them appears exactly once, and nothing else does — no
+ *      duplicate, nothing missing, nothing invented.
+ *
+ * Every test that builds a reparto (via `roundRobinRounds` or
+ * `assignPairsToRounds`) should run its result through this, instead of
+ * repeating ad-hoc loops that usually only check one of the two.
+ */
+function assertValidReparto(
+  rounds: Pairing[][],
+  expectedPairs: Pairing[],
+  maxPerRound: number
+): void {
+  for (const round of rounds) {
+    const appearances = new Map<string, number>();
+    for (const p of round) {
+      appearances.set(p.homeId, (appearances.get(p.homeId) ?? 0) + 1);
+      appearances.set(p.awayId, (appearances.get(p.awayId) ?? 0) + 1);
+    }
+    for (const count of appearances.values()) {
+      expect(count).toBeLessThanOrEqual(maxPerRound);
+    }
+  }
+
+  const outputKeys = rounds.flat().map(pairKey).sort();
+  const expectedKeys = expectedPairs.map(pairKey).sort();
+  expect(outputKeys).toEqual(expectedKeys);
+}
+
+/** Groups `assignPairsToRounds`'s flat output back into per-round arrays. */
+function groupByRoundIndex(assigned: { roundIndex: number; homeId: string; awayId: string }[]): Pairing[][] {
+  const byIndex = new Map<number, Pairing[]>();
+  for (const a of assigned) {
+    const list = byIndex.get(a.roundIndex) ?? [];
+    list.push({ homeId: a.homeId, awayId: a.awayId });
+    byIndex.set(a.roundIndex, list);
+  }
+  return [...byIndex.values()];
+}
+
 const SIZES = [10, 11, 12, 13, 20]; // even and odd, per the task's requirement.
 const MATCHES_PER_ROUND = [1, 2, 3];
 
@@ -83,6 +132,8 @@ describe("AC-1: con n jugadores y matchesPerRound=k, genera exactamente C(n,2) p
         expect(total).toHaveLength(expectedPairingCount(n));
         expect(rounds).toHaveLength(roundsCount(n, k));
         expect(roundsCount(n, k)).toBe(expectedRoundsCount(n, k));
+        // Not just the right count: the right pairs, each once, no repeats.
+        assertValidReparto(rounds, fullRoundRobin(ids), k);
 
         const bothOdd = n % 2 !== 0 && k % 2 !== 0;
         if (!bothOdd) {
@@ -115,11 +166,9 @@ describe("AC-2: ningún jugador tiene más de k partidas en la misma ronda", () 
       it(`n=${n}, k=${k}`, () => {
         const ids = makeIds(n);
         const rounds = roundRobinRounds(ids, k);
-        for (const round of rounds) {
-          for (const id of ids) {
-            expect(countAppearances(round, id)).toBeLessThanOrEqual(k);
-          }
-        }
+        // assertValidReparto's cap check is exactly this criterion; it also
+        // confirms the pair coverage is exact (no dup/missing), for free.
+        assertValidReparto(rounds, fullRoundRobin(ids), k);
       });
     }
   }
@@ -148,6 +197,8 @@ describe("AC-3: con n par, cada jugador tiene exactamente k partidas por ronda s
             }
           }
         });
+        // Plus the general check: exact pair coverage, no repeats beyond k.
+        assertValidReparto(rounds, fullRoundRobin(ids), k);
       });
     }
   }
@@ -171,6 +222,7 @@ describe("AC-4: con n impar, ningún jugador queda con partida de bye", () => {
           expect(p.awayId).toBeTruthy();
           expect(p.homeId).not.toBe(p.awayId);
         }
+        assertValidReparto(rounds, fullRoundRobin(ids), k);
       });
     }
   }
@@ -204,6 +256,7 @@ describe("AC-3 (Walecki): n impar con k par produce (n-1)/2 rondas con cupo unif
 
       const total = rounds.flat();
       expect(total).toHaveLength(expectedPairingCount(n));
+      assertValidReparto(rounds, fullRoundRobin(ids), 2);
     });
   }
 });
@@ -257,6 +310,7 @@ describe("AC-5: el reparto es determinista", () => {
     const first = assignPairsToRounds(pairs, ids, 2, open);
     const second = assignPairsToRounds(pairs, ids, 2, open);
     expect(first).toEqual(second);
+    assertValidReparto(groupByRoundIndex(first), pairs, 2);
   });
 
   it("assignPairsToRounds: sobre K_n, misma salida que roundRobinRounds", () => {
@@ -272,6 +326,7 @@ describe("AC-5: el reparto es determinista", () => {
     expect(assigned).toHaveLength(pairs.length);
     const usedRoundIndexes = new Set(assigned.map((a) => a.roundIndex));
     expect(usedRoundIndexes.size).toBe(viaCircleMethod.length);
+    assertValidReparto(groupByRoundIndex(assigned), pairs, 2);
   });
 });
 
@@ -293,15 +348,7 @@ describe("AC-6: repartir un subgrafo arbitrario respeta el criterio 2 y no reasi
     const open = Array.from({ length: 12 }, (_, i) => i + 1);
     const assigned = assignPairsToRounds(pending, ids, 2, open);
 
-    const byRound = new Map<number, Pairing[]>();
-    for (const a of assigned) {
-      byRound.set(a.roundIndex, [...(byRound.get(a.roundIndex) ?? []), a]);
-    }
-    for (const round of byRound.values()) {
-      for (const id of ids) {
-        expect(countAppearances(round, id)).toBeLessThanOrEqual(2);
-      }
-    }
+    assertValidReparto(groupByRoundIndex(assigned), pending, 2);
   });
 
   it("no incluye ni reasigna ninguna partida excluida por ya tener Result", () => {
@@ -315,6 +362,7 @@ describe("AC-6: repartir un subgrafo arbitrario respeta el criterio 2 y no reasi
 
     expect(assigned.some((a) => pairKey(a) === resolvedKey)).toBe(false);
     expect(assigned).toHaveLength(pending.length);
+    assertValidReparto(groupByRoundIndex(assigned), pending, 2);
   });
 });
 
@@ -345,12 +393,22 @@ describe("Misra & Gries: nunca usa más de Δ+1 colores (SPEC §4.3, corrige D4)
     return Math.max(...degree.values());
   }
 
-  function journeysUsed(pairs: Pairing[], ids: string[]): number {
+  /**
+   * Colors `pairs` with `assignPairsToRounds` at `matchesPerRound = 1`
+   * (each "round" is then literally one color class — one journey), and
+   * returns both the grouped rounds (for `assertValidReparto`) and how many
+   * distinct colors were actually used.
+   */
+  function misraGriesRounds(
+    pairs: Pairing[],
+    ids: string[]
+  ): { rounds: Pairing[][]; colorsUsed: number } {
     // Give it as many open rounds as pairs (upper bound, always enough for
-    // matchesPerRound=1: one journey per round), then count distinct rounds.
+    // matchesPerRound=1: one journey per round).
     const open = Array.from({ length: pairs.length + 1 }, (_, i) => i + 1);
     const assigned = assignPairsToRounds(pairs, ids, 1, open);
-    return new Set(assigned.map((a) => a.roundIndex)).size;
+    const rounds = groupByRoundIndex(assigned);
+    return { rounds, colorsUsed: rounds.length };
   }
 
   /** K_n with the first `removeCount` pairs (lexicographic order) removed. */
@@ -372,12 +430,15 @@ describe("Misra & Gries: nunca usa más de Δ+1 colores (SPEC §4.3, corrige D4)
     ];
 
     for (const [name, n, removeCount, delta, expectedColors] of cases) {
-      it(`${name}: Δ=${delta}, usa exactamente ${expectedColors} colores (≤ Δ+1=${delta + 1})`, () => {
+      it(`${name}: Δ=${delta}, usa exactamente ${expectedColors} colores (≤ Δ+1=${delta + 1}), coloreado válido`, () => {
         const { ids, pairs } = kMinus(n, removeCount);
         expect(maxDegree(pairs)).toBe(delta);
-        const used = journeysUsed(pairs, ids);
-        expect(used).toBeLessThanOrEqual(delta + 1);
-        expect(used).toBe(expectedColors); // pinned exact regression value.
+        const { rounds, colorsUsed } = misraGriesRounds(pairs, ids);
+        expect(colorsUsed).toBeLessThanOrEqual(delta + 1);
+        expect(colorsUsed).toBe(expectedColors); // pinned exact regression value.
+        // Not just the color count: no round repeats a player, and every
+        // pair of `pairs` is covered exactly once.
+        assertValidReparto(rounds, pairs, 1);
       });
     }
   });
@@ -388,8 +449,9 @@ describe("Misra & Gries: nunca usa más de Δ+1 colores (SPEC §4.3, corrige D4)
       it(`n=${n}`, () => {
         const { ids, pairs } = kMinus(n, 1);
         const delta = maxDegree(pairs);
-        const used = journeysUsed(pairs, ids);
-        expect(used).toBeLessThanOrEqual(delta + 1);
+        const { rounds, colorsUsed } = misraGriesRounds(pairs, ids);
+        expect(colorsUsed).toBeLessThanOrEqual(delta + 1);
+        assertValidReparto(rounds, pairs, 1);
       });
     }
   });
@@ -401,8 +463,9 @@ describe("Misra & Gries: nunca usa más de Δ+1 colores (SPEC §4.3, corrige D4)
       homeId: hub < id ? hub : id,
       awayId: hub < id ? id : hub,
     }));
-    const used = journeysUsed(pairs, ids);
-    expect(used).toBeLessThanOrEqual(maxDegree(pairs) + 1);
+    const { rounds, colorsUsed } = misraGriesRounds(pairs, ids);
+    expect(colorsUsed).toBeLessThanOrEqual(maxDegree(pairs) + 1);
+    assertValidReparto(rounds, pairs, 1);
   });
 
   it("subgrafo con grados muy desiguales (algunos jugadores casi al día, otros con toda la liga pendiente)", () => {
@@ -412,8 +475,9 @@ describe("Misra & Gries: nunca usa más de Δ+1 colores (SPEC §4.3, corrige D4)
     // pairs against players 0-2 pending (already played among themselves).
     const heavy = new Set(ids.slice(0, 3));
     const pending = all.filter((p) => heavy.has(p.homeId) || heavy.has(p.awayId));
-    const used = journeysUsed(pending, ids);
-    expect(used).toBeLessThanOrEqual(maxDegree(pending) + 1);
+    const { rounds, colorsUsed } = misraGriesRounds(pending, ids);
+    expect(colorsUsed).toBeLessThanOrEqual(maxDegree(pending) + 1);
+    assertValidReparto(rounds, pending, 1);
   });
 
   it("subgrafo disperso (ciclo impar): grado bajo pero cromático impar", () => {
@@ -422,8 +486,9 @@ describe("Misra & Gries: nunca usa más de Δ+1 colores (SPEC §4.3, corrige D4)
       const next = ids[(i + 1) % ids.length];
       return { homeId: id < next ? id : next, awayId: id < next ? next : id };
     });
-    const used = journeysUsed(pairs, ids);
-    expect(used).toBeLessThanOrEqual(maxDegree(pairs) + 1);
+    const { rounds, colorsUsed } = misraGriesRounds(pairs, ids);
+    expect(colorsUsed).toBeLessThanOrEqual(maxDegree(pairs) + 1);
+    assertValidReparto(rounds, pairs, 1);
   });
 
   // ---- Deterministic pseudo-random generator, reused by the property test
@@ -447,13 +512,14 @@ describe("Misra & Gries: nunca usa más de Δ+1 colores (SPEC §4.3, corrige D4)
         return rnd() < (isSkewed ? 0.9 : 0.3);
       });
       if (pending.length === 0) continue;
-      const used = journeysUsed(pending, ids);
-      expect(used).toBeLessThanOrEqual(maxDegree(pending) + 1);
+      const { rounds, colorsUsed } = misraGriesRounds(pending, ids);
+      expect(colorsUsed).toBeLessThanOrEqual(maxDegree(pending) + 1);
+      assertValidReparto(rounds, pending, 1);
     }
   });
 
   // ---- Property test: many sizes, densities and skews, deterministic PRNG. ----
-  it("property test: Δ+1 se cumple en decenas de subgrafos aleatorios deterministas (varios tamaños y densidades)", () => {
+  it("property test: Δ+1 se cumple y el coloreado es válido en decenas de subgrafos aleatorios deterministas (varios tamaños y densidades)", () => {
     let casesChecked = 0;
     for (let n = 5; n <= 20; n++) {
       for (const density of [0.15, 0.35, 0.5, 0.7, 0.9]) {
@@ -465,8 +531,9 @@ describe("Misra & Gries: nunca usa más de Δ+1 colores (SPEC §4.3, corrige D4)
           if (pending.length === 0) continue;
           casesChecked++;
           const delta = maxDegree(pending);
-          const used = journeysUsed(pending, ids);
-          expect(used).toBeLessThanOrEqual(delta + 1);
+          const { rounds, colorsUsed } = misraGriesRounds(pending, ids);
+          expect(colorsUsed).toBeLessThanOrEqual(delta + 1);
+          assertValidReparto(rounds, pending, 1);
         }
       }
     }
@@ -480,6 +547,27 @@ describe("Misra & Gries: nunca usa más de Δ+1 colores (SPEC §4.3, corrige D4)
     const first = assignPairsToRounds(pairs, ids, 1, open);
     const second = assignPairsToRounds(pairs, ids, 1, open);
     expect(first).toEqual(second);
+    assertValidReparto(groupByRoundIndex(first), pairs, 1);
+  });
+
+  // ---- The point of this whole block: prove the new assertions actually
+  // catch a broken coloring, not just a bad color count. Forcing two
+  // adjacent edges (sharing a player) to the same color simulates exactly
+  // the bug this review is guarding against. ----
+  it("las aserciones nuevas cazan un coloreado inválido (dos aristas adyacentes forzadas al mismo color)", () => {
+    const ids = makeIds(6);
+    const pairs = fullRoundRobin(ids);
+    const { rounds } = misraGriesRounds(pairs, ids);
+    // Corrupt a genuinely valid reparto: merge the first two rounds into
+    // one. Since every round is itself a matching (SPEC §4.3), and two
+    // different rounds necessarily share at least one player's pair of
+    // matches, this reintroduces a repeated player within a single round —
+    // exactly the class of bug a bare "colors <= Delta+1" count would miss.
+    const corrupted = [
+      [...rounds[0], ...rounds[1]],
+      ...rounds.slice(2),
+    ];
+    expect(() => assertValidReparto(corrupted, pairs, 1)).toThrow();
   });
 });
 
