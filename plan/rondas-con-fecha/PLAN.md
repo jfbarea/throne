@@ -241,6 +241,59 @@ con la config del seed (`bonusEnabled: true`, `bonusMarginThreshold: 20`,
 
 ---
 
+## H5b · `endurecer-guardas-transaccionales`
+
+**Estado:** PENDING
+**Cierra criterios de la spec:** ninguno (corrección de defecto). Refuerza los
+**18, 21** y **23-26**, que sin esto son burlables.
+
+Hito **añadido**, no previsto en el plan original. Sale de la re-review de H5:
+al cerrar el TOCTOU de la guarda de D5, el reviewer aplicó el mismo criterio a
+la guarda de **ronda cerrada** y encontró el defecto idéntico, esta vez
+**preexistente desde H4**.
+
+**El defecto.** `match.round?.closedAt` se lee **una sola vez antes** de abrir
+`prisma.$transaction` y **nunca se refresca dentro**, en `declareWalkover` **y**
+en `reportResult`. Reproducido: un participante puede colar un resultado —o una
+incomparecencia— justo en la ventana en la que el admin cierra la ronda, y la
+escritura entra en una ronda ya cerrada. Eso rompe el criterio **21** («tras el
+cierre, un participante que intenta apuntar recibe error») y contamina el saldo
+del criterio **18**.
+
+La ventana es real: el despliegue es serverless contra Turso, con latencia de red
+en cada operación de DB.
+
+**Qué hacer.** El mismo patrón que resolvió el TOCTOU de D5, ya validado:
+
+- La lectura previa se queda como **atajo de UX** (rechazo rápido, mensaje en
+  español, sin abrir transacción).
+- **Dentro** de la transacción, como primera instrucción, **releer con `tx`** el
+  `closedAt` de la ronda y aplicar **el mismo predicado puro**
+  `canReportGivenRoundClosed`. La de dentro manda.
+- Aplicarlo en **las dos** acciones: `reportResult` y `declareWalkover`.
+- Abortar con un error tipado y capturarlo **acotado** (`instanceof`), para que
+  un fallo real de DB no se traduzca al mensaje de ronda cerrada. En D5 se hizo
+  así y el reviewer lo verificó inyectando un fallo genérico.
+
+**Barrido, no solo estos dos.** Revisar **toda** acción que decida con datos
+leídos fuera de la transacción y escriba dentro: la validación del `winnerId`,
+la guarda de regeneración de `generateLeagueMatches`, `closeRound`,
+`updateRoundDeadline`. Documentar cuáles se endurecen y cuáles no lo necesitan,
+con el motivo.
+
+**Criterios de aceptación del hito:**
+
+1. Test que **falla sin el fix**: un participante intenta apuntar y el cierre de
+   ronda del admin aterriza en la ventana entre la lectura previa y la
+   transacción → la escritura se **rechaza** y la ronda queda cerrada y coherente.
+2. El mismo test para `declareWalkover`.
+3. Un fallo real de DB dentro de la transacción **no** se reporta como «la ronda
+   está cerrada».
+4. El override del admin sigue funcionando en ronda cerrada (criterio 21) y
+   editar **no reabre** la ronda.
+5. Sin regresión: los 422 tests actuales siguen verdes.
+6. El barrido está escrito, con el veredicto de cada acción revisada.
+
 ## H6 · `ui-cupo-y-rondas`
 
 **Estado:** PENDING

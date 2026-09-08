@@ -454,3 +454,188 @@ en el diff que excluya código escrito a mano.
    mock de `prisma.$transaction` que intercala una escritura real en medio),
    para que esta clase de hueco no pueda reintroducirse en silencio si en el
    futuro alguien vuelve a mover la lectura fuera de la transacción.
+
+---
+
+# Re-review — TOCTOU cerrado (commit `639466b`)
+
+## Veredicto: APPROVED (con un hallazgo nuevo, transversal, no bloqueante de este commit)
+
+El fix hace exactamente lo que dijo que haría y cierra el TOCTOU que
+reproduje en la vuelta anterior: repetí mi experimento original tal cual —
+mismo mock de `prisma.$transaction`, mismo `reportResult` real colándose en
+la ventana entre la lectura previa y la apertura de la transacción — y ahora
+`declareWalkover` lo rechaza con el mensaje correcto, dejando el `Result`
+45-40 real intacto. El `catch` está acotado por `instanceof` (verificado
+inyectando un fallo de DB genérico dentro de la transacción: se propaga como
+excepción real, no se traduce al mensaje de D5). El test nuevo no es
+tautológico (falla contra el código pre-fix con el mismo mensaje exacto que
+predice el commit) y no hay regresión en los tres casos que debían seguir
+permitidos.
+
+Al revisar con el mismo criterio la guarda de ronda cerrada, como pedía el
+coordinador, encontré que **tiene el mismo patrón de TOCTOU** (dato leído
+antes de la transacción, nunca refrescado dentro) y lo reproduje con el mismo
+método. No es parte de este commit ni una regresión suya — es un patrón
+preexistente desde H4, compartido por `reportResult` y `declareWalkover` por
+igual, que ninguna revisión anterior (incluida la aprobación de H4) llegó a
+ejercitar bajo esta condición de carrera concreta. Lo reporto como hallazgo
+nuevo y transversal, no como bloqueante de `639466b`: bloquearía este commit
+por un problema que no toca y que ya existía, aprobado, desde dos hitos
+atrás.
+
+## 1. El TOCTOU original — cerrado, verificado repitiendo el experimento
+
+Repetí el test que usé para destapar el bloqueante de la vuelta anterior,
+palabra por palabra en su lógica: `declareWalkover` (el "pendiente") lee un
+`WALKOVER` existente antes de su transacción, decide continuar; en la ventana
+antes de que su transacción se abra, un `reportResult` real y completo del
+otro participante confirma un 45-40; con el código de `2d10f54` esto
+sobrescribía el 45-40 con un 80-0 fabricado — con `639466b` en su sitio, la
+re-lectura con `tx.result.findUnique` (`src/server/result-actions.ts:496-508`,
+primera instrucción dentro del callback de `prisma.$transaction`) ve el
+`PLAYED` recién confirmado, aplica el mismo predicado
+`canDeclareWalkoverOverExistingResult` y lanza
+`WalkoverBlockedByPlayedResultError`, que se captura fuera y se traduce al
+mismo `{ok:false, error:"Esta partida ya tiene un resultado jugado..."}`.
+Confirmado con salida real:
+
+```
+race declareWalkover result (post-fix): { ok: false, error: 'Esta partida ya tiene un resultado jugado. Habla con el admin.' }
+final Result after race (post-fix): { homeVictoryPoints: 45, awayVictoryPoints: 40, outcome: 'HOME_WIN', resolution: 'PLAYED', ... }
+```
+
+El `Result` que sobrevive es el real, no el fabricado. La ventana está
+cerrada para este camino concreto.
+
+## 2. ¿Se ha movido la ventana a otro sitio? Sí — a la guarda de ronda cerrada, pero no es parte de este fix
+
+Revisé, con el mismo criterio, cada dato usado dentro de la transacción de
+`declareWalkover` que proviene de una lectura anterior a ella:
+
+- **`winnerId`** (contra `match.playerHomeId`/`playerAwayId`): sin riesgo.
+  Los participantes de un `Match` son inmutables una vez creado — no hay
+  ninguna acción en todo `src/server/` que reasigne `playerHomeId` o
+  `playerAwayId` de una partida existente (confirmado por `grep` sobre
+  `playerHomeId:\|playerAwayId:` en las escrituras de `Match`: solo aparecen
+  en `match.create`). No hay TOCTOU posible aquí porque el dato no cambia.
+- **La guarda de ronda cerrada** (`canReportGivenRoundClosed(match.round?.closedAt ?? null, isAdmin)`,
+  línea 432): **sí tiene el mismo patrón**. `match` se carga una única vez al
+  principio de la función (`prisma.match.findUnique` con `include: {round: true}`),
+  y ese `closedAt` nunca se vuelve a leer dentro de la transacción. Lo
+  reproduje con la misma técnica: monté una partida con su ronda abierta,
+  dejé que `declareWalkover` de un participante leyera `closedAt: null` y
+  decidiera continuar, y en la ventana antes de que su transacción se abriera
+  hice que el admin cerrara la ronda de verdad (`closeRound`, con su propia
+  transacción, completa). El resultado: la transacción del participante
+  procedió igual y escribió su `WALKOVER`, con la ronda ya cerrada en la
+  base de datos en ese momento:
+
+  ```
+  declareWalkover result after concurrent close: { ok: true, data: { resultId: '...' } }
+  round closedAt: 2026-09-08T20:59:48.227Z
+  result: { homeVictoryPoints: 80, awayVictoryPoints: 0, resolution: 'WALKOVER', ... }
+  ```
+
+  Confirmé además que `reportResult` (`src/server/result-actions.ts:98-160`)
+  tiene exactamente la misma forma — `match` cargado una vez antes de su
+  única transacción, `closedAt` nunca refrescado dentro — así que esto no es
+  algo que `declareWalkover` o `639466b` hayan introducido: es un patrón que
+  existe desde que H4 añadió `canReportGivenRoundClosed` y que ni la revisión
+  de H4 (que probó la atomicidad *interna* de `closeRound`, no una carrera
+  *contra* `closeRound`) ni las dos vueltas anteriores de esta revisión
+  llegaron a ejercitar bajo esta condición. Es un hallazgo real, pero
+  **transversal y preexistente**, no un defecto de este commit ni algo que
+  `639466b` debiera haber cerrado — su encargo era, correctamente, el
+  TOCTOU de `resolution` que yo mismo había señalado. Lo dejo documentado
+  aquí para que el coordinador decida si merece su propia entrada en
+  `PLAN.md` (una D6, o una nota de riesgo para un hito de endurecimiento),
+  no como bloqueante de este fix.
+
+## 3. El `catch`: acotado por `instanceof`, no traga errores reales
+
+Inyecté un `throw new Error("INJECTED_DB_FAILURE")` justo después de que la
+re-lectura autoritativa de D5 pasara (antes de `tx.result.update`/`create`),
+simulando un fallo de escritura genuino dentro de la misma transacción. El
+resultado: la promesa de `declareWalkover` se **rechaza** con
+`INJECTED_DB_FAILURE` propagándose tal cual — no se convierte en `{ok:false,
+error:"...ya tiene un resultado jugado..."}`. El `catch` (`src/server/result-actions.ts`,
+al cierre del `try` que envuelve `prisma.$transaction`) hace
+`if (err instanceof WalkoverBlockedByPlayedResultError) {...} throw err;` —
+solo intercepta el sentinela exacto por tipo, cualquier otro error (de
+Prisma, de red, o cualquier excepción no relacionada) se re-lanza sin
+traducir. Revertí el sabotaje después (`git checkout --
+src/server/result-actions.ts`, árbol limpio).
+
+## 4. El test nuevo: no tautológico, con un acoplamiento razonable
+
+Comprobé que el test falla de verdad contra el código anterior, no solo que
+lo diga el mensaje del commit: aplicué la versión de `result-actions.ts` de
+`2d10f54` (antes de este fix) sobre el test nuevo y lo ejecuté —
+falla con `expected true to be false` en la misma línea que predice el
+commit (`attempt.ok` sigue siendo `true`, el walkover pendiente gana la
+carrera). Restauré la versión de `639466b` después y el test vuelve a pasar.
+
+Sobre la fragilidad: el test acopla el mock a `prisma.$transaction` siendo
+llamada **exactamente una vez** por invocación de `declareWalkover`, vía
+`mockImplementationOnce` instalado justo antes de la llamada que se quiere
+interceptar. Es un acoplamiento real, pero **inherente** a probar una
+condición de carrera en el límite de la transacción — no hay forma de testear
+esto sin tocar ese límite de alguna manera, y es la misma técnica que ya
+aprobé en la vuelta anterior para mi propio experimento y que reviews previas
+de esta feature usaron para probar atomicidad (inyectar un `throw` a mitad de
+una transacción). Sugerencia menor, no bloqueante: si en el futuro
+`declareWalkover` pasara a abrir más de una transacción, este test dejaría de
+interceptar la correcta sin previo aviso (fallaría de forma confusa, no
+silenciosamente) — no lo cambiaría ahora, pero merece un comentario que lo
+avise si el código se toca de nuevo.
+
+## 5. Sin regresión en los casos permitidos
+
+Los tres tests de la vuelta de D5 (sin `Result`, cambio de vencedor sobre un
+`WALKOVER` existente, override del admin) no se tocan en este diff — solo se
+añade el nuevo test del TOCTOU — y los tres siguen en verde en la corrida
+completa.
+
+## Regresión
+
+- `npm run lint` → **0 errores, 0 warnings**.
+- `npm run test` → `Test Files 12 passed (12)` / `Tests 422 passed (422)` —
+  coincide exactamente con el baseline anunciado (421 + 1 test nuevo del
+  TOCTOU).
+- `npm run build` → compila, 20 rutas, sin errores.
+- `npm run e2e` → **37 pasan, 1 skipped**, idéntico al baseline.
+
+## Bloqueantes
+
+Ninguno para este commit.
+
+## Sugerencias (no bloqueantes)
+
+1. **(Punto 2, el hallazgo nuevo)** La guarda de ronda cerrada
+   (`canReportGivenRoundClosed`) tiene el mismo patrón de TOCTOU que tenía la
+   guarda de D5 antes de este fix — reproducido con evidencia directa: un
+   participante puede colar un `WALKOVER` (o, por el mismo mecanismo, un
+   `reportResult`) justo cuando el admin cierra la ronda, si su lectura de
+   `closedAt` se hizo antes del cierre. Es preexistente desde H4, compartido
+   por `reportResult` y `declareWalkover`, y no es parte de `639466b`. Vale
+   la pena que el coordinador decida si merece una entrada propia en
+   `PLAN.md` (D6, o un hito de endurecimiento) — el arreglo tendría la misma
+   forma que el de este commit: releer `Round.closedAt` con el cliente de la
+   transacción como parte de la comprobación autoritativa, en ambas
+   acciones.
+2. Un comentario breve en el test del TOCTOU (`tests/incomparecencia.test.ts`)
+   advirtiendo que el mock de `prisma.$transaction` asume una única llamada
+   por invocación de `declareWalkover`, para que un futuro refactor que añada
+   una segunda transacción no deje el test fallando de forma confusa.
+
+## Nota sobre el cierre de H5
+
+Con este commit, el bloqueante de la re-review anterior queda resuelto. El
+hallazgo nuevo (punto 2 de esta sección) no bloquea `639466b` ni, a mi
+juicio, el cierre de H5 — es un patrón preexistente y transversal a
+`reportResult`/`declareWalkover` desde H4, no algo que este hito haya
+introducido ni que sus criterios de aceptación (23-26) exijan cerrar. Queda
+documentado para que se trate como una decisión aparte, igual que el
+etiquetado de `resolution` en `calendario`/`mis-partidas` quedó documentado
+en la review de H4 sin bloquearlo.
