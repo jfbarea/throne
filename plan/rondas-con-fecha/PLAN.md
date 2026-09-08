@@ -255,10 +255,28 @@ Spec §4.6.
   query** de partidas con `roundId` y `Result`, agregando en memoria.
 - `src/app/calendario/` — la ronda como agrupador o etiqueta.
 - `src/components/AppHeader.tsx` — entrada de navegación a `/rondas`.
+- **`src/app/calendario/MatchRow.tsx` y `src/app/mis-partidas/MatchCard.tsx` —
+  etiquetar según `resolution`.** Hueco del plan detectado en la review de H4:
+  hoy los dos componentes etiquetan `status: REPORTED` como «Jugada» /
+  «Apuntada» y **ninguno lee `resolution`** (`grep -rn "resolution" src/app` no
+  devuelve nada). En cuanto el admin cierre una ronda, el jugador vería una
+  partida que **nadie jugó** como «Jugada». La spec §4.9 asigna a `resolution`
+  precisamente ese trabajo —«se usa para etiquetar la partida en la UI
+  («incomparecencia»)»—, así que no es una desviación: es una tarea que no
+  estaba asignada a ningún hito. H7 solo cubre el contador agregado de
+  `/clasificacion`.
 
 **Criterios de aceptación del hito:** los **9, 12 y 13** de la spec. El 12
 (sin N+1) se verifica **contando queries** con una extensión de logging del
-cliente Prisma en test, no mirando la pantalla (spec §7.3).
+cliente Prisma en test, no mirando la pantalla (spec §7.3). Además:
+
+- Una partida con `resolution = UNPLAYED_DRAW` **no** se etiqueta «Jugada» ni
+  «Apuntada» en `calendario` ni en `mis-partidas`: se distingue como saldada sin
+  jugar.
+- Una partida con `resolution = WALKOVER` se etiqueta **«incomparecencia»**
+  (§4.9), en las dos vistas.
+- Una partida con `resolution = PLAYED` mantiene **exactamente** las etiquetas
+  de hoy: este cambio no altera lo que ve el usuario en el caso normal.
 
 ---
 
