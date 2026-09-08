@@ -99,9 +99,10 @@ export function roundsCount(
    * `perPlayerBound` in every achievable case (verified computationally
    * for n up to 41, every k up to 15 — see the builder's report) and is
    * strictly larger exactly in the odd-`n`-odd-`k` corner above, where the
-   * general `Δ + 1` greedy coloring (`greedyMatchings`) is what actually
-   * achieves it (grouping its `n` single-match journeys `k` at a time,
-   * `ceil(n / k)`, which numerically equals this bound in that corner).
+   * exact bye-rotation construction (`oddCompleteGraphJourneys`) is what
+   * actually achieves it (grouping its `n` single-match journeys `k` at a
+   * time, `ceil(n / k)`, which numerically equals this bound in that
+   * corner).
    *
    * Taking the max of the two therefore returns the spec's own number
    * whenever it is reachable, and the true, still-minimal, one-round-more
@@ -122,7 +123,7 @@ export function roundsCount(
  * rest rotating around it, `n - 1` journeys, each a perfect matching (every
  * player appears exactly once per journey — SPEC §4.3). Only ever called
  * with even `n` — odd `n` uses `waleckiFactors` (even `matchesPerRound`) or
- * the greedy fallback (odd `matchesPerRound`) instead, see
+ * `oddCompleteGraphJourneys` (odd `matchesPerRound`) instead, see
  * `decomposeCompleteGraph`, so there is no bye/resting-player case to handle
  * here at all.
  *
@@ -167,21 +168,16 @@ function circleMethodJourneys(sortedIds: string[]): Pairing[][] {
  * bye seat in a given journey simply has no match that journey — no bye
  * `Match` is ever created (SPEC §5.3, ADR-007 "sin byes de liga").
  *
- * This is the exact (not heuristic) construction for the one case with no
- * K_n-wide 2-factorization available: `n` odd, `matchesPerRound` odd (see
- * `roundsCount`'s proof). A plain descending-degree greedy over the *whole*
- * complete graph is not good enough here — on a fully symmetric graph like
- * K_n every vertex ties on degree, and the textbook worst-case bound for
- * greedy edge coloring in an arbitrary order is `2Δ - 1`, not `Δ + 1`
- * (confirmed empirically: an earlier version of this module used the
- * generic greedy directly on K_11 and produced 13 journeys instead of the
- * achievable 11). This construction sidesteps that entirely: it always
- * produces exactly `n` journeys, deterministically, matching
- * `roundsCount`'s `ceil(n / matchesPerRound)` for this case exactly.
+ * This is the exact construction for the one case with no K_n-wide
+ * 2-factorization available: `n` odd, `matchesPerRound` odd (see
+ * `roundsCount`'s proof). It sidesteps `misraGriesColoring` entirely for
+ * this case, on purpose: it always produces exactly `n` journeys,
+ * deterministically, matching `roundsCount`'s `ceil(n / matchesPerRound)`
+ * for this case exactly, with no need to even invoke the general algorithm.
  *
- * The general-purpose `greedyMatchings` stays reserved for what it is
- * actually needed for and empirically well-behaved on: genuine, irregular
- * subgraphs (Hito 8's pending-matches recalculation), never the full K_n.
+ * `misraGriesColoring` stays reserved for what it is actually needed for:
+ * genuine, irregular subgraphs (Hito 8's pending-matches recalculation),
+ * never the full K_n.
  */
 function oddCompleteGraphJourneys(sortedIds: string[]): Pairing[][] {
   const BYE = Symbol("bye");
@@ -283,9 +279,9 @@ function pairKey(p: Pairing): string {
 /**
  * Whether `pairs` is exactly the full round-robin over `ids` — every unique
  * pair present once, nothing missing, nothing extra. Used to decide whether
- * `assignPairsToRounds` can delegate to the optimal circle method or must
- * fall back to the general-purpose greedy coloring (SPEC §4.3: "el caso
- * general se reduce a él [circle method] sobre K_n").
+ * `assignPairsToRounds` can delegate to an exact `K_n` construction or must
+ * fall back to the general-purpose Misra & Gries coloring (SPEC §4.3: "el
+ * caso general se reduce a él [circle method] sobre K_n").
  *
  * Precondition (enforced by the caller, `assignPairsToRounds`, before this
  * runs): every pair in `pairs` only references players in `ids`. Under that
@@ -309,7 +305,7 @@ function isCompleteGraph(pairs: Pairing[], ids: string[]): boolean {
  * A K_n edge-coloring split into equal-degree "factors" (color classes),
  * plus how many of them make up one round. `unitDegree` is how many matches
  * each factor contributes per player it touches: 1 for a matching (circle
- * method, greedy fallback), 2 for a Walecki Hamiltonian cycle. A round is
+ * method, bye rotation), 2 for a Walecki Hamiltonian cycle. A round is
  * always `matchesPerRound / unitDegree` factors, chosen so every full round
  * gives exactly `matchesPerRound` matches per player.
  */
@@ -331,8 +327,9 @@ interface FactorDecomposition {
  *   construction is guaranteed to exist (see `roundsCount`'s proof), so the
  *   round count itself is one more than the per-player bound in the
  *   narrowest cases. `oddCompleteGraphJourneys` still constructs it exactly
- *   (not via the generic greedy — see that function's doc for why plain
- *   greedy is not reliable enough on a fully symmetric graph like K_n).
+ *   (not via `misraGriesColoring` — see that function's own doc for why a
+ *   general-purpose algorithm is unnecessary, and would need care, on a
+ *   fully symmetric graph like K_n).
  */
 function decomposeCompleteGraph(
   sortedIds: string[],
@@ -390,64 +387,165 @@ export function roundRobinRounds(
 }
 
 // ---------------------------------------------------------------------------
-// General-purpose greedy edge coloring — for arbitrary subgraphs (Hito 8).
+// Misra & Gries edge coloring — for arbitrary subgraphs (Hito 8).
 // ---------------------------------------------------------------------------
 
 /**
- * Split an arbitrary set of pairs into the minimum practical number of
- * "journeys" (matchings — no player repeated within one), via a greedy
- * algorithm: repeatedly extract a maximal matching, always preferring the
- * edge whose endpoints currently have the highest combined remaining degree
- * (SPEC §4.3: "coloreado voraz por grado descendente"). By Vizing's theorem
- * this style of algorithm never needs more than `Δ + 1` journeys, where `Δ`
- * is the highest number of pending pairs any single player has.
+ * Misra & Gries edge coloring: a constructive proof of Vizing's theorem,
+ * `O(V·E)`. This is the one algorithm actually used here that is *proven* to
+ * never need more than `Δ + 1` colors, `Δ` being the highest number of
+ * pending pairs any single player has.
  *
- * Deterministic: ties in degree are broken lexicographically by
- * (homeId, awayId), never by iteration order of a Set/Map.
+ * This replaces an earlier version of this function that picked edges by
+ * descending combined degree and greedily assigned the smallest available
+ * color at each step. That reads like "the greedy Vizing bound" but is not
+ * one: a plain greedy edge coloring (any fixed order, always taking the
+ * smallest legal color) is only guaranteed `2Δ - 1` colors in the worst
+ * case, and K_n-minus-a-few-edges — exactly the shape of the pending
+ * matches after a Hito 8 recalculation (SPEC §5.1, §5.5) — hits that worst
+ * case in practice: K_12 minus one edge needed 15 colors with the old
+ * function (Δ + 1 = 12). SPEC §4.3 itself asserts the `Δ + 1` bound for "a
+ * greedy coloring by descending degree", which is the same conflation; that
+ * assertion doesn't hold for any plain greedy, and is corrected in SPEC.md
+ * at Hito 10 (deviation D4, PLAN.md). This function is what actually
+ * delivers the guarantee the spec meant.
+ *
+ * Reference algorithm, for each uncolored edge `(x, y)`:
+ *   1. Build a maximal **fan** of `x` starting at `y`: a sequence of
+ *      distinct neighbors `y = f₁, f₂, …, fₖ` where every `(x, fᵢ)` for
+ *      `i ≥ 2` is already colored with a color free at `f_{i-1}`.
+ *   2. Pick `c` free at `x` and `d` free at the fan's last vertex `fₖ`.
+ *   3. Find the maximal `c`/`d` alternating path (Kempe chain) starting at
+ *      `x` and invert it (swap `c` and `d` along it) — this frees `d` at
+ *      `x` without breaking properness anywhere else.
+ *   4. Scan the fan from the start for the (possibly new, if the inversion
+ *      touched the fan) vertex `w` where `d` is now free, rotate the fan up
+ *      to `w` (each edge takes the color of the next one in the sequence),
+ *      and color `(x, w)` with `d`. Since `w` is (or defaults to) `y`
+ *      itself, this always ends up coloring the original edge.
+ *
+ * Deterministic: vertices are processed in the fixed lexicographic id
+ * order established by the caller; fan candidates and the Kempe-chain walk
+ * are chosen by ascending vertex index whenever more than one option
+ * exists (properness guarantees at most one exists when walking the
+ * chain — only the fan-building step ever has a real tie to break).
  */
-function greedyMatchings(pairs: Pairing[]): Pairing[][] {
-  let remaining = [...pairs];
-  const matchings: Pairing[][] = [];
+function misraGriesColoring(pairs: Pairing[], sortedIds: string[]): Pairing[][] {
+  const index = new Map(sortedIds.map((id, i) => [id, i]));
+  const n = sortedIds.length;
 
-  while (remaining.length > 0) {
-    const degree = new Map<string, number>();
-    for (const p of remaining) {
-      degree.set(p.homeId, (degree.get(p.homeId) ?? 0) + 1);
-      degree.set(p.awayId, (degree.get(p.awayId) ?? 0) + 1);
-    }
+  const adjacency: number[][] = Array.from({ length: n }, () => []);
+  const edges: [number, number][] = pairs
+    .map((p): [number, number] => [index.get(p.homeId)!, index.get(p.awayId)!])
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  for (const [u, v] of edges) {
+    adjacency[u].push(v);
+    adjacency[v].push(u);
+  }
+  for (const list of adjacency) list.sort((a, b) => a - b);
 
-    const sorted = [...remaining].sort((a, b) => {
-      // Every id read here comes straight from `remaining`, the very array
-      // `degree` was just built from, so both lookups are always defined —
-      // a non-null assertion instead of a `?? 0` fallback keeps that
-      // invariant explicit instead of pretending the map could miss.
-      const degA = degree.get(a.homeId)! + degree.get(a.awayId)!;
-      const degB = degree.get(b.homeId)! + degree.get(b.awayId)!;
-      if (degA !== degB) return degB - degA; // descending degree first.
-      if (a.homeId !== b.homeId) return a.homeId.localeCompare(b.homeId);
-      return a.awayId.localeCompare(b.awayId);
-    });
+  const maxDegree = adjacency.reduce((max, list) => Math.max(max, list.length), 0);
+  if (maxDegree === 0) return []; // no edges at all.
+  const colorCount = maxDegree + 1;
+  const allColors = Array.from({ length: colorCount }, (_, i) => i);
 
-    const usedInThisMatching = new Set<string>();
-    const matching: Pairing[] = [];
-    const leftover: Pairing[] = [];
-    for (const p of sorted) {
-      if (!usedInThisMatching.has(p.homeId) && !usedInThisMatching.has(p.awayId)) {
-        matching.push(p);
-        usedInThisMatching.add(p.homeId);
-        usedInThisMatching.add(p.awayId);
-      } else {
-        leftover.push(p);
-      }
-    }
-    // Same reasoning as circleMethodJourneys: a matching never repeats a
-    // homeId, so sorting by homeId alone is already deterministic.
-    matching.sort((x, y) => x.homeId.localeCompare(y.homeId));
-    matchings.push(matching);
-    remaining = leftover;
+  // color[x] maps neighbor index -> color index (0..colorCount - 1).
+  const color: Map<number, number>[] = Array.from({ length: n }, () => new Map());
+
+  function smallestFreeColor(x: number): number {
+    const used = new Set(color[x].values());
+    // Vizing's premise guarantees a free color always exists here:
+    // |used| <= degree(x) <= maxDegree < colorCount. A non-null assertion
+    // documents that guarantee instead of a defensive branch that could
+    // never actually run (and so could never be covered honestly).
+    return allColors.find((c) => !used.has(c))!;
   }
 
-  return matchings;
+  function isFreeAt(x: number, c: number): boolean {
+    for (const usedColor of color[x].values()) {
+      if (usedColor === c) return false;
+    }
+    return true;
+  }
+
+  function setColor(a: number, b: number, c: number): void {
+    color[a].set(b, c);
+    color[b].set(a, c);
+  }
+
+  /** The maximal c/d-alternating path starting at `x`, inverted in place. */
+  function invertKempeChain(x: number, c: number, d: number): void {
+    if (c === d) return; // d is already free at x — nothing to invert.
+    const path = [x];
+    let current = x;
+    let want = d; // c is free at x, so the first edge (if any) must be `d`.
+    for (;;) {
+      // At most one neighbor can have color `want` (proper coloring), so
+      // whichever one the scan finds first is the only one there is.
+      const next = adjacency[current].find((z) => color[current].get(z) === want);
+      if (next === undefined) break;
+      path.push(next);
+      current = next;
+      want = want === c ? d : c;
+    }
+    for (let i = 0; i < path.length - 1; i++) {
+      const a = path[i];
+      const b = path[i + 1];
+      const previous = color[a].get(b)!;
+      setColor(a, b, previous === c ? d : c);
+    }
+  }
+
+  /** Maximal fan of `x` starting at `y` (SPEC-independent graph theory). */
+  function buildMaximalFan(x: number, y: number): number[] {
+    const fan = [y];
+    const used = new Set([y]);
+    for (;;) {
+      const last = fan[fan.length - 1];
+      const candidates = adjacency[x].filter(
+        (z) => !used.has(z) && color[x].has(z) && isFreeAt(last, color[x].get(z)!)
+      );
+      if (candidates.length === 0) break;
+      const next = Math.min(...candidates); // deterministic tie-break.
+      fan.push(next);
+      used.add(next);
+    }
+    return fan;
+  }
+
+  function colorEdge(x: number, y: number): void {
+    const fan = buildMaximalFan(x, y);
+    const c = smallestFreeColor(x);
+    const d = smallestFreeColor(fan[fan.length - 1]);
+    invertKempeChain(x, c, d);
+
+    // The inversion may have changed colors on some fan edges, so the
+    // vertex where `d` is now free might not be the fan's last vertex
+    // anymore — scan from the start for the first one where it is.
+    const wIndex = fan.findIndex((f) => isFreeAt(f, d));
+    for (let i = 0; i < wIndex; i++) {
+      setColor(x, fan[i], color[x].get(fan[i + 1])!);
+    }
+    setColor(x, fan[wIndex], d);
+  }
+
+  for (const [u, v] of edges) {
+    if (!color[u].has(v)) colorEdge(u, v);
+  }
+
+  const matchings: Pairing[][] = Array.from({ length: colorCount }, () => []);
+  for (const p of pairs) {
+    const u = index.get(p.homeId)!;
+    const v = index.get(p.awayId)!;
+    matchings[color[u].get(v)!].push(p);
+  }
+  // A color class is a matching by definition — every homeId in it is
+  // already unique, same reasoning as circleMethodJourneys, so sorting by
+  // homeId alone is enough to make the output order deterministic.
+  for (const matching of matchings) {
+    matching.sort((x, y) => x.homeId.localeCompare(y.homeId));
+  }
+  return matchings.filter((m) => m.length > 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -475,8 +573,9 @@ export interface RoundAssignment extends Pairing {
  *   this delegates to the same exact construction `roundRobinRounds` uses
  *   (`decomposeCompleteGraph`), so it is optimal and matches `roundsCount`.
  * - Otherwise (an arbitrary subgraph — e.g. the pending matches left after
- *   a Hito 8 recalculation) it falls back to the greedy, degree-descending
- *   matching extraction, which never needs more than `Δ + 1` matchings.
+ *   a Hito 8 recalculation) it falls back to `misraGriesColoring`, which is
+ *   *proven* to never need more than `Δ + 1` matchings (unlike a plain
+ *   greedy — see that function's doc).
  *
  * @param pairs - Pairs to place. Every pair not already resolved elsewhere;
  *   this function never sees, and therefore never reassigns, a pair that
@@ -510,7 +609,7 @@ export function assignPairsToRounds(
   const sortedIds = [...idSet].sort((a, b) => a.localeCompare(b));
   const { factors, unitDegree } = isCompleteGraph(pairs, sortedIds)
     ? decomposeCompleteGraph(sortedIds, matchesPerRound)
-    : { factors: greedyMatchings(pairs), unitDegree: 1 as const };
+    : { factors: misraGriesColoring(pairs, sortedIds), unitDegree: 1 as const };
   const groupSize = matchesPerRound / unitDegree;
 
   const sortedRoundIndexes = [...openRoundIndexes].sort((a, b) => a - b);

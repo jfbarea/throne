@@ -319,10 +319,23 @@ describe("AC-6: repartir un subgrafo arbitrario respeta el criterio 2 y no reasi
 });
 
 // ---------------------------------------------------------------------------
-// Coloreado voraz: never more than Δ+1 journeys on a skewed subgraph.
+// Misra & Gries (SPEC §4.3's "coloreado voraz por grado descendente"):
+// nunca usa más de Δ+1 colores sobre un subgrafo arbitrario.
+//
+// Revisión previa: la primera implementación era un voraz simple (elegir la
+// arista de mayor grado combinado, asignar el color libre más pequeño), que
+// *no* garantiza Δ+1 — solo 2Δ-1 en el peor caso (cota de libro de texto
+// para un voraz en orden arbitrario) — y ese peor caso aparece precisamente
+// en "K_n menos unas pocas aristas", la forma exacta de las partidas
+// pendientes tras un alta a mitad de liga (§5.1) o un cambio de
+// matchesPerRound (§5.5). Los 6 casos de abajo son exactamente los que lo
+// detectaron: con el voraz simple gastaban hasta 15 colores donde Δ+1
+// permite 12. Quedan pinneados como regresión con el número exacto que
+// produce Misra & Gries (que además de cumplir Δ+1 es determinista, así que
+// el número exacto — no solo "≤ Δ+1" — es estable de verdad).
 // ---------------------------------------------------------------------------
 
-describe("coloreado voraz por grado descendente: nunca usa más de Δ+1 colores", () => {
+describe("Misra & Gries: nunca usa más de Δ+1 colores (SPEC §4.3, corrige D4)", () => {
   function maxDegree(pairs: Pairing[]): number {
     const degree = new Map<string, number>();
     for (const p of pairs) {
@@ -339,6 +352,47 @@ describe("coloreado voraz por grado descendente: nunca usa más de Δ+1 colores"
     const assigned = assignPairsToRounds(pairs, ids, 1, open);
     return new Set(assigned.map((a) => a.roundIndex)).size;
   }
+
+  /** K_n with the first `removeCount` pairs (lexicographic order) removed. */
+  function kMinus(n: number, removeCount: number): { ids: string[]; pairs: Pairing[] } {
+    const ids = makeIds(n);
+    const all = fullRoundRobin(ids);
+    return { ids, pairs: all.slice(removeCount) };
+  }
+
+  // ---- Regression: the 6 cases that broke the earlier plain greedy. ----
+  describe("regresión: los 6 casos que violaban Δ+1 con el voraz simple", () => {
+    const cases: [name: string, n: number, removeCount: number, delta: number, expectedColors: number][] = [
+      ["K_12 menos 1", 12, 1, 11, 12],
+      ["K_11 menos 1", 11, 1, 10, 11],
+      ["K_10 menos 1", 10, 1, 9, 10],
+      ["K_13 menos 2", 13, 2, 12, 13],
+      ["K_14 menos 3", 14, 3, 13, 14],
+      ["K_15 menos 4", 15, 4, 14, 15],
+    ];
+
+    for (const [name, n, removeCount, delta, expectedColors] of cases) {
+      it(`${name}: Δ=${delta}, usa exactamente ${expectedColors} colores (≤ Δ+1=${delta + 1})`, () => {
+        const { ids, pairs } = kMinus(n, removeCount);
+        expect(maxDegree(pairs)).toBe(delta);
+        const used = journeysUsed(pairs, ids);
+        expect(used).toBeLessThanOrEqual(delta + 1);
+        expect(used).toBe(expectedColors); // pinned exact regression value.
+      });
+    }
+  });
+
+  // ---- "K_n menos 1 arista": el caso que más duele, para varios n. ----
+  describe("K_n menos 1 arista, para varios n", () => {
+    for (const n of [8, 9, 10, 11, 12, 13, 16, 20]) {
+      it(`n=${n}`, () => {
+        const { ids, pairs } = kMinus(n, 1);
+        const delta = maxDegree(pairs);
+        const used = journeysUsed(pairs, ids);
+        expect(used).toBeLessThanOrEqual(delta + 1);
+      });
+    }
+  });
 
   it("subgrafo en estrella: un jugador con muchas pendientes, el resto con solo una", () => {
     const ids = makeIds(10);
@@ -372,17 +426,17 @@ describe("coloreado voraz por grado descendente: nunca usa más de Δ+1 colores"
     expect(used).toBeLessThanOrEqual(maxDegree(pairs) + 1);
   });
 
-  it("varios subgrafos aleatorios con grados desiguales, mismo resultado", () => {
-    // Deterministic pseudo-random generator (no reliance on Math.random —
-    // keeps the test itself reproducible).
-    function pseudoRandom(seed: number) {
-      let s = seed;
-      return () => {
-        s = (s * 1103515245 + 12345) & 0x7fffffff;
-        return s / 0x7fffffff;
-      };
-    }
+  // ---- Deterministic pseudo-random generator, reused by the property test
+  // below (no Math.random — this keeps criterio 5, determinism, checkable). ----
+  function pseudoRandom(seed: number) {
+    let s = seed;
+    return () => {
+      s = (s * 1103515245 + 12345) & 0x7fffffff;
+      return s / 0x7fffffff;
+    };
+  }
 
+  it("varios subgrafos aleatorios con grados desiguales, mismo resultado", () => {
     for (const seed of [1, 2, 3]) {
       const rnd = pseudoRandom(seed * 97 + 13);
       const ids = makeIds(12);
@@ -396,6 +450,36 @@ describe("coloreado voraz por grado descendente: nunca usa más de Δ+1 colores"
       const used = journeysUsed(pending, ids);
       expect(used).toBeLessThanOrEqual(maxDegree(pending) + 1);
     }
+  });
+
+  // ---- Property test: many sizes, densities and skews, deterministic PRNG. ----
+  it("property test: Δ+1 se cumple en decenas de subgrafos aleatorios deterministas (varios tamaños y densidades)", () => {
+    let casesChecked = 0;
+    for (let n = 5; n <= 20; n++) {
+      for (const density of [0.15, 0.35, 0.5, 0.7, 0.9]) {
+        for (let seed = 1; seed <= 2; seed++) {
+          const rnd = pseudoRandom(n * 10007 + Math.round(density * 1000) + seed);
+          const ids = makeIds(n);
+          const all = fullRoundRobin(ids);
+          const pending = density === 1 ? all : all.filter(() => rnd() < density);
+          if (pending.length === 0) continue;
+          casesChecked++;
+          const delta = maxDegree(pending);
+          const used = journeysUsed(pending, ids);
+          expect(used).toBeLessThanOrEqual(delta + 1);
+        }
+      }
+    }
+    // Sanity: the loop above actually ran a meaningful number of cases.
+    expect(casesChecked).toBeGreaterThan(100);
+  });
+
+  it("determinismo: el mismo subgrafo arbitrario da siempre el mismo número de colores y la misma asignación", () => {
+    const { ids, pairs } = kMinus(14, 3);
+    const open = Array.from({ length: pairs.length + 1 }, (_, i) => i + 1);
+    const first = assignPairsToRounds(pairs, ids, 1, open);
+    const second = assignPairsToRounds(pairs, ids, 1, open);
+    expect(first).toEqual(second);
   });
 });
 
@@ -556,6 +640,15 @@ describe("guardas defensivas", () => {
     expect(() =>
       assignPairsToRounds(fullRoundRobin(ids), ids, 0, [1, 2, 3])
     ).toThrow(/matchesPerRound/);
+  });
+
+  it("assignPairsToRounds: sin pares pendientes (subgrafo vacío, no K_n) no exige ninguna ronda", () => {
+    const ids = makeIds(5);
+    // Not the complete graph over 5 players (isCompleteGraph requires
+    // C(5,2)=10 pairs), so this exercises misraGriesColoring's own
+    // no-edges guard, not decomposeCompleteGraph's.
+    const assigned = assignPairsToRounds([], ids, 2, [1, 2, 3]);
+    expect(assigned).toEqual([]);
   });
 
   it("assignPairsToRounds: un homeId fuera de playerIds lanza un error", () => {
