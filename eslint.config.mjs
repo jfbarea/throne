@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated coverage report (gitignored). `npm run test:coverage` is part
+    // of the definition of done for the pure domain modules, so without this
+    // every run leaves lint warnings on generated vendor scripts.
+    "coverage/**",
+    // Generated Prisma client.
+    "src/generated/**",
   ]),
 ]);
 
