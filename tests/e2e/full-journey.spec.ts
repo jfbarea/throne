@@ -42,7 +42,9 @@ async function loginAdmin(page: Page) {
   await page.getByRole("tab", { name: "Admin" }).click();
   await page.getByLabel("Clave de administrador").fill(ADMIN_PASSCODE);
   await page.getByRole("button", { name: "Entrar" }).click();
-  await expect(page).toHaveURL(/\/$/);
+  // "/" is a role-based entry point that always redirects (src/app/page.tsx):
+  // admins land on the config panel.
+  await expect(page).toHaveURL(/\/admin$/);
 }
 
 async function loginPlayer(page: Page, name: string, passcode: string) {
@@ -50,7 +52,8 @@ async function loginPlayer(page: Page, name: string, passcode: string) {
   await page.getByLabel("Tu nombre").fill(name);
   await page.getByLabel("Código de acceso").fill(passcode);
   await page.getByRole("button", { name: "Entrar" }).click();
-  await expect(page).toHaveURL(/\/$/);
+  // Players land on their own matches (src/app/page.tsx).
+  await expect(page).toHaveURL(/\/mis-partidas$/);
 }
 
 // ---------------------------------------------------------------------------
@@ -60,7 +63,7 @@ async function loginPlayer(page: Page, name: string, passcode: string) {
 test.describe("Recorrido completo", () => {
   test.setTimeout(120_000);
 
-  test("1. Login de admin redirige al home", async ({ page }) => {
+  test("1. Login de admin redirige al panel de admin", async ({ page }) => {
     await page.goto("/login");
 
     // Page shows the throne logo (at least one)
@@ -73,8 +76,8 @@ test.describe("Recorrido completo", () => {
     await page.getByLabel("Clave de administrador").fill(ADMIN_PASSCODE);
     await page.getByRole("button", { name: "Entrar" }).click();
 
-    // Redirected to home
-    await expect(page).toHaveURL(/\/$/);
+    // "/" always redirects by role (src/app/page.tsx): admins to the panel.
+    await expect(page).toHaveURL(/\/admin$/);
     await expect(page.locator("text=throne").first()).toBeVisible();
   });
 
@@ -172,9 +175,12 @@ test.describe("Recorrido completo", () => {
     await vpInputs.nth(0).fill("60"); // home VP
     await vpInputs.nth(1).fill("40"); // away VP
 
-    // Select outcome — click Victoria for Jugador Alfa (home player)
-    const victoriaBtn = page.getByRole("button", { name: /^Victoria Jugador/i }).first();
-    await victoriaBtn.click();
+    // Hito 15: there is no outcome picker any more. The outcome is derived from
+    // the VP (deriveOutcome) and shown as a read-only label in ReportForm, so
+    // 60-40 already implies a home win. Assert the derived label instead.
+    await expect(
+      page.getByText(new RegExp(`Victoria ${PLAYER1_NAME}`, "i")).first()
+    ).toBeVisible();
 
     // Submit via "Reportar" button (inside the form)
     await page.getByRole("button", { name: /^Reportar$/ }).click();
