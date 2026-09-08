@@ -396,7 +396,19 @@ Spec §4.11.
 
 **Criterios de aceptación del hito:** los **36 y 37** de la spec. El 37 verifica
 que con todas las rondas cerradas el bracket, el seeding y los byes salen
-**idénticos** a los de hoy.
+**idénticos** a los de hoy. Además:
+
+- **La guarda nace endurecida, con el patrón de H5b.** Viene de una sugerencia
+  de la review de H5b: la precondición «ninguna ronda sin `closedAt`» es
+  exactamente la clase de comprobación que sufrió el TOCTOU en `reportResult`,
+  `declareWalkover` y `closeRound`. Si se lee **fuera** de la transacción de
+  `startPlayoffs`, una ronda reabierta —o nunca cerrada— puede colarse en la
+  ventana y el bracket se construye con la clasificación incompleta. Releer
+  dentro de la transacción con `tx`, error tipado, `catch` acotado por
+  `instanceof`. **No repitamos el defecto tres veces y lo arreglemos a la
+  cuarta.**
+- Test que **falla sin ese endurecimiento**, con la misma técnica de mock de
+  `prisma.$transaction` ya usada en D5 y H5b.
 
 ---
 
