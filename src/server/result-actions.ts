@@ -13,6 +13,7 @@ import { requireAuth } from "@/lib/guards";
 import { z } from "zod";
 import {
   calculateBonus,
+  canDeclareWalkoverOverExistingResult,
   canReport,
   canReportGivenRoundClosed,
   canReportInStatus,
@@ -325,11 +326,14 @@ export type DeclareWalkoverInput = z.infer<typeof declareWalkoverSchema>;
  *    any participant or admin can declare it, and either participant can
  *    later overwrite it — with a different winner (this action again) or
  *    with the real result if the match does get played (`reportResult`,
- *    which forces `resolution` back to PLAYED on every write). Symmetrically,
- *    this action can also overwrite a previously PLAYED result: the same
- *    "no se previene la autoadjudicación, se corrige" trust model (§4.10)
- *    that lets a participant overwrite a walkover with reportResult lets the
- *    other participant correct a false walkover back with the real score.
+ *    which forces `resolution` back to PLAYED on every write).
+ *  - D5 (plan/rondas-con-fecha/PLAN.md, ratified after H5's first review):
+ *    a participant CANNOT use this action to turn an already-`PLAYED` result
+ *    into a walkover — that would let a legitimate winner unilaterally
+ *    inflate their own score to 80-0. `canDeclareWalkoverOverExistingResult`
+ *    (src/server/result-logic.ts) blocks it; only the admin overrides
+ *    (§7.5). Overwriting an existing WALKOVER (new winner) or a match with
+ *    no Result yet is unaffected by this guard.
  *  - Scoped to `phase = LEAGUE`: incomparecencia is a round-deadline
  *    mechanism (§4.4, §4.7) and playoff matches have no round at all, so the
  *    concept doesn't apply there. Rejected explicitly for PLAYOFF matches
@@ -430,6 +434,29 @@ export async function declareWalkover(
     };
   }
 
+  // Existing-Result guard (D5, plan/rondas-con-fecha/PLAN.md): a participant
+  // cannot fabricate a walkover over a match whose Result is already
+  // `resolution = PLAYED` — only the admin can. Checked here, before opening
+  // the transaction, so a rejected attempt never touches the DB. The id is
+  // captured now and reused inside the transaction below instead of being
+  // queried again.
+  const existingResult = await prisma.result.findUnique({
+    where: { matchId },
+    select: { id: true, resolution: true },
+  });
+
+  if (
+    !canDeclareWalkoverOverExistingResult(
+      existingResult?.resolution ?? null,
+      isAdmin
+    )
+  ) {
+    return {
+      ok: false,
+      error: "Esta partida ya tiene un resultado jugado. Habla con el admin.",
+    };
+  }
+
   const outcome: "HOME_WIN" | "AWAY_WIN" =
     winnerId === match.playerHomeId ? "HOME_WIN" : "AWAY_WIN";
   const homeVictoryPoints =
@@ -440,16 +467,12 @@ export async function declareWalkover(
   let resultId: string;
 
   await prisma.$transaction(async (tx) => {
-    const existing = await tx.result.findUnique({
-      where: { matchId },
-      select: { id: true },
-    });
+    const auditAction = existingResult ? "EDIT_RESULT" : "REPORT_RESULT";
 
-    const auditAction = existing ? "EDIT_RESULT" : "REPORT_RESULT";
-
-    if (existing) {
-      // Overwrite (either a previous walkover with a new winner, or a played
-      // result being corrected to a walkover — see docstring above).
+    if (existingResult) {
+      // Overwrite (either a previous walkover with a new winner — a played
+      // result is already blocked above by canDeclareWalkoverOverExistingResult
+      // unless the actor is admin, per D5).
       // Bonus is forced to {0, 0} WITHOUT calculateBonus (criterio 24).
       await tx.result.update({
         where: { matchId },
@@ -466,7 +489,7 @@ export async function declareWalkover(
           bonusAway: 0,
         },
       });
-      resultId = existing.id;
+      resultId = existingResult.id;
     } else {
       const created = await tx.result.create({
         data: {

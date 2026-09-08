@@ -199,3 +199,31 @@ export function canReportGivenRoundClosed(
   if (isAdmin) return true;
   return roundClosedAt === null;
 }
+
+/**
+ * Can this actor declare a walkover given the match's *existing* Result (if
+ * any)? Rondas-con-fecha spec D5 (plan/rondas-con-fecha/PLAN.md), fixed after
+ * H5's first review found the hole: without this guard, a participant could
+ * unilaterally turn a real, already-played result (`resolution = PLAYED`)
+ * into an 80-0 walkover in their own favor — none of the other reused guards
+ * (canReport, canReportInStatus, canReportGivenRoundClosed) look at the
+ * existing Result's `resolution` at all.
+ *
+ * - A participant CANNOT declare a walkover over a match whose current
+ *   Result has `resolution = PLAYED` — that would fabricate an
+ *   incomparecencia over a game that was actually played, which §4.10 never
+ *   authorizes (it only authorizes overwriting a *previous* walkover).
+ * - The admin CAN, via the usual §7.5 override.
+ * - Declaring a walkover when there is no Result yet (`existingResolution
+ *   === null`), or overwriting an existing WALKOVER or UNPLAYED_DRAW
+ *   (changing the winner, or later correcting it back to PLAYED via
+ *   `reportResult`), is unaffected — those aren't "fabricating" anything
+ *   over a played game.
+ */
+export function canDeclareWalkoverOverExistingResult(
+  existingResolution: string | null,
+  isAdmin: boolean
+): boolean {
+  if (isAdmin) return true;
+  return existingResolution !== "PLAYED";
+}

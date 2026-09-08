@@ -403,7 +403,44 @@ describe("declareWalkover: guardas y decisiones de alcance", () => {
     expect(res.error).toMatch(/sin rival/i);
   });
 
-  it("permite sobrescribir un resultado ya jugado con una incomparecencia (mismo modelo de confianza que reportResult)", async () => {
+  it("permite sobrescribir una incomparecencia existente con otra (cambio de vencedor) — no afectado por D5", async () => {
+    const league = await createTestLeague();
+    const home = await createPlayer(league.id, "A");
+    const away = await createPlayer(league.id, "B");
+    const match = await createMatch(league.id, home.id, away.id);
+
+    mockSession.role = "PLAYER";
+    mockSession.playerId = home.id;
+    const first = await declareWalkover(match.id, { winnerId: home.id });
+    expect(first.ok).toBe(true);
+
+    // The other participant changes the winner — still a WALKOVER, no
+    // played Result involved, so D5 doesn't block this.
+    mockSession.role = "PLAYER";
+    mockSession.playerId = away.id;
+    const changed = await declareWalkover(match.id, { winnerId: away.id });
+    expect(changed.ok).toBe(true);
+
+    const result = await prisma.result.findUnique({ where: { matchId: match.id } });
+    expect(result).toMatchObject({
+      homeVictoryPoints: 0,
+      awayVictoryPoints: WALKOVER_VICTORY_POINTS,
+      outcome: "AWAY_WIN",
+      resolution: "WALKOVER",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D5 (plan/rondas-con-fecha/PLAN.md): a participant cannot turn an
+// already-PLAYED result into a walkover; the admin can, via §7.5 override.
+// Ratified by the user after H5's first review found the hole: without this
+// guard, the legitimate winner of a real 45-40 could unilaterally inflate
+// their own score to 80-0.
+// ---------------------------------------------------------------------------
+
+describe("D5: un participante no puede convertir un resultado ya jugado en incomparecencia; el admin sí", () => {
+  it("rechaza al ganador legítimo de un 45-40 que intenta convertirlo en 80-0, y el Result original queda intacto", async () => {
     const league = await createTestLeague();
     const home = await createPlayer(league.id, "A");
     const away = await createPlayer(league.id, "B");
@@ -417,8 +454,44 @@ describe("declareWalkover: guardas y decisiones de alcance", () => {
     });
     expect(played.ok).toBe(true);
 
-    const overwritten = await declareWalkover(match.id, { winnerId: away.id });
-    expect(overwritten.ok).toBe(true);
+    const before = await prisma.result.findUnique({ where: { matchId: match.id } });
+
+    const attempt = await declareWalkover(match.id, { winnerId: home.id });
+    expect(attempt.ok).toBe(false);
+    if (attempt.ok) return;
+    expect(attempt.error).toMatch(/ya tiene un resultado jugado/i);
+
+    // The original PLAYED Result is untouched — compare every field, not
+    // just that it still exists.
+    const after = await prisma.result.findUnique({ where: { matchId: match.id } });
+    expect(after).toEqual(before);
+    expect(after).toMatchObject({
+      homeVictoryPoints: 45,
+      awayVictoryPoints: 38,
+      outcome: "HOME_WIN",
+      resolution: "PLAYED",
+    });
+  });
+
+  it("el admin sí puede convertir un resultado jugado en incomparecencia, y el AuditLog queda a su nombre", async () => {
+    const league = await createTestLeague();
+    const admin = await createAdmin(league.id);
+    const home = await createPlayer(league.id, "A");
+    const away = await createPlayer(league.id, "B");
+    const match = await createMatch(league.id, home.id, away.id);
+
+    mockSession.role = "PLAYER";
+    mockSession.playerId = home.id;
+    const played = await reportResult(match.id, {
+      homeVictoryPoints: 45,
+      awayVictoryPoints: 38,
+    });
+    expect(played.ok).toBe(true);
+
+    mockSession.role = "ADMIN";
+    mockSession.playerId = admin.id;
+    const overridden = await declareWalkover(match.id, { winnerId: away.id });
+    expect(overridden.ok).toBe(true);
 
     const result = await prisma.result.findUnique({ where: { matchId: match.id } });
     expect(result).toMatchObject({
@@ -427,5 +500,85 @@ describe("declareWalkover: guardas y decisiones de alcance", () => {
       outcome: "AWAY_WIN",
       resolution: "WALKOVER",
     });
+
+    const logs = await prisma.auditLog.findMany({
+      where: { entityType: "Match", entityId: match.id },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(logs.map((l) => l.action)).toEqual(["REPORT_RESULT", "EDIT_RESULT"]);
+    expect(logs[1].actorId).toBe(admin.id);
+  });
+
+  it("sin regresión: declarar incomparecencia sobre una partida sin Result sigue funcionando para los dos participantes", async () => {
+    const league = await createTestLeague();
+    const home = await createPlayer(league.id, "A");
+    const away = await createPlayer(league.id, "B");
+    const matchHome = await createMatch(league.id, home.id, away.id);
+    const matchAway = await createMatch(league.id, home.id, away.id);
+
+    mockSession.role = "PLAYER";
+    mockSession.playerId = home.id;
+    const byHome = await declareWalkover(matchHome.id, { winnerId: away.id });
+    expect(byHome.ok).toBe(true);
+
+    mockSession.role = "PLAYER";
+    mockSession.playerId = away.id;
+    const byAway = await declareWalkover(matchAway.id, { winnerId: home.id });
+    expect(byAway.ok).toBe(true);
+  });
+
+  it("sin regresión: sobrescribir una incomparecencia existente cambiando de vencedor sigue funcionando", async () => {
+    const league = await createTestLeague();
+    const home = await createPlayer(league.id, "A");
+    const away = await createPlayer(league.id, "B");
+    const match = await createMatch(league.id, home.id, away.id);
+
+    mockSession.role = "PLAYER";
+    mockSession.playerId = home.id;
+    const first = await declareWalkover(match.id, { winnerId: home.id });
+    expect(first.ok).toBe(true);
+
+    mockSession.role = "PLAYER";
+    mockSession.playerId = away.id;
+    const changed = await declareWalkover(match.id, { winnerId: away.id });
+    expect(changed.ok).toBe(true);
+
+    const result = await prisma.result.findUnique({ where: { matchId: match.id } });
+    expect(result?.outcome).toBe("AWAY_WIN");
+    expect(result?.resolution).toBe("WALKOVER");
+  });
+});
+
+describe("D5: canDeclareWalkoverOverExistingResult — predicado puro", () => {
+  async function getPredicate() {
+    const { canDeclareWalkoverOverExistingResult } = await import(
+      "@/server/result-logic"
+    );
+    return canDeclareWalkoverOverExistingResult;
+  }
+
+  it("bloquea a un participante cuando el Result existente es PLAYED", async () => {
+    const canDeclare = await getPredicate();
+    expect(canDeclare("PLAYED", false)).toBe(false);
+  });
+
+  it("el admin puede aunque el Result existente sea PLAYED", async () => {
+    const canDeclare = await getPredicate();
+    expect(canDeclare("PLAYED", true)).toBe(true);
+  });
+
+  it("permite a un participante cuando no hay Result todavía (null)", async () => {
+    const canDeclare = await getPredicate();
+    expect(canDeclare(null, false)).toBe(true);
+  });
+
+  it("permite a un participante sobrescribir un WALKOVER existente", async () => {
+    const canDeclare = await getPredicate();
+    expect(canDeclare("WALKOVER", false)).toBe(true);
+  });
+
+  it("permite a un participante sobrescribir un UNPLAYED_DRAW existente", async () => {
+    const canDeclare = await getPredicate();
+    expect(canDeclare("UNPLAYED_DRAW", false)).toBe(true);
   });
 });
