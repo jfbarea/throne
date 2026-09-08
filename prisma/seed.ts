@@ -24,6 +24,10 @@ const db = createClient();
 const LEAGUE_NAME = "Liga Warhammer 40K — Capítulo Hierro";
 const LEAGUE_SEASON = "2026 Primavera";
 
+// Rondas-con-fecha (plan/specs/rondas-con-fecha.md §6.2): the seeded league
+// starts in March 2026, stored as the first day of the month at midnight.
+const LEAGUE_START_MONTH = new Date(Date.UTC(2026, 2, 1));
+
 // Real bcrypt hash of passcode "1234" (cost=10, generated with bcryptjs).
 // All seed players share this passcode so the auth milestone can verify them
 // immediately. In production the admin generates unique passcodes via the app.
@@ -81,6 +85,8 @@ async function main(): Promise<void> {
       bonusMarginThreshold: 20,
       bonusMinVP: 40,
       playoffSize: 4,
+      matchesPerRound: 2,
+      startMonth: LEAGUE_START_MONTH,
       // tiebreakers uses the default from schema; no override needed.
     },
     update: {
@@ -91,6 +97,8 @@ async function main(): Promise<void> {
       bonusMarginThreshold: 20,
       bonusMinVP: 40,
       playoffSize: 4,
+      matchesPerRound: 2,
+      startMonth: LEAGUE_START_MONTH,
     },
   });
 

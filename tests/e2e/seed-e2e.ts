@@ -44,6 +44,9 @@ async function main() {
       bonusMarginThreshold: 20,
       bonusMinVP: 40,
       playoffSize: 4,
+      // Rondas-con-fecha (plan/specs/rondas-con-fecha.md §6.2): required fields.
+      matchesPerRound: 2,
+      startMonth: new Date(Date.UTC(2026, 2, 1)),
     },
   });
 

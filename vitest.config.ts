@@ -6,6 +6,9 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: "node",
+    // Prepares file:./test.db (migrations) once before the suite runs, so
+    // tests that write to the real DB (rondas-con-fecha, H1) find it ready.
+    globalSetup: ["./tests/db-global-setup.ts"],
     // Include unit tests; explicitly exclude e2e specs (run with Playwright, not Vitest).
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
     exclude: ["tests/e2e/**"],

@@ -2,7 +2,10 @@
 // Milestone 2: modelo-datos-prisma
 // Full domain model replacing the initial Placeholder.
 // ADR-002: SQLite in dev, Postgres-ready (no engine-specific SQL in app logic).
-// ADR-007: No Round entity; Matches hang directly from League ordered by scheduledAt.
+// ADR-007: partially superseded by the "rondas-con-fecha" spec
+// (plan/specs/rondas-con-fecha.md §6.1): the Round entity and the circle
+// method are reintroduced. "No byes in the league phase" and "the calendar
+// stays a free-date view" are unchanged.
 
 generator client {
   provider = "prisma-client"
@@ -53,6 +56,13 @@ enum Outcome {
   DRAW      // Draw (valid in league phase; invalid in playoffs per domain rules).
 }
 
+// Resolution: how a Result came to be (rondas-con-fecha spec §4.9).
+enum Resolution {
+  PLAYED        // The match was actually played.
+  WALKOVER      // Unplayed, walkover: participants agreed on a winner (80-0).
+  UNPLAYED_DRAW // Unplayed, no agreement: settled as 0-0 when the round closes.
+}
+
 // ---------------------------------------------------------------------------
 // Models
 // ---------------------------------------------------------------------------
@@ -81,6 +91,17 @@ model League {
   // Number of players that qualify for the playoff bracket.
   playoffSize Int @default(4)
 
+  // Rondas-con-fecha (plan/specs/rondas-con-fecha.md §6.2):
+  // matchesPerRound: matches each player must play per round.
+  matchesPerRound Int @default(2)
+  // startMonth: the league's starting month, stored as the first day of that
+  // month at midnight. Round deadlines are derived from it on generation.
+  // @default(now()) exists only for schema/DB compatibility with
+  // `createLeague` (src/server/league-actions.ts), which this milestone does
+  // not touch: it is a transient bootstrap value until H3 wires the real
+  // admin-facing input (Zod schema + LeagueForm) through that action.
+  startMonth DateTime @default(now())
+
   // Ordered list of tiebreaker criteria for standings.
   // Decision (ADR-002 compatibility): stored as a JSON-encoded string because
   // SQLite has no native array type and Prisma scalar lists are Postgres-only.
@@ -97,7 +118,30 @@ model League {
   // Relations
   players     Player[]
   matches     Match[]
+  rounds      Round[]
   bracket     Bracket?
+}
+
+// Round: a month-long slice of the league phase (rondas-con-fecha spec §6.2).
+// League matches (phase = LEAGUE) belong to exactly one Round; playoff
+// matches never do (see Match.roundId).
+model Round {
+  id       String @id @default(cuid())
+  leagueId String
+
+  // 1-based. Order of the rounds within the league.
+  index Int
+  // Deadline for every match in this round. Derived from the league's start
+  // month on generation, editable by the admin afterwards.
+  deadline DateTime
+  // null while the round is open. Set when the admin closes it.
+  closedAt DateTime?
+
+  // Relations
+  league  League  @relation(fields: [leagueId], references: [id])
+  matches Match[]
+
+  @@unique([leagueId, index])
 }
 
 // Player: a league participant.
@@ -140,6 +184,11 @@ model Match {
   phase    MatchPhase  @default(LEAGUE)
   status   MatchStatus @default(SCHEDULED)
 
+  // roundId is nullable on purpose: playoff matches (phase = PLAYOFF) never
+  // belong to a Round. League matches (phase = LEAGUE) are expected to have
+  // one once generated (rondas-con-fecha spec §6.2).
+  roundId String?
+
   playerHomeId String
   // playerAwayId is null for playoff byes (the seed advances without playing).
   playerAwayId String?
@@ -161,6 +210,7 @@ model Match {
 
   // Relations
   league     League  @relation(fields: [leagueId], references: [id])
+  round      Round?  @relation(fields: [roundId], references: [id])
   playerHome Player  @relation("HomePlayer", fields: [playerHomeId], references: [id])
   playerAway Player? @relation("AwayPlayer", fields: [playerAwayId], references: [id])
 
@@ -179,6 +229,10 @@ model Result {
 
   // Outcome stored explicitly because W40k allows rule-defined draws.
   outcome Outcome
+
+  // How this Result came to be (rondas-con-fecha spec §4.9). Defaults to
+  // PLAYED so pre-existing Results (before this field was added) stay valid.
+  resolution Resolution @default(PLAYED)
 
   reportedById  String
   // confirmedById is null until the rival (or admin) acts.
