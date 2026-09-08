@@ -502,3 +502,168 @@ Reproducida en `HEAD` (`e332620`, que solo añade el chore de D4 sobre
    comprobación explícita — es la que de verdad importa para el producto,
    tal como se pedía revisar, y hoy nada en la suite la protege de una
    regresión futura en `misraGriesColoring` (p. ej. durante H8).
+
+---
+
+## Re-review — guarda restaurada y validez real en los tests (`90ca7b4`)
+
+**Alcance de esta pasada:** solo los dos bloqueantes de la vuelta anterior.
+El algoritmo de Misra & Gries no cambió (confirmado con `diff` byte a byte
+contra `b7c8ee8`, ver punto 1) y no repito las 525 configuraciones ya
+validadas.
+
+### Veredicto: APPROVED
+
+Los dos bloqueantes están resueltos, y los comprobé de la forma más directa
+posible: forzando yo mismo el fallo que cada uno dice prevenir, no leyendo
+el código y dando por bueno el razonamiento.
+
+### 1. La reescritura `if`/`else` no altera la lógica
+
+`diff /tmp/b7c8ee8_rounds.ts /tmp/90ca7b4_rounds.ts` (los dos ficheros
+completos, no un `git diff` que pueda ocultar contexto) muestra **un único
+hunk**, exactamente `smallestFreeColor`. `invertKempeChain`,
+`buildMaximalFan`, `colorEdge` y todo lo demás son idénticos byte a byte —
+no hay ningún otro cambio de producción colado en este commit.
+
+Sobre la lógica en sí: antes `return allColors.find(...)!;` — devuelve el
+valor encontrado o `undefined` con el `!` mintiendo al compilador. Ahora:
+
+```
+const free = allColors.find((c) => !used.has(c));
+if (free !== undefined) {
+  return free;
+} else {
+  throw new Error(...);
+}
+```
+
+El camino feliz (`free !== undefined`) devuelve exactamente el mismo valor
+que antes — no hay diferencia observable ahí, y los 368 tests en verde lo
+confirman (ninguno depende de un valor distinto). Lo comprobé además
+forzando yo mismo el camino roto: reduje `colorCount` a mano en una copia
+temporal (restaurada después, `git status` limpio) sobre el mismo 5-ciclo
+que usé la vuelta anterior, y ahora **sí falla limpio**, con el mensaje
+exacto:
+
+```
+misraGriesColoring: no free color at vertex index 0 (colorCount=2, used=[0,1])
+— Vizing invariant violated, this is an algorithm bug
+```
+
+en vez del `TypeError` genérico de antes. El comentario entre `}` y `else`
+(`} /* v8 ignore start -- @preserve */ else {`) no afecta el parseo — un
+comentario de bloque entre dos tokens es invisible para JS — y lo confirma
+el hecho de que compila y los 368 tests pasan sin tocar nada más.
+
+### 2. Una sola exclusión de cobertura, donde dice
+
+`grep -n "v8 ignore" src/server/rounds.ts` devuelve exactamente dos líneas,
+460 y 476 (el par `start`/`stop`), en todo el fichero. Nada más.
+
+Lo verifiqué contra `coverage/coverage-final.json`, no contra la tabla de
+texto, tal como pedías: filtrando el `statementMap` y el `branchMap` de
+`rounds.ts` entre las líneas 460-478, **no aparece ningún statement
+registrado** (el `throw` y su comentario están completamente fuera de la
+instrumentación, no "presentes pero marcados como cubiertos"), y la rama
+`if` de la línea 458 solo tiene **una** entrada de recuento en `b` (la del
+`if` verdadero) en vez de las dos habituales de un `if`/`else` — la mitad
+`else` fue genuinamente excluida del cómputo, no falseada. Con esto, el
+100% que reporta `npm run test:coverage` (232/232 statements, 65/65
+branches, 46/46 funciones — reproducido por mí) es honesto: no hay cobertura
+fingida en ningún punto del fichero.
+
+### 3. `assertValidReparto` valida las dos direcciones
+
+Sí, y de una forma más fuerte de lo mínimo pedido. La comprobación de
+cobertura no es un `Set` (que escondería duplicados) sino comparación de
+**arrays ordenados con multiplicidad**:
+
+```js
+const outputKeys = rounds.flat().map(pairKey).sort();
+const expectedKeys = expectedPairs.map(pairKey).sort();
+expect(outputKeys).toEqual(expectedKeys);
+```
+
+Esto detecta las tres formas de fallo en una sola aserción: un par de
+`expectedPairs` que falte en la salida (sobra una clave en `expectedKeys`
+sin pareja), un par inventado que no estaba en la entrada (sobra en
+`outputKeys`), y un par **duplicado** en la salida (la posición
+correspondiente en el array ordenado no coincide en cardinalidad) — esto
+último es más de lo que pedía la pregunta ("¿en las dos direcciones?"): ni
+un `Set`-based check ni un simple `.length` lo cazarían, y este sí. Lo de
+"ningún jugador por encima de `maxPerRound`" es la primera mitad de la
+función, sobre cada ronda por separado. Confirmé que ambas mitades se
+ejecutan siempre (la segunda no depende de que la primera pase, ambas son
+alcanzables independientemente) leyendo el cuerpo completo, no solo el
+fragmento del diff.
+
+### 4. El test de sabotaje es honesto
+
+Lo revisé buscando específicamente la trampa que señalabas ("¿el helper
+está mirando justo lo que se corrompió por construcción?"). No es el caso:
+
+- Construye un reparto **genuinamente válido** primero
+  (`misraGriesRounds(fullRoundRobin(makeIds(6)), ids)` con `matchesPerRound=1`
+  sobre `K_6`, que al ser grafo completo par en realidad pasa por
+  `circleMethodJourneys`, no por Misra & Gries — pero eso da igual: lo que
+  se corrompe es la **agrupación en rondas**, no el algoritmo, así que sirve
+  igual para probar el helper en sí, independientemente de qué construcción
+  produjo las rondas originales).
+- La corrupción (fusionar `rounds[0]` y `rounds[1]` en una sola ronda) es
+  realista: son dos *matchings* disjuntos de por sí válidos sobre los mismos
+  6 jugadores, así que fusionarlos garantiza matemáticamente que cada
+  jugador queda con grado 2 en la ronda fusionada — no es una construcción
+  artificial pensada para encajar con el detalle interno de
+  `assertValidReparto`, es el tipo de bug real que produciría, por ejemplo,
+  un error de indexado al agrupar factores en `groupFactorsIntoRounds`.
+- Confirmé que dispara la **primera** mitad del helper (recuento por
+  jugador), no la segunda: el conjunto de pares tras la fusión sigue siendo
+  exactamente el mismo (`corrupted.flat()` cubre los mismos 15 pares que
+  antes, solo reagrupados), así que si solo existiera el chequeo de
+  cobertura de pares, este test **pasaría de largo sin detectar nada** — la
+  única razón por la que falla es el chequeo de jugador repetido. Es un test
+  que efectivamente ejercita la propiedad que dice ejercitar, no una que se
+  autoconfirma.
+- Repliqué además, por mi cuenta, el otro sabotaje que describe el mensaje
+  del builder: anulé `invertKempeChain` (`return;` al principio, sin tocar
+  nada más) en una copia y corrí toda la suite — **22 tests fallan**, todos
+  con el mismo patrón de mensaje (`expected N to be less than or equal to
+  1`), ninguno con un error genérico. Reverting inmediato,
+  `git status` limpio, y `tests/rondas.test.ts` vuelve a 111/111.
+
+### 5. `git diff` limpio
+
+`diff` de los ficheros completos `rounds.ts` entre `b7c8ee8` y `90ca7b4`
+(punto 1) ya lo confirma: el único cambio de producción es la guarda. No
+hay ningún resto de `return;` ni de ninguna otra manipulación de
+`invertKempeChain`/`buildMaximalFan` colado en el commit. `git status`
+tras mis propias pruebas (reducir `colorCount`, anular
+`invertKempeChain`, ambas revertidas) queda limpio en los dos casos,
+confirmado explícitamente antes de seguir.
+
+### Regresión
+
+Reproducida en `HEAD` (`44d448b`, chore sobre `90ca7b4`):
+
+- `npm run lint` → limpio (un aviso espurio de
+  `coverage/block-navigation.js` apareció mientras tenía el directorio
+  `coverage/` de una ejecución anterior mía en el árbol de trabajo —
+  `coverage/` está en `.gitignore`, lo borré y `npm run lint` vuelve a
+  quedar limpio sin más cambios; no es un problema del commit revisado).
+- `npm run test` → `Test Files 9 passed (9)` / `Tests 368 passed (368)`.
+- `npm run test:coverage` → 368 en verde; `rounds.ts` 232/232 statements,
+  65/65 branches, 46/46 funciones — 100% real, con la única exclusión
+  documentada y verificada contra `coverage-final.json` (punto 2).
+- `npm run build` → compila y genera las 19 rutas sin errores.
+
+### Conclusión de las tres vueltas
+
+H2 queda aprobado. El reparto (`roundRobinRounds`, `assignPairsToRounds`,
+`decomposeCompleteGraph` en sus tres regímenes), las fechas
+(`deriveDeadlines`) y el cupo (`roundQuota`/`quotaLabel`) están verificados
+de forma independiente, no solo leídos; D2, D3 y D4 están bien razonadas y
+correctamente registradas como desviaciones pendientes de ratificar; y el
+error de Misra & Gries — el más caro de los tres, según el propio
+coordinador — quedó corregido, con guarda diagnosticable y tests que
+prueban la validez real del coloreado, no solo su cota.
