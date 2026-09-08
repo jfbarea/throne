@@ -89,11 +89,15 @@
     {
       "id": "H5b",
       "slug": "endurecer-guardas-transaccionales",
-      "status": "PENDING",
-      "commit_sha": null,
-      "files_changed": [],
+      "status": "READY_FOR_REVIEW",
+      "commit_sha": "87ab9d5",
+      "files_changed": [
+        "src/server/result-actions.ts",
+        "src/server/round-actions.ts",
+        "tests/endurecer-guardas-transaccionales.test.ts"
+      ],
       "review_feedback": null,
-      "notes": "Anadido a raiz de la re-review de H5. Corrige el TOCTOU de la guarda de ronda cerrada, preexistente desde H4."
+      "notes": "Cierra el TOCTOU de la guarda de ronda cerrada, preexistente desde H4. Patron de D5: la lectura previa se mantiene como atajo de UX y dentro de prisma.$transaction se relee el Round con tx.round.findUnique (via match.roundId, inmutable) aplicando el mismo predicado canReportGivenRoundClosed; aborta con RoundClosedDuringTransactionError compartida, capturada con instanceof y traducida al mismo mensaje, re-lanzando cualquier otro error. Aplicado en reportResult y declareWalkover. BARRIDO con veredicto por accion: se endurecen reportResult y declareWalkover (guarda de ronda) y closeRound; ya estaban endurecidas la guarda D5 de declareWalkover y el conteo de confirmadas de generateLeagueMatches; no lo necesitan la validacion de winnerId (playerHomeId/playerAwayId son inmutables, verificado con grep de todos los match.update/create), el startMonth null y players.length<2 de generateLeagueMatches (snapshot de config admin-only, no es carrera adversarial), ni updateRoundDeadline (escritura incondicional de un campo, sin decision basada en lectura previa). HALLAZGO PROPIO DEL BARRIDO: dos closeRound concurrentes pasaban ambas comprobaciones externas y el segundo re-cerraba en silencio (settledCount 0, closedAt sobrescrito, AuditLog CLOSE_ROUND duplicado) en vez de rechazarse; endurecido con CloseRoundGuardFailedError y tres razones (not_found/already_closed/not_due), SIN cambiar el comportamiento del camino no concurrente. Barrido acotado a result-actions, round-actions y la guarda de regeneracion de match-actions; playoff-actions y league-actions son H8/H9. 8 tests nuevos; fallo-antes-del-fix confirmado revirtiendo los dos ficheros a b5763ac (criterios 1, 2 y doble cierre fallan con expected true to be false). npm run test 430/430, lint 0/0, build verde, e2e 37/1. El flake intermitente que reporto en tests/modelo-datos-rondas.test.ts lo arreglo el coordinador subiendo el timeout a 30s: el test lanza el seed real via execSync y medía 5,4s contra el default de 5s."
     }
   ]
 }
