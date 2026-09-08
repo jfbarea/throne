@@ -232,8 +232,31 @@ describe("H1-AC4: el seed deja la liga con matchesPerRound = 2 y un startMonth",
       .then((league) => {
         expect(league).not.toBeNull();
         expect(league?.matchesPerRound).toBe(2);
-        expect(league?.startMonth).toBeInstanceOf(Date);
+        // The seed fixes a deterministic value (prisma/seed.ts:
+        // LEAGUE_START_MONTH = new Date(Date.UTC(2026, 2, 1))); assert the
+        // exact value, not just its type.
+        expect(league?.startMonth).toEqual(new Date(Date.UTC(2026, 2, 1)));
       });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// H1-AC4: startMonth es nullable — una liga sin mes de arranque configurado
+// es un estado válido (no se inventa un valor plausible, §4.4).
+// ---------------------------------------------------------------------------
+
+describe("H1-AC4: startMonth es nullable — una liga en SETUP puede no tener mes de arranque aún", () => {
+  it("crea una League sin startMonth y el campo queda en null", async () => {
+    const league = await prisma.league.create({
+      data: {
+        id: uid("league"),
+        name: "Liga sin mes de arranque",
+        season: "2026 Test",
+        // startMonth omitted on purpose: no admin has configured it yet.
+      },
+    });
+
+    expect(league.startMonth).toBeNull();
   });
 });
 

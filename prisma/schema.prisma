@@ -96,11 +96,10 @@ model League {
   matchesPerRound Int @default(2)
   // startMonth: the league's starting month, stored as the first day of that
   // month at midnight. Round deadlines are derived from it on generation.
-  // @default(now()) exists only for schema/DB compatibility with
-  // `createLeague` (src/server/league-actions.ts), which this milestone does
-  // not touch: it is a transient bootstrap value until H3 wires the real
-  // admin-facing input (Zod schema + LeagueForm) through that action.
-  startMonth DateTime @default(now())
+  // Nullable on purpose: a league in SETUP has no starting month until the
+  // admin sets one — there is no plausible computed default (§4.4), so the
+  // "not configured yet" state is represented as null instead of guessed.
+  startMonth DateTime?
 
   // Ordered list of tiebreaker criteria for standings.
   // Decision (ADR-002 compatibility): stored as a JSON-encoded string because
