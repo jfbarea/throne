@@ -254,3 +254,203 @@ commit). Correcto, respeta el reparto de `PLAN.md`.
   test que hoy cubre "sobrescribir un resultado ya jugado"
   (`tests/incomparecencia.test.ts:406-430`), que tendría que reescribirse o
   eliminarse según lo que se decida.
+
+---
+
+# Re-review — D5 (commit `2d10f54`)
+
+## Veredicto: CHANGES_REQUESTED
+
+El fix cierra correctamente el escenario que motivó el bloqueante de la
+primera vuelta: un participante en solitario ya no puede convertir un
+`Result` `PLAYED` en un `WALKOVER` 80-0 con una sola llamada. Los siete puntos
+que pedía verificar el coordinador están comprobados con evidencia directa
+(puntos 2-7 más abajo), y el commit de lint (`e07c64f`) no ignora nada que no
+debiera. Pero al comprobar específicamente la pregunta del punto 1 — la
+carrera entre la lectura previa a la transacción y la escritura dentro —
+encontré que **sí se puede colar algo entre las dos**: reproduje un TOCTOU real
+que deja que un `WALKOVER` se escriba encima de un `Result` que en el momento
+exacto de la escritura ya es `PLAYED`, precisamente porque `declareWalkover`
+lee el `resolution` existente **antes** de abrir la transacción y no lo
+vuelve a comprobar **dentro** de ella al escribir. Es un hallazgo distinto en
+naturaleza al de la primera vuelta — no es una decisión de producto que haya
+que escalar, es un bug de atomicidad con un arreglo de ingeniería concreto —
+así que lo trato como bloqueante de esta vuelta, pero no como algo que exija
+volver a parar el bucle de hitos para preguntarle al usuario.
+
+## 1. El TOCTOU: reproducido con evidencia directa
+
+`declareWalkover` (`src/server/result-actions.ts:434-458`) hace la lectura
+`existingResult = await prisma.result.findUnique(...)` **fuera** de
+`prisma.$transaction`, decide con esa lectura si rechaza (D5) o si continúa,
+y si continúa, reutiliza ese mismo `existingResult` (capturado antes) dentro
+de la transacción para decidir la rama `create`/`update` — sin volver a leer
+`resolution` en ningún punto posterior. Antes de D5, ese `existing` se leía
+**dentro** de la transacción (`tx.result.findUnique`, ver el diff de
+`2d10f54`); el fix, al necesitar decidir el rechazo *antes* de abrir la
+transacción, sacó esa lectura fuera de su límite de atomicidad — y ahí es
+donde se abre el hueco.
+
+Lo reproduje montando la interleaving exacta que se pide comprobar: creé una
+partida con un `WALKOVER` ya declarado (estado que D5 permite sobrescribir
+sin restricción), y dejé que, en el instante justo antes de que
+`declareWalkover` abriera su propia transacción — es decir, **después** de
+que su guarda ya hubiera leído `resolution: "WALKOVER"` y decidido continuar
+—, una llamada completa y real a `reportResult` (otro participante,
+resultado 45-40) se ejecutara y confirmara, dejando el `Result` en
+`resolution: "PLAYED"`. La transacción de `declareWalkover`, que seguía
+operando sobre el `existingResult` capturado (el `WALKOVER` viejo, no el
+`PLAYED` recién escrito), completó sin problema y **sobrescribió el 45-40 real
+con un 80-0**, sin que ninguna guarda lo detectara:
+
+```
+race declareWalkover result: { ok: true, data: { resultId: '...' } }
+final Result after race: {
+  homeVictoryPoints: 80, awayVictoryPoints: 0,
+  outcome: 'HOME_WIN', resolution: 'WALKOVER', ...
+}
+```
+
+Contexto de exploitabilidad, para no sobredimensionarlo ni restarle
+importancia: no es alcanzable por un solo actor con una sola pulsación de
+botón (a diferencia del bug original de la primera vuelta) — hace falta que
+dos peticiones se solapen en el tiempo, una de ellas completando su
+transacción entera exactamente en la ventana entre la lectura de D5 y la
+apertura de la transacción de la otra. Esa ventana no tiene ningún `await`
+intermedio dentro del mismo proceso (el cálculo de `outcome`/VP es síncrono),
+pero sí puede abrirse por el propio bucle de eventos de Node mientras la
+promesa de la lectura `findUnique` está pendiente de I/O — exactamente el
+escenario en el que dos usuarios envían casi a la vez una acción cada uno
+(uno reportando el resultado real, otro fabricando la incomparecencia), algo
+plausible en un despliegue serverless contra Turso donde cada operación de
+DB es una ida y vuelta de red. No es el escenario trivial que motivó D5, pero
+sí defeats la garantía que D5 dice dar ("un participante no puede... el admin
+sí") bajo una condición de carrera real y demostrada, no hipotética.
+
+**Arreglo recomendado, sin decidir el código por el builder:** volver a
+comprobar `resolution` **dentro** de la transacción, como primera instrucción
+del callback (`tx.result.findUnique`, igual que se hacía antes de D5), y
+abortar si ha cambiado a `PLAYED` entre medias y el actor no es admin. Una
+vez dentro de una transacción interactiva de Prisma sobre SQLite/libSQL, una
+lectura ahí sí ve el estado confirmado más reciente y ningún escritor
+concurrente puede colarse antes de que esta transacción termine — cierra la
+ventana sin necesitar bloqueo optimista ni columnas nuevas.
+
+## 2. El admin sí puede, con `AuditLog` a su nombre
+
+Verificado con test (`tests/incomparecencia.test.ts:476-510`): partida con
+resultado real 45-38 apuntado por un jugador, el admin declara la
+incomparecencia y tiene éxito; el `AuditLog` tiene dos entradas
+(`REPORT_RESULT` del jugador, `EDIT_RESULT` del admin) y `logs[1].actorId`
+es el `id` del admin, no el de ningún jugador. `canDeclareWalkoverOverExistingResult`
+devuelve `true` incondicionalmente si `isAdmin`, antes de mirar
+`existingResolution` — el override de §7.5 queda intacto.
+
+## 3. Sin regresión en los dos casos que debían seguir permitidos
+
+- **Declarar sobre una partida sin `Result`**: `tests/incomparecencia.test.ts:512-528`,
+  ambos participantes (cada uno en una partida distinta) declaran con éxito.
+- **Sobrescribir un `WALKOVER` existente cambiando de vencedor**:
+  `tests/incomparecencia.test.ts:406-431` y `:530-549` — dos tests
+  independientes que cubren el mismo caso desde ángulos distintos (uno
+  centrado en el `Result` final, otro en que ambas llamadas devuelven `ok:
+  true`), ambos pasan.
+
+`canDeclareWalkoverOverExistingResult(null, false)` y
+`canDeclareWalkoverOverExistingResult("WALKOVER", false)` devuelven `true`
+en el predicado puro (ver punto 6) — la lógica no distingue estos dos casos
+del `UNPLAYED_DRAW`, que también deja pasar a un participante. Repasé si
+`UNPLAYED_DRAW` debería bloquearse igual que `PLAYED`: no hay forma de que un
+`UNPLAYED_DRAW` exista con la ronda todavía abierta (solo lo produce
+`closeRound`, que exige `closedAt` para existir), así que
+`canReportGivenRoundClosed` ya bloquea a cualquier participante antes de
+llegar a esta guarda — no es un hueco equivalente al del punto 1.
+
+## 4. El test reescrito: ya no queda ningún rastro del comportamiento viejo
+
+`grep -n "resultado ya jugado\|permite sobrescribir"` sobre el fichero
+completo solo encuentra el nuevo test de D5 (rechaza) y el de "cambio de
+vencedor" (no relacionado con `PLAYED`) — ninguna aserción afirma ya que
+sobrescribir un `PLAYED` con éxito sea el comportamiento esperado. El test
+reescrito (`tests/incomparecencia.test.ts:443-474`) no es tautológico:
+compara el `Result` completo antes/después con `toEqual`, no solo que el
+mensaje de error contenga cierta cadena — así que si el fix rechazara pero
+dejara escrito algo parcial (un `match.update` a `REPORTED` sin escribir
+`Result`, por ejemplo), este test lo cazaría.
+
+## 5. `Result` jugado intacto tras el rechazo — comparación completa, no parcial
+
+Confirmado en el mismo test del punto 4: `after` y `before` son objetos
+`Result` completos leídos de la DB con `findUnique` sin `select`, comparados
+con `toEqual`. Estructuralmente, además, todas las comprobaciones que
+preceden a la guarda de D5 (incluida la propia guarda) son lecturas puras o
+`return` tempranos — no hay ningún `tx.result.update`, `tx.match.update` ni
+`writeAuditLog` antes de la guarda, así que el camino de rechazo no puede
+dejar una escritura a medias por construcción, no solo porque el test no la
+detectó.
+
+## 6. El predicado puro: los 5 casos, en el sitio correcto
+
+`canDeclareWalkoverOverExistingResult` vive en `src/server/result-logic.ts`,
+junto a `canReportGivenRoundClosed` (mismo patrón: predicado puro sin DB,
+`isAdmin` como segundo parámetro, override incondicional primero) — el sitio
+correcto del módulo, coherente con cómo H4 organizó sus propias guardas.
+Los 5 casos pedidos están, uno por test
+(`tests/incomparecencia.test.ts:560-583`): `PLAYED`+participante → `false`,
+`PLAYED`+admin → `true`, `null`+participante → `true`, `WALKOVER`+participante
+→ `true`, `UNPLAYED_DRAW`+participante → `true`. Ejecutados directamente
+(`npx vitest run` sobre ese `describe`) — los 5 pasan.
+
+## 7. La guarda está antes de la transacción — confirmado sin ambigüedad
+
+`src/server/result-actions.ts:434-458`: la lectura de `existingResult` y el
+`return` de rechazo preceden a `await prisma.$transaction(...)` en el cuerpo
+de la función, sin ningún camino de código que abra la transacción antes de
+pasar por la guarda. Es precisamente esta separación — leer antes, decidir
+antes, pero reutilizar la lectura vieja dentro sin refrescarla — la que
+genera el TOCTOU del punto 1.
+
+## `eslint.config.mjs` (`e07c64f`) — no se ha pasado
+
+`coverage/**` y `src/generated/**` ya estaban en `.gitignore` antes de este
+commit (confirmado leyendo el fichero), así que ignorarlos también en ESLint
+solo alinea el linter con lo que ya no se versiona — no es un directorio de
+código propio el que se deja de lintar en ninguno de los dos casos
+(`coverage/` es el HTML/JS de terceros que genera el reporter de Vitest;
+`src/generated/prisma` es el cliente generado por Prisma). No encontré nada
+en el diff que excluya código escrito a mano.
+
+## Regresión
+
+- `npm run lint` → **0 errores, 0 warnings** (confirmado el efecto de
+  `e07c64f`: antes de ese commit, el mismo árbol con `coverage/` generado
+  localmente daba 1 warning ajeno al código, como ya documenté en la primera
+  vuelta).
+- `npm run test` → `Test Files 12 passed (12)` / `Tests 421 passed (421)` —
+  coincide exactamente con el baseline anunciado (400 + 12 de H5 + 9 de D5).
+- `npm run build` → compila, 20 rutas, sin errores.
+- `npm run e2e` → **37 pasan, 1 skipped**, idéntico al baseline.
+
+## Bloqueantes
+
+1. **(Punto 1)** TOCTOU real y reproducido: `declareWalkover` decide si
+   rechaza por D5 leyendo `resolution` **antes** de abrir su transacción, y
+   reutiliza esa lectura sin refrescarla **dentro** de ella. Un `Result` que
+   pasa de `WALKOVER`/`null` a `PLAYED` mediante una llamada concurrente y
+   completa a `reportResult`, exactamente en esa ventana, sigue siendo
+   sobrescrito por el `WALKOVER` del participante — burlando la garantía que
+   D5 acaba de ratificar como regla de competición. Arreglo sugerido: releer
+   `resolution` (con el cliente de la transacción, `tx.result.findUnique`)
+   como primera instrucción dentro de `prisma.$transaction`, y abortar ahí si
+   ha cambiado a `PLAYED` y el actor no es admin — no hace falta bloqueo
+   optimista ni cambios de esquema, solo mover el punto de verificación
+   dentro del límite de atomicidad, como ya se hacía con `existing` antes de
+   este mismo commit.
+
+## Sugerencias (no bloqueantes)
+
+1. Una vez corregido el punto 1, añadir un test de regresión para la propia
+   carrera (como el que usé para reproducirla, controlando el timing con un
+   mock de `prisma.$transaction` que intercala una escritura real en medio),
+   para que esta clase de hueco no pueda reintroducirse en silencio si en el
+   futuro alguien vuelve a mover la lectura fuera de la transacción.
