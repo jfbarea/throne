@@ -13,6 +13,7 @@ import {
   Users,
   Sword,
   Trophy,
+  CalendarBlank,
 } from "@phosphor-icons/react";
 
 const ADMIN_LINKS = [
@@ -20,6 +21,7 @@ const ADMIN_LINKS = [
   { href: "/admin/liga", label: "Liga", Icon: Gear },
   { href: "/admin/jugadores", label: "Jugadores", Icon: Users },
   { href: "/admin/emparejamientos", label: "Emparejamientos", Icon: Sword },
+  { href: "/admin/rondas", label: "Rondas", Icon: CalendarBlank },
   { href: "/admin/playoffs", label: "Playoffs", Icon: Trophy },
 ];
 

@@ -35,6 +35,17 @@ function parseTiebreakersSafe(raw: string): Tiebreaker[] {
   return [...TIEBREAKER_VALUES];
 }
 
+/**
+ * Rondas-con-fecha: format a Date as the "YYYY-MM" value a native
+ * <input type="month"> expects, reading its UTC components (startMonth is
+ * always stored as the first day of the month at UTC midnight).
+ */
+function toMonthInputValue(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
 export function LeagueForm({ league, onSaved }: LeagueFormProps) {
   const isEditing = !!league;
   const [isPending, startTransition] = useTransition();
@@ -60,6 +71,14 @@ export function LeagueForm({ league, onSaved }: LeagueFormProps) {
   );
   const [tiebreakers, setTiebreakers] = useState<Tiebreaker[]>(
     league ? parseTiebreakersSafe(league.tiebreakers) : [...TIEBREAKER_VALUES]
+  );
+  const [matchesPerRound, setMatchesPerRound] = useState(
+    String(league?.matchesPerRound ?? 2)
+  );
+  // "" means no starting month configured yet (SPEC §4.4, D1 — a league in
+  // SETUP may legitimately have none; that is never guessed).
+  const [startMonth, setStartMonth] = useState(
+    league?.startMonth ? toMonthInputValue(new Date(league.startMonth)) : ""
   );
 
   // Tiebreaker reordering helpers
@@ -91,6 +110,11 @@ export function LeagueForm({ league, onSaved }: LeagueFormProps) {
           : null,
       playoffSize: parseInt(playoffSize, 10) || 4,
       tiebreakers,
+      matchesPerRound: parseInt(matchesPerRound, 10) || 0,
+      // Append the first day of the month so the "YYYY-MM" the native
+      // <input type="month"> sends becomes an unambiguous UTC date-only
+      // string (SPEC §4.4) before it reaches the Zod schema.
+      startMonth: startMonth ? `${startMonth}-01` : null,
     };
   }
 
@@ -176,6 +200,31 @@ export function LeagueForm({ league, onSaved }: LeagueFormProps) {
             value={pointsLoss}
             onChange={(e) => setPointsLoss(e.target.value)}
             error={fieldErrors.pointsLoss?.[0]}
+          />
+        </div>
+      </Card>
+
+      {/* Rondas — rondas-con-fecha spec §4.2, §4.4 */}
+      <Card>
+        <CardEyebrow>Rondas mensuales</CardEyebrow>
+        <CardTitle>Cupo y mes de arranque</CardTitle>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+          <Input
+            label="Partidas por ronda"
+            type="number"
+            min={1}
+            value={matchesPerRound}
+            onChange={(e) => setMatchesPerRound(e.target.value)}
+            error={fieldErrors.matchesPerRound?.[0]}
+            helper="Partidas que cada jugador debe jugar en cada ronda mensual"
+          />
+          <Input
+            label="Mes de arranque"
+            type="month"
+            value={startMonth}
+            onChange={(e) => setStartMonth(e.target.value)}
+            error={fieldErrors.startMonth?.[0]}
+            helper="De él se derivan las fechas de cierre de las rondas. Déjalo vacío si aún no lo has decidido — no se podrán generar emparejamientos hasta fijarlo."
           />
         </div>
       </Card>

@@ -66,6 +66,11 @@ export async function createLeague(
       bonusMinVP: d.bonusEnabled ? (d.bonusMinVP ?? null) : null,
       playoffSize: d.playoffSize,
       tiebreakers: serialiseTiebreakers(d.tiebreakers),
+      // Rondas-con-fecha (PLAN.md H3): fixed explicitly, never left to an
+      // implicit DB default. `startMonth` is either the value the admin
+      // configured or a deliberate `null` (D1) — never a guessed timestamp.
+      matchesPerRound: d.matchesPerRound,
+      startMonth: d.startMonth ?? null,
     },
   });
 
@@ -130,6 +135,13 @@ export async function updateLeague(
       bonusMinVP: d.bonusEnabled ? (d.bonusMinVP ?? null) : null,
       playoffSize: d.playoffSize,
       tiebreakers: serialiseTiebreakers(d.tiebreakers),
+      // Rondas-con-fecha (PLAN.md H3): persisted as-is, normalised to the
+      // first day of the month at UTC midnight by the schema. No recompute
+      // of existing rounds/matches here — that is Hito 8's job (§5.5); in
+      // this hito the new value only takes effect the next time
+      // `generateLeagueMatches` runs (blocked once results exist).
+      matchesPerRound: d.matchesPerRound,
+      startMonth: d.startMonth ?? null,
     },
   });
 

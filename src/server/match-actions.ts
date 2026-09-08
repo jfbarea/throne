@@ -7,7 +7,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { requireAdmin, requireAuth } from "@/lib/guards";
-import { generatePairings, missingPairings } from "@/server/pairings";
+import { missingPairings } from "@/server/pairings";
+import { roundRobinRounds, deriveDeadlines } from "@/server/rounds";
 import { z } from "zod";
 
 // Re-export the ActionResult type consistent with league-actions.
@@ -41,17 +42,26 @@ export type ScheduleMatchInput = z.infer<typeof scheduleMatchSchema>;
 // ---------------------------------------------------------------------------
 
 /**
- * Generate (or regenerate) all round-robin league matches for the given league.
+ * Generate (or regenerate) all round-robin league matches for the given league,
+ * split into monthly rounds (rondas-con-fecha spec §4.2, §4.3, §4.4).
  *
  * Guard (SPEC §5): requires ADMIN session.
+ *
+ * Rounds guard (rondas-con-fecha spec §4.4, PLAN.md H3): refuses to generate
+ * — creating neither a Round nor a Match — while `league.startMonth` is
+ * `null`. Without a starting month there is nothing to derive round
+ * deadlines from (D1, PLAN.md): a league in SETUP can legitimately have no
+ * starting month yet, and that must stay an explicit blocker, not an
+ * invented default.
  *
  * Regeneration guard (SPEC §7.2, §9):
  *   - Blocked if any existing league match has status CONFIRMED (games already played).
  *   - If no confirmed matches exist, previous SCHEDULED/REPORTED/DISPUTED league
- *     matches are deleted and replaced with fresh ones (dates discarded).
+ *     matches (and their Round rows) are deleted and replaced with fresh ones
+ *     (dates discarded).
  *
  * Postcondition: all new matches have phase=LEAGUE, status=SCHEDULED,
- *   scheduledAt=null, isBye=false.
+ *   scheduledAt=null, isBye=false, roundId pointing at a freshly created Round.
  */
 export async function generateLeagueMatches(
   leagueId: string
@@ -65,6 +75,17 @@ export async function generateLeagueMatches(
 
   if (!league) {
     return { ok: false, error: "Liga no encontrada" };
+  }
+
+  // Rounds guard: nothing to derive deadlines from without a starting month.
+  // Checked before any other read/write so a league missing this config
+  // never ends up with a partial, DB-inconsistent generation.
+  if (league.startMonth === null) {
+    return {
+      ok: false,
+      error:
+        "La liga no tiene un mes de arranque configurado. Fíjalo en la configuración de la liga antes de generar los emparejamientos.",
+    };
   }
 
   // Load active players for this league.
@@ -81,12 +102,20 @@ export async function generateLeagueMatches(
     };
   }
 
-  // Generate pure pairings (before transaction — pure computation, no DB).
-  const pairings = generatePairings(players);
+  // Generate the pure round-robin, already split into rounds (before the
+  // transaction — pure computation, no DB). SPEC §4.3: the circle method
+  // over the complete graph is the exact construction used here.
+  const rounds = roundRobinRounds(
+    players.map((p) => p.id),
+    league.matchesPerRound
+  );
+  const deadlines = deriveDeadlines(league.startMonth, rounds.length);
+  const totalMatchCount = rounds.reduce((sum, r) => sum + r.length, 0);
 
-  // Transactionally: check regeneration guard, delete old matches, create new ones.
-  // TOCTOU fix: the confirmed-count check now lives INSIDE the transaction so the
-  // read and the delete/create are atomic (no race between two concurrent requests).
+  // Transactionally: check regeneration guard, delete old rounds/matches,
+  // create the new ones. TOCTOU fix: the confirmed-count check now lives
+  // INSIDE the transaction so the read and the delete/create are atomic (no
+  // race between two concurrent requests).
   const guardResult = await prisma.$transaction(async (tx) => {
     // Regeneration guard (Hito 15): block if any league match has a result
     // apuntado (status REPORTED or CONFIRMED). REPORTED is the new active status;
@@ -117,18 +146,36 @@ export async function generateLeagueMatches(
       await tx.match.deleteMany({ where: { id: { in: ids } } });
     }
 
-    // Create new matches.
+    // Delete existing Round rows for this league — matches referencing them
+    // are already gone, and @@unique([leagueId, index]) would otherwise
+    // collide with the fresh rounds created below.
+    await tx.round.deleteMany({ where: { leagueId } });
+
+    // Create the new Round rows one at a time (not createMany) so we get
+    // each generated id back to assign as Match.roundId below.
+    const roundIds: string[] = [];
+    for (let i = 0; i < rounds.length; i++) {
+      const round = await tx.round.create({
+        data: { leagueId, index: i + 1, deadline: deadlines[i] },
+      });
+      roundIds.push(round.id);
+    }
+
+    // Create new matches, each tied to the round it was assigned to.
     await tx.match.createMany({
-      data: pairings.map((p) => ({
-        leagueId,
-        phase: "LEAGUE" as const,
-        status: "SCHEDULED" as const,
-        playerHomeId: p.homeId,
-        playerAwayId: p.awayId,
-        scheduledAt: null,
-        location: null,
-        isBye: false,
-      })),
+      data: rounds.flatMap((roundPairs, i) =>
+        roundPairs.map((p) => ({
+          leagueId,
+          phase: "LEAGUE" as const,
+          status: "SCHEDULED" as const,
+          playerHomeId: p.homeId,
+          playerAwayId: p.awayId,
+          scheduledAt: null,
+          location: null,
+          isBye: false,
+          roundId: roundIds[i],
+        }))
+      ),
     });
 
     // If the league is still in SETUP, transition it to LEAGUE phase.
@@ -151,10 +198,11 @@ export async function generateLeagueMatches(
   }
 
   revalidatePath("/admin/emparejamientos");
+  revalidatePath("/admin/rondas");
   revalidatePath("/calendario");
   revalidatePath("/admin");
 
-  return { ok: true, data: { count: pairings.length } };
+  return { ok: true, data: { count: totalMatchCount } };
 }
 
 // ---------------------------------------------------------------------------

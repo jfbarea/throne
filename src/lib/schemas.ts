@@ -87,6 +87,39 @@ export const leagueConfigSchema = z
     tiebreakers: z
       .array(z.enum(TIEBREAKER_VALUES))
       .min(1, "Debe haber al menos un criterio de desempate"),
+
+    // Rondas-con-fecha (plan/specs/rondas-con-fecha.md §6.2, §4.2): matches
+    // each player must play per round. No upper bound — a value greater
+    // than n-1 simply produces a single round (spec §6.2).
+    matchesPerRound: z
+      .number({ error: "Debe ser un número" })
+      .int("Debe ser un número entero")
+      .min(1, "El número de partidas por ronda debe ser como mínimo 1")
+      .default(2),
+
+    // startMonth: the league's starting month. Accepts a Date or a string
+    // (e.g. the "YYYY-MM" value a native <input type="month"> sends), and is
+    // always normalised to the first day of that month at UTC midnight
+    // (spec §6.2), regardless of which day the input actually carried.
+    // Nullable/optional on purpose: a league in SETUP may not have a
+    // starting month configured yet (§4.4) — that is an explicit `null`,
+    // never a guessed value (D1, PLAN.md).
+    startMonth: z
+      .union([z.string(), z.date()])
+      .nullable()
+      .optional()
+      .transform((val, ctx) => {
+        if (val === null || val === undefined || val === "") return null;
+        const date = typeof val === "string" ? new Date(val) : val;
+        if (Number.isNaN(date.getTime())) {
+          ctx.addIssue({
+            code: "custom",
+            message: "Fecha de arranque inválida",
+          });
+          return z.NEVER;
+        }
+        return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+      }),
   })
   // playoffSize cross-validation is done at the action level (needs active player count).
   .refine(
@@ -101,7 +134,12 @@ export const leagueConfigSchema = z
     }
   );
 
-export type LeagueConfigInput = z.infer<typeof leagueConfigSchema>;
+// The schema's `startMonth` field is a transform (string/Date in, Date|null
+// out), so the type callers pass in (before parsing) differs from what
+// `.safeParse(...).data` yields afterwards. `LeagueConfigInput` is the
+// former — what the client actually sends.
+export type LeagueConfigInput = z.input<typeof leagueConfigSchema>;
+export type LeagueConfigOutput = z.output<typeof leagueConfigSchema>;
 
 // ---------------------------------------------------------------------------
 // Create-league schema — same as config plus initial status always SETUP

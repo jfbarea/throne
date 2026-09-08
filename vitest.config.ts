@@ -13,6 +13,15 @@ export default defineConfig({
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
     exclude: ["tests/e2e/**"],
     globals: true,
+    // Several test files write to the same real file:./test.db (rondas-con-fecha
+    // Hitos 1-3 onwards). Running test *files* in parallel workers against one
+    // SQLite file causes intermittent SQLITE_BUSY-style failures unrelated to
+    // any actual bug (reproduced pre-existing at H2's baseline, before this
+    // comment, by running the full suite repeatedly). Serialising file
+    // execution removes that source of flakiness; the suite is small enough
+    // (well under a second of actual test time) that this has no meaningful
+    // cost. Tests *within* a file still run in the same worker as before.
+    fileParallelism: false,
     // Inject test-only env vars so tests never depend on the real .env file.
     // SESSION_SECRET must be >= 32 chars; ADMIN_PASSCODE is a known test value.
     env: {
