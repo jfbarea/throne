@@ -23,6 +23,17 @@ No se repiten en cada hito, pero ninguno se cierra sin ellos:
 6. **Sin SQL propietario**: la lógica vive en `src/server/` como funciones puras.
 7. **Mobile-first, dark mode hard-coded.**
 
+## Desviaciones de la spec pendientes de ratificar
+
+Se resuelven en implementación para no detener el bucle de hitos, **sin tocar la
+spec `APPROVED`**. Hay que ratificarlas (o revertirlas) al revisar la feature.
+
+| # | Spec dice | Se implementa | Por qué |
+| --- | --- | --- | --- |
+| D1 | §6.2: `startMonth DateTime` | `startMonth DateTime?` **nullable**, sin `@default` | Una liga en `SETUP` no tiene mes de arranque hasta que el admin lo fija. Sin nullable, `createLeague` no compila y la alternativa —`@default(now())`— inventa un timestamp con hora del que se derivarían **todas** las fechas de cierre (§4.4), en silencio y sin que nadie se enterase. Nullable convierte ese estado en explícito e imposible de confundir, y H3 añade la guarda que impide generar sin él. Fiel a la intención de §4.4; desvía solo la anotación del campo. |
+
+Origen: bloqueante de `reviews/modelo-datos-rondas.md`.
+
 ## Cobertura de la spec
 
 Los 43 criterios de aceptación de `plan/specs/rondas-con-fecha.md` §8 quedan
@@ -131,9 +142,18 @@ Conectar el dominio de H2 con la generación y la configuración. Spec §4.3, §
   sus `deadline` derivadas y asigna `roundId` a cada `Match`, en transacción.
 - `src/lib/schemas.ts` — Zod para `matchesPerRound` (entero `>= 1`, sin tope) y
   `startMonth` (normalizado al primer día del mes a medianoche).
-- `src/server/league-actions.ts` — `updateLeague` acepta los dos campos.
-  **Sin** recálculo todavía (eso es H8): en este hito el cambio solo aplica a
-  ligas en `SETUP`.
+- `src/server/league-actions.ts`:
+  - `updateLeague` acepta los dos campos. **Sin** recálculo todavía (eso es H8):
+    en este hito el cambio solo aplica a ligas en `SETUP`.
+  - **`createLeague` tiene que fijar `startMonth`** (y `matchesPerRound`). Viene
+    del bloqueante de la review de H1: `startMonth` quedó `DateTime?` nullable
+    precisamente para que una liga sin mes de arranque sea un estado explícito y
+    no un valor inventado, así que **crear** una liga también tiene que
+    resolverlo o dejarlo deliberadamente en `null`.
+- **`generateLeagueMatches` se niega si `startMonth` es `null`**, con mensaje en
+  español. Es el gancho que hace imposible derivar fechas de cierre de un mes de
+  arranque que nadie fijó (spec §4.4). Sin esta guarda, el nullable solo mueve el
+  problema en vez de cerrarlo.
 - `src/app/admin/liga/LeagueForm.tsx` — los dos campos nuevos.
 - `src/app/admin/rondas/page.tsx` (nuevo) — lista de rondas con índice, fecha de
   cierre y estado, y **acción de editar la fecha**. Sin botón de cierre (H4).
@@ -147,6 +167,14 @@ Conectar el dominio de H2 con la generación y la configuración. Spec §4.3, §
 - Editar la fecha de una ronda no altera `roundId` ni `scheduledAt` de ninguna
   partida (criterio 8), y no exige que las fechas queden ordenadas (spec §4.4).
 - `matchesPerRound = 0` o negativo se rechaza en Zod con mensaje en español.
+- **`generateLeagueMatches` con `startMonth = null` falla** con mensaje en
+  español y **no crea ninguna ronda ni ninguna partida** (test de escritura que
+  comprueba que la DB queda intacta).
+- **Ninguna liga puede nacer con un mes de arranque inventado**: tras
+  `createLeague`, `startMonth` es o el valor que se le pasó o `null`, nunca un
+  `now()` implícito. Test que lo fija.
+- El `startMonth` que persiste `updateLeague` está **normalizado al primer día
+  del mes a medianoche**, sea cual sea el día que envíe el formulario.
 
 ---
 
