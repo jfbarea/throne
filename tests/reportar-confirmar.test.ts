@@ -339,6 +339,44 @@ describe("canReportInStatus — SCHEDULED and REPORTED allowed; admin overrides 
 });
 
 // ---------------------------------------------------------------------------
+// 4b. Round-closed guard (Hito 4: cierre-de-ronda). Pure predicate, no DB —
+// see tests/cierre-de-ronda.test.ts for the write-level integration through
+// reportResult (AC-21).
+// ---------------------------------------------------------------------------
+
+describe("AC-21: canReportGivenRoundClosed — participante bloqueado, admin siempre puede", () => {
+  async function getGuard() {
+    const { canReportGivenRoundClosed } = await import("@/server/result-logic");
+    return canReportGivenRoundClosed;
+  }
+
+  it("a participant cannot report when the round is closed", async () => {
+    const g = await getGuard();
+    expect(g(new Date(), false)).toBe(false);
+  });
+
+  it("a participant can report when the round is still open (closedAt = null)", async () => {
+    const g = await getGuard();
+    expect(g(null, false)).toBe(true);
+  });
+
+  it("a participant can report on a match with no round at all (playoffs)", async () => {
+    const g = await getGuard();
+    expect(g(null, false)).toBe(true);
+  });
+
+  it("admin overrides a closed round", async () => {
+    const g = await getGuard();
+    expect(g(new Date(), true)).toBe(true);
+  });
+
+  it("admin can also act when the round is open, obviously", async () => {
+    const g = await getGuard();
+    expect(g(null, true)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 5. Dimension independence: scheduledAt vs status are orthogonal
 // ---------------------------------------------------------------------------
 

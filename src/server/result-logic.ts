@@ -166,3 +166,24 @@ export function canReportInStatus(status: string, isAdmin: boolean): boolean {
   if (isAdmin) return true; // Admin override: any status.
   return status === "SCHEDULED" || status === "REPORTED";
 }
+
+/**
+ * Can this player report/edit a result given the closed state of the match's
+ * round? Rondas-con-fecha spec §4.7, §5.9, §7.5 (admin override), criteria
+ * 21 and 22.
+ *
+ * - A participant CANNOT act once their round is closed (`closedAt` set).
+ * - The admin can always override (edits a closed round's result without
+ *   reopening it — closing/reopening is a separate action entirely; this
+ *   guard never writes to `Round`).
+ * - `roundClosedAt === null` covers both "round still open" and "match has
+ *   no round at all" (playoff matches, §4.5's rounds are league-only):
+ *   neither case blocks reporting.
+ */
+export function canReportGivenRoundClosed(
+  roundClosedAt: Date | null,
+  isAdmin: boolean
+): boolean {
+  if (isAdmin) return true;
+  return roundClosedAt === null;
+}

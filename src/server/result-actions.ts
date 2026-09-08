@@ -14,6 +14,7 @@ import { z } from "zod";
 import {
   calculateBonus,
   canReport,
+  canReportGivenRoundClosed,
   canReportInStatus,
   deriveOutcome,
 } from "@/server/result-logic";
@@ -114,11 +115,15 @@ export async function reportResult(
     ? "DRAW"
     : deriveOutcome(homeVictoryPoints, awayVictoryPoints);
 
-  // Load match + league config in one query.
+  // Load match + league config + round (to check the round-closed guard) in
+  // one query. `round` is null for playoff matches (no Round) and for league
+  // matches whose round is still open — both are treated as "not closed"
+  // below.
   const match = await prisma.match.findUnique({
     where: { id: matchId },
     include: {
       league: true,
+      round: true,
     },
   });
 
@@ -144,6 +149,17 @@ export async function reportResult(
     return {
       ok: false,
       error: `No se puede apuntar un resultado en una partida en estado ${match.status}`,
+    };
+  }
+
+  // Round-closed guard (rondas-con-fecha spec §4.7, §5.9): a participant can't
+  // apuntar in a closed round. Admin overrides and editing never reopens the
+  // round (this action never writes to Round — see canReportGivenRoundClosed).
+  if (!canReportGivenRoundClosed(match.round?.closedAt ?? null, isAdmin)) {
+    return {
+      ok: false,
+      error:
+        "La ronda de esta partida ya está cerrada. Solo el admin puede editar el resultado.",
     };
   }
 
@@ -191,12 +207,22 @@ export async function reportResult(
       // Overwrite existing result (edit); confirmedById/confirmedAt reset to null
       // since the confirmation flow no longer exists. These columns are kept in
       // schema for future use but are not populated by the new flow.
+      //
+      // resolution is forced back to PLAYED here (rondas-con-fecha spec §4.9,
+      // §5.9, criterio 21): this action is the "a participant/admin reports a
+      // played game" path, as opposed to the incomparecencia action (WALKOVER,
+      // Hito 5) or closeRound (UNPLAYED_DRAW, Hito 4). Without this, editing a
+      // match that a round-close had settled to UNPLAYED_DRAW — the admin
+      // override the round-closed guard exists for — would leave `resolution`
+      // stuck at UNPLAYED_DRAW forever, wrongly counting a real, played game as
+      // "saldada sin jugar" in the standings (SPEC §4.6, §4.9).
       await tx.result.update({
         where: { matchId },
         data: {
           homeVictoryPoints,
           awayVictoryPoints,
           outcome,
+          resolution: "PLAYED",
           reportedById: actorId,
           reportedAt: new Date(),
           confirmedById: null,
@@ -207,10 +233,12 @@ export async function reportResult(
       });
       resultId = existing.id;
     } else {
-      // Create fresh result.
+      // Create fresh result. resolution defaults to PLAYED (schema default),
+      // set explicitly here for the same reason as the update branch above.
       const created = await tx.result.create({
         data: {
           matchId,
+          resolution: "PLAYED",
           homeVictoryPoints,
           awayVictoryPoints,
           outcome,

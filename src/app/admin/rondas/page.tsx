@@ -3,15 +3,14 @@
 // Protected by AdminLayout (requireAdmin called there).
 //
 // Rondas-con-fecha spec §4.4, §4.7. Hito 3: generar-con-rondas.
-// Deliberately no "Cerrar ronda" button here — closing a round is Hito 4
-// (cierre-de-ronda); this page only shows the rounds and lets the admin edit
-// their deadline.
+// Hito 4 (cierre-de-ronda) adds the "Cerrar ronda N" button per round.
 
 import { prisma } from "@/lib/db";
 import { Eyebrow } from "@/components/Eyebrow";
 import { Card } from "@/components/Card";
 import { Badge } from "@/components/Badge";
 import { EditDeadlineForm } from "./EditDeadlineForm";
+import { CloseRoundButton } from "./CloseRoundButton";
 import Link from "next/link";
 
 export default async function AdminRondasPage() {
@@ -59,6 +58,23 @@ export default async function AdminRondasPage() {
     orderBy: { index: "asc" },
     include: { _count: { select: { matches: true } } },
   });
+
+  // How many matches per round still have no Result — shown next to "Cerrar
+  // ronda N" so the admin knows how many are about to be settled as 0-0
+  // before pulling the trigger (PLAN.md H4). One query, aggregated in memory
+  // (round count is small, no N+1 concern here).
+  const unresolvedMatches = await prisma.match.findMany({
+    where: { leagueId: league.id, roundId: { not: null }, result: null },
+    select: { roundId: true },
+  });
+  const pendingByRound = new Map<string, number>();
+  for (const m of unresolvedMatches) {
+    if (m.roundId) {
+      pendingByRound.set(m.roundId, (pendingByRound.get(m.roundId) ?? 0) + 1);
+    }
+  }
+
+  const now = new Date().getTime();
 
   return (
     <div className="space-y-6">
@@ -130,6 +146,23 @@ export default async function AdminRondasPage() {
                 roundId={round.id}
                 initialDeadline={round.deadline.toISOString().slice(0, 10)}
               />
+
+              {round.closedAt ? (
+                <p
+                  className="text-[12px]"
+                  style={{ color: "var(--fg-faint)", fontFamily: "var(--font-sans)" }}
+                >
+                  Cerrada el {round.closedAt.toLocaleDateString("es-ES")}.
+                </p>
+              ) : (
+                <CloseRoundButton
+                  roundId={round.id}
+                  roundIndex={round.index}
+                  isPastDeadline={round.deadline.getTime() <= now}
+                  deadlineLabel={round.deadline.toLocaleDateString("es-ES")}
+                  pendingCount={pendingByRound.get(round.id) ?? 0}
+                />
+              )}
             </Card>
           ))}
         </div>
