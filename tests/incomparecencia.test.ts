@@ -582,3 +582,87 @@ describe("D5: canDeclareWalkoverOverExistingResult — predicado puro", () => {
     expect(canDeclare("UNPLAYED_DRAW", false)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// D5 second review: TOCTOU between the fast-path read and the transaction.
+//
+// declareWalkover reads the existing Result once, outside prisma.$transaction,
+// to give a quick Spanish rejection without opening a transaction for
+// nothing. That read can go stale: a concurrent, legitimate reportResult from
+// the other participant can land in the window between that read and the
+// transaction actually opening. The fix re-checks the guard INSIDE the
+// transaction, with `tx.result.findUnique`, as the very first thing it does —
+// that re-read is what actually decides; the outer one is only a shortcut.
+//
+// This test reproduces the race by spying on prisma.$transaction: the mocked
+// implementation runs a full, real reportResult (the "concurrent write") the
+// instant declareWalkover's transaction is about to open, then lets the real
+// transaction proceed. It starts from an existing WALKOVER (not PLAYED, so
+// the fast-path read passes) — the same starting point that makes the
+// pre-fix code take the "update the existing row" branch instead of hitting
+// a unique-constraint crash on `create`, which is what let the old bug
+// silently succeed instead of failing loudly.
+// ---------------------------------------------------------------------------
+
+describe("D5: TOCTOU — la re-lectura dentro de la transacción es la que manda, no la de fuera", () => {
+  it("un reportResult real que aterriza justo antes de abrir la transacción bloquea igualmente la incomparecencia pendiente", async () => {
+    const league = await createTestLeague();
+    const home = await createPlayer(league.id, "A");
+    const away = await createPlayer(league.id, "B");
+    const match = await createMatch(league.id, home.id, away.id);
+
+    // Starting point: an existing WALKOVER (not PLAYED), so declareWalkover's
+    // fast-path read — taken before the race below is even set up — sees a
+    // resolution that's fine to overwrite and proceeds towards the
+    // transaction, exactly like a real "the other participant is about to
+    // correct this" scenario.
+    mockSession.role = "PLAYER";
+    mockSession.playerId = home.id;
+    const initial = await declareWalkover(match.id, { winnerId: home.id });
+    expect(initial.ok).toBe(true);
+
+    const originalTransaction = prisma.$transaction.bind(prisma);
+    const transactionSpy = vi
+      .spyOn(prisma, "$transaction")
+      .mockImplementationOnce(async (callback: unknown) => {
+        // Simulate the real reportResult from the away participant
+        // committing in the window between declareWalkover's fast-path read
+        // (already taken, above) and this transaction opening.
+        mockSession.role = "PLAYER";
+        mockSession.playerId = away.id;
+        const concurrent = await reportResult(match.id, {
+          homeVictoryPoints: 45,
+          awayVictoryPoints: 40,
+        });
+        expect(concurrent.ok).toBe(true);
+
+        // Now let the pending declareWalkover transaction actually run,
+        // against the real DB, with the just-committed PLAYED result in
+        // place. Its own tx.result.findUnique re-read is what must catch it.
+        return (
+          originalTransaction as (fn: unknown) => Promise<unknown>
+        )(callback);
+      });
+
+    mockSession.role = "PLAYER";
+    mockSession.playerId = home.id;
+    const attempt = await declareWalkover(match.id, { winnerId: home.id });
+
+    transactionSpy.mockRestore();
+
+    expect(attempt.ok).toBe(false);
+    if (attempt.ok) return;
+    expect(attempt.error).toMatch(/ya tiene un resultado jugado/i);
+
+    // The result that "won the race" — the real, concurrently reported
+    // 45-40 — is what's actually persisted. The pending walkover never wrote
+    // over it.
+    const result = await prisma.result.findUnique({ where: { matchId: match.id } });
+    expect(result).toMatchObject({
+      homeVictoryPoints: 45,
+      awayVictoryPoints: 40,
+      outcome: "HOME_WIN",
+      resolution: "PLAYED",
+    });
+  });
+});

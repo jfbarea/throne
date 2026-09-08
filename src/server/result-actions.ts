@@ -312,6 +312,16 @@ const declareWalkoverSchema = z.object({
 export type DeclareWalkoverInput = z.infer<typeof declareWalkoverSchema>;
 
 /**
+ * Internal sentinel thrown inside the `declareWalkover` transaction to abort
+ * it when the D5 guard (`canDeclareWalkoverOverExistingResult`) fails on the
+ * re-read done with `tx` (see docstring below). Caught right outside the
+ * `prisma.$transaction` call and turned into the same user-facing
+ * `ActionResult` the fast-path rejection returns — never leaks past
+ * `declareWalkover`.
+ */
+class WalkoverBlockedByPlayedResultError extends Error {}
+
+/**
  * A participant (home or away) or an admin declares a walkover
  * (incomparecencia): the two players agreed on a winner outside the app and
  * this just records the outcome (SPEC §4.10 — the pact happens elsewhere).
@@ -334,6 +344,17 @@ export type DeclareWalkoverInput = z.infer<typeof declareWalkoverSchema>;
  *    (src/server/result-logic.ts) blocks it; only the admin overrides
  *    (§7.5). Overwriting an existing WALKOVER (new winner) or a match with
  *    no Result yet is unaffected by this guard.
+ *    Checked TWICE against the same predicate (second review of D5, TOCTOU):
+ *    once here, before opening the transaction (fast-path rejection — good
+ *    UX, no point opening a transaction just to abort it, and it's where the
+ *    Spanish error message comes from), and once more INSIDE
+ *    `prisma.$transaction` with `tx.result.findUnique` as the very first
+ *    thing the transaction does. The outer read can go stale in the window
+ *    between it and the transaction opening (a concurrent `reportResult`
+ *    landing in between); the inner re-read, against the transaction's own
+ *    client, is the one that actually decides — it aborts the transaction by
+ *    throwing `WalkoverBlockedByPlayedResultError`, caught right outside and
+ *    turned into the same rejection.
  *  - Scoped to `phase = LEAGUE`: incomparecencia is a round-deadline
  *    mechanism (§4.4, §4.7) and playoff matches have no round at all, so the
  *    concept doesn't apply there. Rejected explicitly for PLAYOFF matches
@@ -436,18 +457,21 @@ export async function declareWalkover(
 
   // Existing-Result guard (D5, plan/rondas-con-fecha/PLAN.md): a participant
   // cannot fabricate a walkover over a match whose Result is already
-  // `resolution = PLAYED` — only the admin can. Checked here, before opening
-  // the transaction, so a rejected attempt never touches the DB. The id is
-  // captured now and reused inside the transaction below instead of being
-  // queried again.
-  const existingResult = await prisma.result.findUnique({
+  // `resolution = PLAYED` — only the admin can.
+  //
+  // This is the FAST-PATH check only: a quick rejection (good UX, Spanish
+  // error message, no transaction opened for nothing) against a read taken
+  // before the transaction starts. It is NOT authoritative — see the re-read
+  // with `tx` below, which is what actually decides (D5 second review,
+  // TOCTOU).
+  const existingResultBeforeTx = await prisma.result.findUnique({
     where: { matchId },
-    select: { id: true, resolution: true },
+    select: { resolution: true },
   });
 
   if (
     !canDeclareWalkoverOverExistingResult(
-      existingResult?.resolution ?? null,
+      existingResultBeforeTx?.resolution ?? null,
       isAdmin
     )
   ) {
@@ -466,66 +490,96 @@ export async function declareWalkover(
 
   let resultId: string;
 
-  await prisma.$transaction(async (tx) => {
-    const auditAction = existingResult ? "EDIT_RESULT" : "REPORT_RESULT";
-
-    if (existingResult) {
-      // Overwrite (either a previous walkover with a new winner — a played
-      // result is already blocked above by canDeclareWalkoverOverExistingResult
-      // unless the actor is admin, per D5).
-      // Bonus is forced to {0, 0} WITHOUT calculateBonus (criterio 24).
-      await tx.result.update({
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Authoritative re-read (D5, TOCTOU fix): a concurrent write (e.g. a
+      // real `reportResult` from the other participant) could have landed in
+      // the window between the fast-path read above and this transaction
+      // opening. Re-checking against `tx` — the transaction's own client —
+      // as the very first thing inside it is what actually enforces D5;
+      // everything above is just a shortcut.
+      const existingResult = await tx.result.findUnique({
         where: { matchId },
-        data: {
-          homeVictoryPoints,
-          awayVictoryPoints,
-          outcome,
-          resolution: "WALKOVER",
-          reportedById: actorId,
-          reportedAt: new Date(),
-          confirmedById: null,
-          confirmedAt: null,
-          bonusHome: 0,
-          bonusAway: 0,
-        },
+        select: { id: true, resolution: true },
       });
-      resultId = existingResult.id;
-    } else {
-      const created = await tx.result.create({
-        data: {
-          matchId,
-          resolution: "WALKOVER",
-          homeVictoryPoints,
-          awayVictoryPoints,
-          outcome,
-          reportedById: actorId,
-          confirmedById: null,
-          bonusHome: 0,
-          bonusAway: 0,
-        },
+
+      if (
+        !canDeclareWalkoverOverExistingResult(
+          existingResult?.resolution ?? null,
+          isAdmin
+        )
+      ) {
+        throw new WalkoverBlockedByPlayedResultError();
+      }
+
+      const auditAction = existingResult ? "EDIT_RESULT" : "REPORT_RESULT";
+
+      if (existingResult) {
+        // Overwrite (either a previous walkover with a new winner — a played
+        // result is already blocked above by canDeclareWalkoverOverExistingResult
+        // unless the actor is admin, per D5).
+        // Bonus is forced to {0, 0} WITHOUT calculateBonus (criterio 24).
+        await tx.result.update({
+          where: { matchId },
+          data: {
+            homeVictoryPoints,
+            awayVictoryPoints,
+            outcome,
+            resolution: "WALKOVER",
+            reportedById: actorId,
+            reportedAt: new Date(),
+            confirmedById: null,
+            confirmedAt: null,
+            bonusHome: 0,
+            bonusAway: 0,
+          },
+        });
+        resultId = existingResult.id;
+      } else {
+        const created = await tx.result.create({
+          data: {
+            matchId,
+            resolution: "WALKOVER",
+            homeVictoryPoints,
+            awayVictoryPoints,
+            outcome,
+            reportedById: actorId,
+            confirmedById: null,
+            bonusHome: 0,
+            bonusAway: 0,
+          },
+        });
+        resultId = created.id;
+      }
+
+      // Transition Match to REPORTED (or stay REPORTED on overwrite).
+      await tx.match.update({
+        where: { id: matchId },
+        data: { status: "REPORTED" },
       });
-      resultId = created.id;
+
+      // AuditLog (criterio 25: REPORT_RESULT on first declaration, EDIT_RESULT
+      // on overwrite — same convention as reportResult).
+      await writeAuditLog(tx, actorId, auditAction, "Match", matchId, {
+        matchId,
+        resultId,
+        winnerId,
+        homeVictoryPoints,
+        awayVictoryPoints,
+        outcome,
+        resolution: "WALKOVER",
+        previousStatus: match.status,
+      });
+    });
+  } catch (err) {
+    if (err instanceof WalkoverBlockedByPlayedResultError) {
+      return {
+        ok: false,
+        error: "Esta partida ya tiene un resultado jugado. Habla con el admin.",
+      };
     }
-
-    // Transition Match to REPORTED (or stay REPORTED on overwrite).
-    await tx.match.update({
-      where: { id: matchId },
-      data: { status: "REPORTED" },
-    });
-
-    // AuditLog (criterio 25: REPORT_RESULT on first declaration, EDIT_RESULT
-    // on overwrite — same convention as reportResult).
-    await writeAuditLog(tx, actorId, auditAction, "Match", matchId, {
-      matchId,
-      resultId,
-      winnerId,
-      homeVictoryPoints,
-      awayVictoryPoints,
-      outcome,
-      resolution: "WALKOVER",
-      previousStatus: match.status,
-    });
-  });
+    throw err;
+  }
 
   revalidatePath("/mis-partidas");
   revalidatePath("/calendario");
