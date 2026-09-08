@@ -37,21 +37,16 @@ function assertValidMatchesPerRound(matchesPerRound: number): void {
  * How many rounds a league of `playerCount` players needs, given it must
  * play `matchesPerRound` matches per player and round.
  *
- * SPEC §4.2 states `rounds = ceil((n - 1) / matchesPerRound)` for every `n`,
- * reasoning that every player plays exactly `n - 1` matches over the whole
- * league. **That formula is only achievable when `n` is even.** For odd
- * `n` it is sometimes mathematically impossible to also satisfy §8
- * criterio 2 ("ningún jugador tiene más de k partidas por ronda") — see the
- * long comment on `journeysNeeded` below for the proof. This function
- * implements the closest always-achievable equivalent instead of the
- * literal formula, and the deviation is called out for the reviewer/product
- * owner to ratify (same pattern as D1 in PLAN.md): it has not been decided
- * by the builder in isolation, it is a documented, provable gap.
- *
- * When `matchesPerRound` is larger than the available journeys, the formula
- * still holds and simply yields 1 round: the whole round-robin fits in a
- * single one. The spec does not cap `matchesPerRound` (SPEC §6.2), so this
- * is not a special case, just the formula's natural behaviour.
+ * SPEC §4.2 states `rounds = ceil((n - 1) / matchesPerRound)`, reasoning
+ * that every player plays exactly `n - 1` matches over the whole league.
+ * That per-player lower bound is always necessary, but it is only
+ * **sufficient** — i.e. actually achievable together with §8 criterio 2
+ * ("ningún jugador tiene más de k partidas por ronda") — when `n` is even,
+ * or when `n` is odd and `matchesPerRound` is even. It is sometimes
+ * unreachable when both `n` and `matchesPerRound` are odd: see the long
+ * comment below for the proof. This function returns the true minimum in
+ * every case — the spec's own formula whenever it is achievable, one round
+ * more only in the narrow, proven-infeasible corner.
  *
  * A league needs at least 2 players to have any rounds at all; below that
  * the spec has nothing to say, so this returns 0 rather than a negative or
@@ -63,43 +58,59 @@ export function roundsCount(
 ): number {
   assertValidMatchesPerRound(matchesPerRound);
   if (playerCount < 2) return 0;
+
+  const n = playerCount;
+  const k = matchesPerRound;
+
   /**
-   * DEVIATION FROM SPEC §4.2 (odd `n` only) — flagged for ratification, not
-   * decided silently.
+   * `perPlayerBound` is SPEC §4.2's own formula: a necessary lower bound
+   * for any `n`, `k` (each player has `n - 1` matches to fit at `k` per
+   * round). It is even the exact right answer whenever it is achievable:
    *
-   * The circle method's `n - 1` figure is "matches per player", not
-   * "matchings needed". For even `n` those two coincide (K_n even has
-   * chromatic index exactly `n - 1`), so grouping `n - 1` matchings into
-   * batches of `matchesPerRound` gives exactly `ceil((n - 1) / k)` rounds,
-   * matching the spec precisely.
+   * - `n` even: K_n's chromatic index is exactly `n - 1` (a clean
+   *   1-factorization into perfect matchings), so grouping those `n - 1`
+   *   matchings `k` at a time hits `ceil((n - 1) / k)` exactly.
+   * - `n` odd, `k` even: K_n decomposes into `(n - 1) / 2` Hamiltonian
+   *   cycles (Walecki decomposition — see `waleckiFactors`), each a
+   *   2-regular graph. Grouping `k / 2` of those cycles per round gives a
+   *   round where *every* player has exactly `k` matches (no exceptions,
+   *   no resting player), and `ceil(((n - 1) / 2) / (k / 2))` is the same
+   *   number as `ceil((n - 1) / k)` (scaling numerator and denominator by
+   *   the same factor never changes a ratio's ceiling).
    *
-   * For odd `n`, K_n is a "Class 2" graph (Vizing): its chromatic index is
-   * `n`, not `n - 1` — it provably cannot be edge-colored with only `n - 1`
-   * matchings (e.g. K_3, the triangle: 3 edges, degree 2 each; 2 colors
-   * would force two of the three edges to share a color, and any two edges
-   * of a triangle share a vertex — contradiction). Concretely, whenever `n`
-   * and `matchesPerRound` are both odd and `(n - 1)` is an exact multiple of
-   * `matchesPerRound`, achieving the spec's literal round count would
-   * require *every* round to be an exactly-`matchesPerRound`-regular graph
-   * on `n` (odd) vertices — impossible by the handshake lemma, since
-   * `n * matchesPerRound` would be odd. `matchesPerRound = 1` always falls
-   * into this case (every odd `n`, every round would have to be a perfect
-   * matching, impossible on an odd vertex count) — this is not a corner
-   * case, it is the league's own default-adjacent shape (§4.2 default is 2,
-   * but 1 is a valid configured value, SPEC §6.2 "sin tope").
+   * Only when `n` **and** `k` are both odd can `perPlayerBound` be
+   * unreachable: achieving it would require every one of those rounds to
+   * be an exactly-`k`-regular graph on `n` (odd) vertices, which needs
+   * `n * k` to be even (handshake lemma: sum of degrees is always even).
+   * `n * k` is odd whenever both factors are odd, so on the rounds where
+   * the per-player budget leaves no slack, no valid `k`-regular round
+   * exists at all — this is a hard graph-theoretic fact about K_n, not a
+   * limitation of any one algorithm (concrete minimal witness: K_3, the
+   * triangle — 3 edges, degree 2 each; 2 "rounds" of `k = 1` would need 2
+   * proper-matching colors, but any 2 of the triangle's 3 edges share a
+   * vertex, so 2 colors is not enough; it provably needs 3).
    *
-   * The always-achievable, always-valid substitute used here: derive the
-   * round count from the circle method's actual journey count (`n` odd
-   * journeys, not `n - 1`, one resting player per journey — SPEC §5.3),
-   * grouped by `matchesPerRound` the same way as the even case. This never
-   * violates criterio 2 (a group of ≤k single-appearance journeys can never
-   * give any player more than k matches) and never creates a bye Match
-   * (criterio 4). It can differ from the spec's literal
-   * `ceil((n - 1) / matchesPerRound)` by exactly one extra round, and only
-   * in the odd-`n` cases described above.
+   * `capacityBound` is the general, construction-independent lower bound
+   * that also catches this: a round can never hold more than
+   * `floor(n * k / 2)` matches (each of the `n` players contributes at
+   * most `k` match-slots, and every match consumes 2 slots), so covering
+   * all `C(n, 2)` matches needs at least
+   * `ceil(C(n, 2) / floor(n * k / 2))` rounds. This coincides with
+   * `perPlayerBound` in every achievable case (verified computationally
+   * for n up to 41, every k up to 15 — see the builder's report) and is
+   * strictly larger exactly in the odd-`n`-odd-`k` corner above, where the
+   * general `Δ + 1` greedy coloring (`greedyMatchings`) is what actually
+   * achieves it (grouping its `n` single-match journeys `k` at a time,
+   * `ceil(n / k)`, which numerically equals this bound in that corner).
+   *
+   * Taking the max of the two therefore returns the spec's own number
+   * whenever it is reachable, and the true, still-minimal, one-round-more
+   * figure only where it is provably not — never invented, never silently
+   * short of what criterio 2 demands.
    */
-  const journeysNeeded = playerCount % 2 === 0 ? playerCount - 1 : playerCount;
-  return Math.ceil(journeysNeeded / matchesPerRound);
+  const perPlayerBound = Math.ceil((n - 1) / k);
+  const capacityBound = Math.ceil(completePairCount(n) / Math.floor((n * k) / 2));
+  return Math.max(perPlayerBound, capacityBound);
 }
 
 // ---------------------------------------------------------------------------
@@ -107,23 +118,14 @@ export function roundsCount(
 // ---------------------------------------------------------------------------
 
 /**
- * Sentinel for the "bye" slot the circle method needs internally when the
- * player count is odd. Never leaks into the returned pairings (SPEC §5.3:
- * no bye Match is ever created) — it is filtered out before a journey is
- * returned. A Symbol rather than a string constant so it can never collide
- * with a real player id.
- */
-const BYE = Symbol("bye");
-type Seat = string | typeof BYE;
-
-/**
- * Classic round-robin circle method: one fixed player, the rest rotating
- * around it. Produces `n - 1` journeys for even `n`, `n` journeys for odd
- * `n` (one seat is BYE in every journey, dropped before returning — SPEC
- * §5.3, ADR-007 "sin byes de liga").
+ * Classic round-robin circle method for **even** `n`: one fixed player, the
+ * rest rotating around it, `n - 1` journeys, each a perfect matching (every
+ * player appears exactly once per journey — SPEC §4.3). Only ever called
+ * with even `n` — odd `n` uses `waleckiFactors` (even `matchesPerRound`) or
+ * the greedy fallback (odd `matchesPerRound`) instead, see
+ * `decomposeCompleteGraph`, so there is no bye/resting-player case to handle
+ * here at all.
  *
- * Every journey is a perfect matching: each player appears at most once
- * (never appears at all in the journey where they hold the bye seat).
  * Deterministic: `sortedIds` must already be in a stable order (callers
  * sort by id, same convention as `generatePairings`), and the rotation
  * itself has no randomness.
@@ -132,13 +134,61 @@ type Seat = string | typeof BYE;
  * muestra la jornada") — this function is not exported.
  */
 function circleMethodJourneys(sortedIds: string[]): Pairing[][] {
-  const n = sortedIds.length;
-  if (n < 2) return [];
+  const m = sortedIds.length; // always even, guaranteed by the only caller.
+  const fixed = sortedIds[0];
+  let rotating = sortedIds.slice(1);
 
-  const hasBye = n % 2 !== 0;
-  const seats: Seat[] = hasBye ? [...sortedIds, BYE] : [...sortedIds];
-  const m = seats.length; // always even from here on
+  const journeys: Pairing[][] = [];
+  for (let round = 0; round < m - 1; round++) {
+    const arranged: string[] = [fixed, ...rotating];
+    const journey: Pairing[] = [];
+    for (let i = 0; i < m / 2; i++) {
+      const a = arranged[i];
+      const b = arranged[m - 1 - i];
+      const [homeId, awayId] = a < b ? [a, b] : [b, a];
+      journey.push({ homeId, awayId });
+    }
+    // A journey is a matching: every homeId is already unique within it (no
+    // player appears twice), so sorting by homeId alone is enough to make
+    // the output order deterministic — no tie-break needed.
+    journey.sort((x, y) => x.homeId.localeCompare(y.homeId));
+    journeys.push(journey);
+    // Rotate: last seat moves to the first rotating position, everyone else
+    // shifts one place. `fixed` never moves.
+    rotating = [rotating[rotating.length - 1], ...rotating.slice(0, -1)];
+  }
+  return journeys;
+}
 
+/**
+ * Bye-rotation circle method for **odd** `n`: same fixed-point-and-rotation
+ * idea as `circleMethodJourneys`, but with an extra sentinel "bye" seat so
+ * `n + 1` (even) positions rotate through `n` journeys. Whoever lands on the
+ * bye seat in a given journey simply has no match that journey — no bye
+ * `Match` is ever created (SPEC §5.3, ADR-007 "sin byes de liga").
+ *
+ * This is the exact (not heuristic) construction for the one case with no
+ * K_n-wide 2-factorization available: `n` odd, `matchesPerRound` odd (see
+ * `roundsCount`'s proof). A plain descending-degree greedy over the *whole*
+ * complete graph is not good enough here — on a fully symmetric graph like
+ * K_n every vertex ties on degree, and the textbook worst-case bound for
+ * greedy edge coloring in an arbitrary order is `2Δ - 1`, not `Δ + 1`
+ * (confirmed empirically: an earlier version of this module used the
+ * generic greedy directly on K_11 and produced 13 journeys instead of the
+ * achievable 11). This construction sidesteps that entirely: it always
+ * produces exactly `n` journeys, deterministically, matching
+ * `roundsCount`'s `ceil(n / matchesPerRound)` for this case exactly.
+ *
+ * The general-purpose `greedyMatchings` stays reserved for what it is
+ * actually needed for and empirically well-behaved on: genuine, irregular
+ * subgraphs (Hito 8's pending-matches recalculation), never the full K_n.
+ */
+function oddCompleteGraphJourneys(sortedIds: string[]): Pairing[][] {
+  const BYE = Symbol("bye");
+  type Seat = string | typeof BYE;
+
+  const seats: Seat[] = [...sortedIds, BYE];
+  const m = seats.length; // n + 1, even.
   const fixed = seats[0];
   let rotating = seats.slice(1);
 
@@ -153,16 +203,72 @@ function circleMethodJourneys(sortedIds: string[]): Pairing[][] {
       const [homeId, awayId] = a < b ? [a, b] : [b, a];
       journey.push({ homeId, awayId });
     }
-    // A journey is a matching: every homeId is already unique within it (no
-    // player appears twice), so sorting by homeId alone is enough to make
-    // the output order deterministic — no tie-break needed.
     journey.sort((x, y) => x.homeId.localeCompare(y.homeId));
     journeys.push(journey);
-    // Rotate: last seat moves to the first rotating position, everyone else
-    // shifts one place. `fixed` never moves.
     rotating = [rotating[rotating.length - 1], ...rotating.slice(0, -1)];
   }
-  return journeys;
+  return journeys; // exactly n journeys (m - 1 = n).
+}
+
+/**
+ * Walecki decomposition: splits K_n (odd `n`) into `(n - 1) / 2` edge-disjoint
+ * Hamiltonian cycles, each a 2-regular spanning subgraph (every player
+ * appears exactly twice). Together they cover every one of the `C(n, 2)`
+ * matches exactly once — no bye, no rest, no exceptions (unlike
+ * `circleMethodJourneys`, which is 1-regular per journey and needs one
+ * resting player per journey when `n` is odd).
+ *
+ * This is what lets odd `n` with even `matchesPerRound` hit the spec's exact
+ * `ceil((n - 1) / k)` round count (see `roundsCount`): grouping `k / 2` of
+ * these cycles per round gives every player precisely `k` matches, in every
+ * round including the last one that divides evenly.
+ *
+ * Construction (fixed point + zigzag, a standard 1-factorization-adjacent
+ * technique for odd complete graphs): arrange `n - 1` of the players on a
+ * circle (indices `0..n-2`), keep the last player fixed as `∞`. For each
+ * `s` in `0..(n-3)/2`, cycle `s` visits `∞`, then walks the circle
+ * zigzagging outward from position `s`: `s, s+1, s-1, s+2, s-2, ...`
+ * (indices mod `n - 1`), back to `∞`. Every cycle is Hamiltonian and the
+ * `(n - 1) / 2` cycles partition all of K_n's edges (verified
+ * computationally for n = 3..19 — see the builder's report).
+ */
+function waleckiFactors(sortedIds: string[]): Pairing[][] {
+  const n = sortedIds.length;
+  const inf = sortedIds[n - 1];
+  const circle = sortedIds.slice(0, n - 1);
+  const m = circle.length; // even
+
+  const factors: Pairing[][] = [];
+  for (let s = 0; s < m / 2; s++) {
+    // Zigzag offsets from s: 0, +1, -1, +2, -2, ..., +(m/2 - 1), -(m/2 - 1),
+    // then the single "opposite" point m/2 (since +m/2 and -m/2 are the same
+    // residue mod m, an even m has exactly one of it, visited once).
+    const offsets = [0];
+    for (let j = 1; j < m / 2; j++) {
+      offsets.push(j, -j);
+    }
+    offsets.push(m / 2);
+
+    const circleOrder = offsets.map((o) => circle[(((s + o) % m) + m) % m]);
+    const cycleVertices = [inf, ...circleOrder];
+
+    const factor: Pairing[] = [];
+    for (let i = 0; i < cycleVertices.length; i++) {
+      const a = cycleVertices[i];
+      const b = cycleVertices[(i + 1) % cycleVertices.length];
+      const [homeId, awayId] = a < b ? [a, b] : [b, a];
+      factor.push({ homeId, awayId });
+    }
+    // Unlike a matching, a 2-regular factor can legitimately repeat a
+    // homeId (the same player can be the lexicographically-smaller side of
+    // both of their two matches in this factor), so the tie-break on
+    // awayId is not dead code here — keep it.
+    factor.sort(
+      (x, y) => x.homeId.localeCompare(y.homeId) || x.awayId.localeCompare(y.awayId)
+    );
+    factors.push(factor);
+  }
+  return factors;
 }
 
 /** C(n, 2) — used to detect whether a set of pairs is the full round-robin. */
@@ -200,14 +306,71 @@ function isCompleteGraph(pairs: Pairing[], ids: string[]): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Generate the whole league round-robin already split into rounds, via the
- * circle method: `n - 1` (even n) or `n` (odd n) journeys, grouped
- * `matchesPerRound` at a time. This is the entry point for generating a
- * brand-new league (Hito 3) — always optimal, always exactly `roundsCount`
- * rounds, always `C(n, 2)` matches in total (SPEC §8, criterios 1-5).
+ * A K_n edge-coloring split into equal-degree "factors" (color classes),
+ * plus how many of them make up one round. `unitDegree` is how many matches
+ * each factor contributes per player it touches: 1 for a matching (circle
+ * method, greedy fallback), 2 for a Walecki Hamiltonian cycle. A round is
+ * always `matchesPerRound / unitDegree` factors, chosen so every full round
+ * gives exactly `matchesPerRound` matches per player.
+ */
+interface FactorDecomposition {
+  factors: Pairing[][];
+  unitDegree: 1 | 2;
+}
+
+/**
+ * Pick the right exact construction for a *complete* graph over `sortedIds`,
+ * for the given `matchesPerRound` (SPEC §4.3, and the proof on `roundsCount`
+ * for why the odd-`n` case branches on the parity of `matchesPerRound`):
+ *
+ * - `n` even → circle method: `n - 1` matchings (SPEC §5.3 doesn't apply).
+ * - `n` odd, `matchesPerRound` even → Walecki: `(n - 1) / 2` Hamiltonian
+ *   cycles, grouped `matchesPerRound / 2` at a time. Every round gives every
+ *   player exactly `matchesPerRound` matches; nobody ever rests.
+ * - `n` odd, `matchesPerRound` odd → no `matchesPerRound`-regular
+ *   construction is guaranteed to exist (see `roundsCount`'s proof), so the
+ *   round count itself is one more than the per-player bound in the
+ *   narrowest cases. `oddCompleteGraphJourneys` still constructs it exactly
+ *   (not via the generic greedy — see that function's doc for why plain
+ *   greedy is not reliable enough on a fully symmetric graph like K_n).
+ */
+function decomposeCompleteGraph(
+  sortedIds: string[],
+  matchesPerRound: number
+): FactorDecomposition {
+  const n = sortedIds.length;
+  if (n % 2 === 0) {
+    return { factors: circleMethodJourneys(sortedIds), unitDegree: 1 };
+  }
+  if (matchesPerRound % 2 === 0) {
+    return { factors: waleckiFactors(sortedIds), unitDegree: 2 };
+  }
+  return { factors: oddCompleteGraphJourneys(sortedIds), unitDegree: 1 };
+}
+
+/** Group `factors` into rounds of `matchesPerRound / unitDegree` at a time. */
+function groupFactorsIntoRounds(
+  { factors, unitDegree }: FactorDecomposition,
+  matchesPerRound: number
+): Pairing[][] {
+  const groupSize = matchesPerRound / unitDegree;
+  const rounds: Pairing[][] = [];
+  for (let i = 0; i < factors.length; i += groupSize) {
+    rounds.push(factors.slice(i, i + groupSize).flat());
+  }
+  return rounds;
+}
+
+/**
+ * Generate the whole league round-robin already split into rounds (SPEC
+ * §4.3). This is the entry point for generating a brand-new league (Hito 3)
+ * — always exactly `roundsCount` rounds, always `C(n, 2)` matches in total,
+ * and never more than `matchesPerRound` matches per player per round
+ * (SPEC §8, criterios 1-5). See `decomposeCompleteGraph` for which exact
+ * construction is used depending on the parity of `n` and `matchesPerRound`.
  *
  * `playerIds` does not need to be pre-sorted; it is sorted lexicographically
- * before running the circle method so the result is deterministic and uses
+ * before running the construction so the result is deterministic and uses
  * the same home/away convention as `generatePairings` (lower id → home).
  *
  * @returns Array of rounds (index 0 = round 1, ...), each an array of
@@ -219,19 +382,11 @@ export function roundRobinRounds(
 ): Pairing[][] {
   assertValidMatchesPerRound(matchesPerRound);
   const sortedIds = [...new Set(playerIds)].sort((a, b) => a.localeCompare(b));
-  const journeys = circleMethodJourneys(sortedIds);
-  return groupJourneys(journeys, matchesPerRound);
-}
-
-function groupJourneys(
-  journeys: Pairing[][],
-  matchesPerRound: number
-): Pairing[][] {
-  const rounds: Pairing[][] = [];
-  for (let i = 0; i < journeys.length; i += matchesPerRound) {
-    rounds.push(journeys.slice(i, i + matchesPerRound).flat());
-  }
-  return rounds;
+  if (sortedIds.length < 2) return [];
+  return groupFactorsIntoRounds(
+    decomposeCompleteGraph(sortedIds, matchesPerRound),
+    matchesPerRound
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -309,19 +464,19 @@ export interface RoundAssignment extends Pairing {
  * indexes (closed rounds are never touched — Hito 8's job is to pick which
  * indexes count as open, not this function's).
  *
- * Formulated as edge coloring (SPEC §4.3): each "journey" is a color, a
- * round is `matchesPerRound` consecutive journeys, and the invariant is
- * that no player has more than `matchesPerRound` pairs in the same round.
- * Grouping whole journeys together guarantees that invariant by
- * construction, for any journey-producing strategy — the real work is
- * making sure every journey is internally a valid matching.
+ * Formulated as edge coloring (SPEC §4.3): each "factor" is a color, a round
+ * is a fixed number of consecutive factors, and the invariant is that no
+ * player has more than `matchesPerRound` pairs in the same round. Grouping
+ * whole factors together guarantees that invariant by construction, for any
+ * factor-producing strategy — the real work is making sure every factor is
+ * internally valid (no player exceeding `factor`'s own per-player degree).
  *
  * - When `pairs` is exactly the full round-robin over `playerIds` (K_n),
- *   this delegates to the same circle method `roundRobinRounds` uses, so it
- *   is optimal: `n - 1` journeys for even n, `n` for odd n.
+ *   this delegates to the same exact construction `roundRobinRounds` uses
+ *   (`decomposeCompleteGraph`), so it is optimal and matches `roundsCount`.
  * - Otherwise (an arbitrary subgraph — e.g. the pending matches left after
  *   a Hito 8 recalculation) it falls back to the greedy, degree-descending
- *   matching extraction, which never needs more than `Δ + 1` journeys.
+ *   matching extraction, which never needs more than `Δ + 1` matchings.
  *
  * @param pairs - Pairs to place. Every pair not already resolved elsewhere;
  *   this function never sees, and therefore never reassigns, a pair that
@@ -353,12 +508,13 @@ export function assignPairsToRounds(
   }
 
   const sortedIds = [...idSet].sort((a, b) => a.localeCompare(b));
-  const journeys = isCompleteGraph(pairs, sortedIds)
-    ? circleMethodJourneys(sortedIds)
-    : greedyMatchings(pairs);
+  const { factors, unitDegree } = isCompleteGraph(pairs, sortedIds)
+    ? decomposeCompleteGraph(sortedIds, matchesPerRound)
+    : { factors: greedyMatchings(pairs), unitDegree: 1 as const };
+  const groupSize = matchesPerRound / unitDegree;
 
   const sortedRoundIndexes = [...openRoundIndexes].sort((a, b) => a - b);
-  const neededRounds = Math.ceil(journeys.length / matchesPerRound);
+  const neededRounds = Math.ceil(factors.length / groupSize);
   if (neededRounds > sortedRoundIndexes.length) {
     throw new Error(
       `assignPairsToRounds: need ${neededRounds} round(s) to place every pair, only ${sortedRoundIndexes.length} open`
@@ -366,10 +522,10 @@ export function assignPairsToRounds(
   }
 
   const assignments: RoundAssignment[] = [];
-  for (let i = 0; i < journeys.length; i += matchesPerRound) {
-    const roundIndex = sortedRoundIndexes[i / matchesPerRound];
-    for (const journey of journeys.slice(i, i + matchesPerRound)) {
-      for (const pair of journey) {
+  for (let i = 0; i < factors.length; i += groupSize) {
+    const roundIndex = sortedRoundIndexes[i / groupSize];
+    for (const factor of factors.slice(i, i + groupSize)) {
+      for (const pair of factor) {
         assignments.push({ ...pair, roundIndex });
       }
     }
@@ -408,7 +564,7 @@ export function deriveDeadlines(startMonth: Date, roundsCount: number): Date[] {
 }
 
 // ---------------------------------------------------------------------------
-// roundQuota — SPEC §4.6, §5.2, §5.3
+// roundQuota — SPEC §4.6, §5.2
 // ---------------------------------------------------------------------------
 
 /** The minimal match shape `roundQuota` needs — no Prisma types leak in here. */
@@ -428,10 +584,17 @@ export interface RoundMatchInput {
 export interface RoundQuota {
   /**
    * How many matches this player actually has in this round. Not always
-   * `matchesPerRound`: the last round can require less (SPEC §5.2), and the
-   * player resting on an odd-n journey has one less in that round
-   * (SPEC §5.3). Derived from the matches themselves, never from the
-   * league's `matchesPerRound` constant.
+   * `matchesPerRound`: the last round can require less (SPEC §5.2), and
+   * — with an odd number of players and an odd `matchesPerRound` — a
+   * player can have one match fewer in some rounds too (the bye-rotation
+   * construction used for that specific case, see `oddCompleteGraphJourneys`
+   * in this module). Deliberately **not** derived from `matchesPerRound`:
+   * with an even `matchesPerRound` the Walecki decomposition gives every
+   * player exactly `matchesPerRound` matches in every full round, nobody
+   * ever rests, so computing `required` from the constant instead of from
+   * the matches themselves would be wrong in that regime and right in the
+   * other. Deriving it from the matches actually assigned works
+   * identically in both.
    */
   required: number;
   /** How many of those required matches have a Result. */
@@ -464,8 +627,8 @@ export function roundQuota(
 /**
  * Spanish label for a round quota, e.g. "falta 1 de 2", "faltan 2 de 2",
  * "falta 1 de 1", or "cumplido" once `resolved >= required` (which also
- * covers the 0-required edge case of the resting player on a
- * `matchesPerRound = 1` league — SPEC §5.3 — nothing owed, nothing missing).
+ * covers the 0-required edge case of a player with no match at all in a
+ * given round — nothing owed, nothing missing).
  */
 export function quotaLabel(resolved: number, required: number): string {
   const missing = required - resolved;

@@ -50,19 +50,29 @@ function fullRoundRobin(ids: string[]): Pairing[] {
 const SIZES = [10, 11, 12, 13, 20]; // even and odd, per the task's requirement.
 const MATCHES_PER_ROUND = [1, 2, 3];
 
+/**
+ * Reference implementation of the unified formula documented on
+ * `roundsCount` (max of the per-player bound and the general capacity
+ * bound), computed independently here so the test pins the exact numbers
+ * rather than trivially re-checking the production code against itself.
+ */
+function expectedRoundsCount(n: number, k: number): number {
+  const perPlayerBound = Math.ceil((n - 1) / k);
+  const capacityBound = Math.ceil((n * (n - 1)) / 2 / Math.floor((n * k) / 2));
+  return Math.max(perPlayerBound, capacityBound);
+}
+
 // ---------------------------------------------------------------------------
 // AC-1: exact match and round counts
 // ---------------------------------------------------------------------------
 
 describe("AC-1: con n jugadores y matchesPerRound=k, genera exactamente C(n,2) partidas y ceil((n-1)/k) rondas", () => {
-  // NOTE on odd n (deviation from the literal spec formula, documented at
-  // length on `roundsCount` in src/server/rounds.ts): for even n the spec's
-  // ceil((n-1)/k) is exact and asserted here as-is. For odd n it is
-  // sometimes mathematically unreachable together with criterio 2 (K_n odd
-  // has chromatic index n, not n-1 — a "Class 2" graph, Vizing). The
-  // always-achievable substitute this module implements is
-  // ceil(n/k) for odd n, asserted below instead. Both are asserted against
-  // `roundsCount` so this test also documents/pins the exact deviation.
+  // The spec's ceil((n-1)/k) is exact and achieved whenever n is even, or n
+  // is odd and k is even (Walecki decomposition — see roundsCount and
+  // waleckiFactors in src/server/rounds.ts). It is only unreachable when
+  // both n and k are odd (K_n odd is a "Class 2" graph, Vizing) — in that
+  // single case `expectedRoundsCount` (and `roundsCount`) return one round
+  // more, never less, than criterio 2 could otherwise be satisfied with.
   for (const n of SIZES) {
     for (const k of MATCHES_PER_ROUND) {
       it(`n=${n}, k=${k}`, () => {
@@ -72,15 +82,27 @@ describe("AC-1: con n jugadores y matchesPerRound=k, genera exactamente C(n,2) p
 
         expect(total).toHaveLength(expectedPairingCount(n));
         expect(rounds).toHaveLength(roundsCount(n, k));
+        expect(roundsCount(n, k)).toBe(expectedRoundsCount(n, k));
 
-        const isEven = n % 2 === 0;
-        const expectedRounds = isEven
-          ? Math.ceil((n - 1) / k)
-          : Math.ceil(n / k); // documented deviation, odd n only.
-        expect(roundsCount(n, k)).toBe(expectedRounds);
+        const bothOdd = n % 2 !== 0 && k % 2 !== 0;
+        if (!bothOdd) {
+          // Feasible case: matches the spec's own formula exactly, no
+          // deviation at all.
+          expect(roundsCount(n, k)).toBe(Math.ceil((n - 1) / k));
+        }
       });
     }
   }
+
+  // Pins the handful of concrete numbers from the coordinator's review,
+  // computed independently from the general formula above.
+  it("casos concretos verificados a mano: n=11/k=2->5, n=13/k=2->6, n=13/k=1->13, n=13/k=3->5, n=19/k=3->7", () => {
+    expect(roundsCount(11, 2)).toBe(5);
+    expect(roundsCount(13, 2)).toBe(6);
+    expect(roundsCount(13, 1)).toBe(13);
+    expect(roundsCount(13, 3)).toBe(5);
+    expect(roundsCount(19, 3)).toBe(7);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -151,23 +173,65 @@ describe("AC-4: con n impar, ningún jugador queda con partida de bye", () => {
         }
       });
     }
+  }
+});
 
-    it(`n=${n}: en cada ronda, el jugador que descansa tiene una partida menos (k-1)`, () => {
+// ---------------------------------------------------------------------------
+// AC-3 (extensión Walecki): n impar con matchesPerRound par — cupo uniforme,
+// nadie descansa. Corrección de una revisión: §5.3 describe una consecuencia
+// de agrupar jornadas de grado 1 (circle method con bye), no una regla — con
+// la descomposición de Walecki (factores 2-regulares) para k par, ese
+// descanso deja de existir por construcción. Lo normativo de §5.3 (no se
+// crea Match de bye) sigue intacto y se comprueba en AC-4 de todas formas.
+// ---------------------------------------------------------------------------
+
+describe("AC-3 (Walecki): n impar con k par produce (n-1)/2 rondas con cupo uniforme de k, sin excepciones", () => {
+  for (const n of [11, 13, 15, 17, 19]) {
+    it(`n=${n}, k=2: (n-1)/2 rondas, cada jugador exactamente 2 partidas en TODAS las rondas`, () => {
       const ids = makeIds(n);
-      const k = 2;
-      const rounds = roundRobinRounds(ids, k);
-      for (const round of rounds.slice(0, -1)) {
-        const counts = ids.map((id) => countAppearances(round, id));
-        const resting = counts.filter((c) => c === k - 1);
-        const full = counts.filter((c) => c === k);
-        // Odd n: exactly one player rests per journey; with k=2 grouping two
-        // journeys, a non-last round has either 0 or 2 resting players
-        // (one per journey), never more.
-        expect(resting.length).toBeLessThanOrEqual(2);
-        expect(resting.length + full.length).toBe(ids.length);
+      const rounds = roundRobinRounds(ids, 2);
+
+      expect(rounds).toHaveLength((n - 1) / 2);
+      expect(roundsCount(n, 2)).toBe((n - 1) / 2);
+      // Same as the spec's own literal formula: fully achievable here.
+      expect(roundsCount(n, 2)).toBe(Math.ceil((n - 1) / 2));
+
+      for (const round of rounds) {
+        for (const id of ids) {
+          expect(countAppearances(round, id)).toBe(2); // never less, nobody rests.
+        }
       }
+
+      const total = rounds.flat();
+      expect(total).toHaveLength(expectedPairingCount(n));
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Infactibilidad demostrada: n impar con matchesPerRound impar. K_n impar es
+// "Clase 2" (Vizing): su índice cromático es n, no n-1. Con k=1 una ronda ES
+// literalmente un emparejamiento, así que el mínimo real es n rondas, nunca
+// n-1 — no es una limitación del algoritmo, es un hecho de teoría de grafos.
+// ---------------------------------------------------------------------------
+
+describe("infactibilidad demostrada: n impar con k impar necesita una ronda más que ceil((n-1)/k)", () => {
+  for (const n of [11, 13, 15, 17, 19]) {
+    it(`n=${n}, k=1: exactamente n rondas (K_n impar es Clase 2, no n-1)`, () => {
+      expect(roundsCount(n, 1)).toBe(n);
+      expect(roundRobinRounds(makeIds(n), 1)).toHaveLength(n);
+    });
+  }
+
+  it("n=13, k=3: 5 rondas (no las 4 de ceil((13-1)/3), que exigirían un factor 3-regular imposible sobre 13 vértices)", () => {
+    expect(roundsCount(13, 3)).toBe(5);
+    expect(roundRobinRounds(makeIds(13), 3)).toHaveLength(5);
+  });
+
+  it("n=19, k=3: 7 rondas (no las 6 de ceil((19-1)/3))", () => {
+    expect(roundsCount(19, 3)).toBe(7);
+    expect(roundRobinRounds(makeIds(19), 3)).toHaveLength(7);
+  });
 });
 
 // ---------------------------------------------------------------------------
