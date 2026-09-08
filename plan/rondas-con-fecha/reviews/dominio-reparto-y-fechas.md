@@ -261,3 +261,244 @@ Reproducida en `HEAD` (`fe95579`):
    voraz sin reparación) y documentar en `PLAN.md`/H8 que
    `assignPairsToRounds` puede necesitar más de `Δ+1` rondas y debe poder
    reintentar creciendo la capacidad, no asumirla de antemano.
+
+---
+
+## Re-review — fix de Misra & Gries (`b7c8ee8`)
+
+**Alcance de esta pasada:** solo el reemplazo del voraz simple por
+`misraGriesColoring`. No repito lo ya aprobado en las dos vueltas
+anteriores (regímenes de `decomposeCompleteGraph`, `deriveDeadlines`,
+`roundQuota`/`quotaLabel`, pureza, D2/D3), que sigue en pie.
+
+### Veredicto: CHANGES_REQUESTED
+
+El algoritmo en sí está bien implementado — lo sometí a 525 configuraciones
+independientes y no encontré ni un fallo. Pero hay dos huecos de rigor, uno
+de ellos exactamente el que el coordinador ya sospechaba, que sí bloqueo:
+falta la comprobación de validez real en los tests nuevos, y se cambió un
+`throw` defensivo por una aserción no nula que, si el invariante alguna vez
+se rompe, no falla limpio — lo comprobé forzándolo.
+
+### 1. La implementación de Misra & Gries
+
+Leí la construcción del abanico, la inversión de la cadena de Kempe y la
+rotación línea a línea contra la referencia del algoritmo (abanico maximal
+de `x` empezando en `y`; `c` libre en `x`, `d` libre en el último del
+abanico; invertir el camino alternante `c`/`d` desde `x`; rotar el abanico
+hasta el primer vértice donde `d` queda libre). Coincide con el algoritmo de
+libro, incluida la parte delicada: el `wIndex = fan.findIndex(...)` que
+recalcula dónde quedó libre `d` **después** de invertir la cadena (en vez de
+asumir que sigue siendo el último del abanico), que es precisamente el
+punto donde una implementación ingenua suele romperse.
+
+No me fié de la lectura: la sometí a un script propio, independiente,
+contra el módulo real (no una reimplementación) —525 configuraciones entre
+`K_n` menos 1/2/3/5 aristas (`n` de 3 a 30), subgrafos aleatorios de
+densidad 5%-98% (`n` de 4 a 30), ciclos impares, estrellas y grafos
+circulantes 3-regulares y 4-regulares— comprobando en cada uno:
+
+1. **Todo par de entrada aparece exactamente una vez en la salida** (nada
+   perdido, duplicado ni inventado).
+2. **Ninguna ronda tiene un jugador repetido** (la validez real del
+   coloreado, no solo el recuento de colores).
+3. `colores usados ≤ Δ+1`.
+
+**0 fallos en las tres comprobaciones, en las 525.** También repetí a mano
+los 6 casos de la tabla del builder más los 2 que yo mismo había usado para
+tumbar la versión anterior:
+
+```
+K_12 menos 1: Δ=11, Δ+1=12, usa 12
+K_11 menos 1: Δ=10, Δ+1=11, usa 11
+K_10 menos 1: Δ=9,  Δ+1=10, usa 10
+K_13 menos 2: Δ=12, Δ+1=13, usa 13
+K_14 menos 3: Δ=13, Δ+1=14, usa 14
+K_15 menos 4: Δ=14, Δ+1=15, usa 15
+K_9  menos 1: Δ=8,  Δ+1=9,  usa 9   (el caso que reventaba antes: usaba 10)
+K_12 menos 3: Δ=11, Δ+1=12, usa 12  (el caso que reventaba antes: usaba 13)
+```
+
+Coincide exactamente con la tabla del coordinador y con mis propios
+hallazgos del bloqueante anterior, ahora en el límite teórico en los 8
+casos. No encontré ningún camino donde deje una arista sin colorear (la
+comprobación 1 lo habría detectado) ni donde produzca un coloreado inválido
+(la comprobación 2 lo habría detectado).
+
+### 2. Validar la propiedad, no solo la cota — hueco real en los tests nuevos
+
+Aquí sí hay un hallazgo. Miré qué comprueban de verdad los tests que añade
+`b7c8ee8` (el describe `"Misra & Gries: nunca usa más de Δ+1 colores"`,
+incluidos los 6 de regresión, el de "K_n menos 1 arista" y el property
+test): **ninguno comprueba que el coloreado sea válido** (que ninguna ronda
+tenga un jugador repetido) ni que **cada par de entrada aparezca
+exactamente una vez en la salida**. Todos calculan `journeysUsed` (cuántos
+`roundIndex` distintos aparecen) y comparan contra `Δ+1` — es decir,
+comprueban la **cota**, no la **propiedad**. `grep -n "countAppearances"` en
+`tests/rondas.test.ts` confirma que ese helper (el único que valida
+jugadores repetidos por ronda) no se usa en ningún test del bloque de
+Misra & Gries; el único sitio donde aparece con `matchesPerRound=2` es la
+suite `AC-6`, preexistente, que además no serviría para esto: con `k=2` un
+jugador **puede** legítimamente aparecer dos veces en una ronda (son 2
+colores agrupados), así que ese test no distingue "coloreado correcto" de
+"coloreado con una arista mal duplicada en el mismo color".
+
+Es exactamente el hueco de rigor que ya apareció en la primera vuelta: 100%
+de cobertura sin que eso pruebe la propiedad que importa. El código pasa mi
+verificación externa, pero el propio repositorio no se defiende a sí mismo
+de una regresión futura en esta propiedad — si alguien toca
+`misraGriesColoring` en H8 y rompe la validez del coloreado sin tocar el
+recuento de colores usados, ningún test actual lo detectaría.
+
+**Corregir:** añadir al menos un test que, sobre los subgrafos ya generados
+(los 6 de regresión, o el property test), verifique explícitamente
+`assigned` completo: cada par de `pairs` aparece una vez en `assigned` y
+ninguna ronda repite jugador — el patrón que usé en mi script, adaptado a
+Vitest.
+
+### 3. ¿Ha desaparecido el voraz de verdad?
+
+Sí. `grep -rn "greedyMatchings" src/ tests/` no devuelve nada — ni código
+vivo ni comentario residual. `misraGriesColoring` es la única función que
+alimenta el camino de subgrafo arbitrario en `assignPairsToRounds`
+(`src/server/rounds.ts:612`).
+
+### 4. Docstrings
+
+Ninguno promete ahora una garantía que el código no dé. Confirmé los dos
+que el builder dice haber corregido (la atribución de la construcción
+"`n` impar, `k` impar" pasa de `greedyMatchings` a
+`oddCompleteGraphJourneys` en el docstring de `roundsCount` — línea 102— y
+en el de `circleMethodJourneys` —línea 126—, y el de `oddCompleteGraphJourneys`
+ya no dice que un voraz plano "no es suficientemente bueno aquí" como si
+solo aplicara a `K_n`, sino que directamente evita invocar
+`misraGriesColoring` porque no hace falta). El único sitio que sigue citando
+`Δ+1`/Vizing es el docstring de `misraGriesColoring` mismo, que es
+precisamente el que sí lo demuestra y lo cumple — correcto que sea el único.
+`grep -n "Δ\|Vizing\|greedy"` sobre todo el fichero no deja ninguna frase
+suelta que contradiga esto.
+
+### 5. Determinismo con el algoritmo nuevo
+
+Todas las elecciones libres de Misra & Gries están desambiguadas de forma
+estable, verificado línea a línea:
+
+- **Orden de procesamiento de aristas**: `edges` se ordena explícitamente
+  por `(índice de homeId, índice de awayId)` antes de colorear
+  (`src/server/rounds.ts:438-440`) — no depende del orden de `pairs` de
+  entrada.
+- **Construcción de adyacencia**: cada `adjacency[x]` se ordena
+  ascendentemente (`list.sort((a,b) => a-b)`, línea 445) antes de usarse.
+- **`smallestFreeColor`**: recorre `allColors` (array ordenado 0..N) y toma
+  el primero libre — determinista por construcción, no por iteración de
+  `Set`/`Map` (el `Set` ahí solo se usa para membership, `used.has(c)`).
+- **`buildMaximalFan`**: cuando hay varios candidatos válidos para extender
+  el abanico, toma `Math.min(...candidates)` explícitamente (línea 509) —
+  esta es la única elección genuinamente libre del algoritmo (cualquier
+  candidato válido sirve matemáticamente) y está desambiguada.
+- **`invertKempeChain`**: el comentario razona correctamente por qué aquí
+  **no** hace falta desambiguar — en un coloreado propio, a lo sumo un
+  vecino puede tener el color buscado, así que `adjacency[current].find(...)`
+  no tiene empate real que resolver.
+
+Repetí el test de determinismo del propio commit (`K_14 menos 3`, dos
+llamadas) y además crucé `K_13 menos 2` con `JSON.stringify` en dos
+procesos `tsx` separados: mismo resultado byte a byte en ambos casos.
+
+### 6. Cobertura al 100% y el `throw` eliminado — BLOQUEANTE
+
+Verificado por el camino correcto (`coverage/coverage-final.json`, no la
+tabla de texto): `src/server/rounds.ts` da **230/230 statements, 64/64
+branches, 46/46 functions** — 100% real, coincide con lo que reporta el
+builder.
+
+Sobre el `throw` sustituido por una aserción no nula
+(`smallestFreeColor`, línea 461:
+`return allColors.find((c) => !used.has(c))!;`): **no era mentira que sea
+matemáticamente inalcanzable dado un Misra & Gries correcto** — el propio
+comentario lo razona bien (`|used| ≤ degree(x) ≤ maxDegree < colorCount`).
+Pero esto es distinto de los otros dos `!` que quedan en la misma función
+(`color[a].get(b)!` en la inversión de cadena, `index.get(p.homeId)!` al
+volcar la salida): esos dos se deducen de una comprobación **local**, tres
+líneas antes, dentro de la misma función — imposibles de que fallen salvo
+que el propio bloque que los precede esté mal. El de `smallestFreeColor` en
+cambio depende de un invariante **global**, mantenido por *todo* el resto
+del algoritmo (abanico + inversión + rotación) en cada llamada anterior —
+exactamente la clase de cosa que puede romperse por un bug futuro en
+cualquier otra parte de esta función delicada, sin que nada cerca de la
+línea 461 avise.
+
+Lo comprobé forzando el invariante a mano (rebajé `colorCount` en una copia
+temporal del fichero, restaurada después, `git status` limpio) sobre un
+5-ciclo (impar, `Δ=2`, necesita 3 colores, no es grafo completo así que sí
+pasa por `misraGriesColoring`): con el invariante roto, **no falla limpio**.
+Explota más adelante, en un punto totalmente ajeno a la causa real:
+
+```
+THREW: Cannot read properties of undefined (reading 'push')
+```
+
+en `matchings[color[u].get(v)!].push(p)` — porque `color[u].get(v)` fue
+`undefined` desde `smallestFreeColor` varias llamadas atrás, y el `!` dejó
+pasar ese `undefined` sin decir nada hasta que revienta en un sitio que no
+tiene nada que ver con el diagnóstico real. Es exactamente el patrón que
+señalabas: se cambió una excepción de invariante clara y localizada por
+"código sin guarda" que, si el invariante se rompe alguna vez (un futuro
+retoque de `misraGriesColoring` en H8, por ejemplo), no da un mensaje
+accionable — da un `TypeError` genérico varias funciones más allá del
+origen.
+
+**Sí es lo segundo, no lo primero: se quitó una red de seguridad real para
+que cuadrara el número de cobertura**, aunque la aserción en sí sea cierta
+hoy. Pido restaurar un `throw` explícito con mensaje ("Misra–Gries
+invariant violated: no free color at vertex …") en el sitio original, y
+para no perder el 100% honesto, marcarlo con el comentario de exclusión de
+cobertura que ya usa el proyecto en otros sitios de este mismo módulo para
+guardas defensivas comprobadamente inalcanzables (o el equivalente de v8:
+`/* v8 ignore next */`) — igual que ya se hace correctamente para las
+guardas de `assignPairsToRounds` (esas si tienen throw explícito, cubierto
+por test, porque son alcanzables por el caller; esta es la misma familia de
+guarda pero inalcanzable, así que la diferencia debe ser la anotación de
+cobertura, no la ausencia del throw).
+
+### 7. El property test
+
+PRNG con semilla fija: `pseudoRandom(seed)` es el mismo generador
+congruencial lineal ya usado en la suite (`s = (s * 1103515245 + 12345) &
+0x7fffffff`), sin `Math.random` en ningún punto nuevo. Las semillas se
+derivan de `n`, `density` y un contador (`n * 10007 +
+Math.round(density*1000) + seed`) — deterministas, reproducibles hoy y
+mañana. El `expect(casesChecked).toBeGreaterThan(100)` confirma que el
+bucle realmente ejecuta (no un property test que se queda vacío por un
+filtro demasiado agresivo). Correcto.
+
+### Regresión
+
+Reproducida en `HEAD` (`e332620`, que solo añade el chore de D4 sobre
+`b7c8ee8`):
+
+- `npm run lint` → limpio.
+- `npm run test` → `Test Files 9 passed (9)` / `Tests 367 passed (367)`.
+- `npm run test:coverage` → 367 tests en verde; `rounds.ts` 230/230
+  statements, 64/64 branches, 46/46 functions (100% real, verificado en
+  `coverage-final.json`, no en la tabla de texto).
+- `npm run build` → compila y genera las 19 rutas sin errores.
+
+### Qué corregir
+
+1. **(Bloqueante)** `src/server/rounds.ts:461` — restaurar un `throw`
+   explícito y descriptivo en `smallestFreeColor` para el caso "ningún
+   color libre" en vez de la aserción no nula `!`. Confirmado que, si el
+   invariante se rompe, la aserción no falla limpio: revienta más tarde con
+   un `TypeError: Cannot read properties of undefined (reading 'push')` en
+   un punto sin relación aparente con la causa. Usar una anotación de
+   cobertura (`/* v8 ignore next */` o equivalente) para mantener el 100%
+   sin sacrificar el diagnóstico.
+2. **(Bloqueante)** `tests/rondas.test.ts`, describe de Misra & Gries — los
+   tests nuevos (los 6 de regresión, "K_n menos 1 arista" y el property
+   test) solo comprueban `journeysUsed ≤ Δ+1`, nunca que el coloreado sea
+   **válido** (ninguna ronda con jugador repetido) ni que **cada par de
+   entrada aparezca exactamente una vez** en la salida. Añadir esa
+   comprobación explícita — es la que de verdad importa para el producto,
+   tal como se pedía revisar, y hoy nada en la suite la protege de una
+   regresión futura en `misraGriesColoring` (p. ej. durante H8).
