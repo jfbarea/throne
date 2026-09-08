@@ -237,7 +237,14 @@ describe("H1-AC4: el seed deja la liga con matchesPerRound = 2 y un startMonth",
         // exact value, not just its type.
         expect(league?.startMonth).toEqual(new Date(Date.UTC(2026, 2, 1)));
       });
-  });
+    // 30s timeout: this test shells out to `npx tsx prisma/seed.ts`, so it pays
+    // for npx resolution + tsx startup + the whole seed against test.db. It
+    // measures ~5.4s locally, right on top of Vitest's 5s default, which made
+    // the suite intermittently red. The cost is inherent to running the real
+    // seed (which is the point of H1-AC4 — it asserts the actual seed output,
+    // not a reimplementation of it), so the timeout is raised rather than the
+    // test weakened.
+  }, 30_000);
 });
 
 // ---------------------------------------------------------------------------
