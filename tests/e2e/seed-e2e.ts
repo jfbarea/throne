@@ -56,7 +56,7 @@ async function main() {
       id: "e2e-admin-001",
       leagueId: league.id,
       displayName: "Admin E2E",
-      faction: "Adeptus Administratum",
+      faction: "Agentes del Imperio",
       role: "ADMIN",
       passcodeHash: adminHash,
       active: true,
@@ -65,10 +65,10 @@ async function main() {
 
   // Create 6 regular players.
   const players = [
-    { id: "e2e-player-001", displayName: "Jugador Alfa", faction: "Space Marines" },
+    { id: "e2e-player-001", displayName: "Jugador Alfa", faction: "Marines Espaciales" },
     { id: "e2e-player-002", displayName: "Jugador Beta", faction: "Tiránidos" },
-    { id: "e2e-player-003", displayName: "Jugador Gamma", faction: "Orks" },
-    { id: "e2e-player-004", displayName: "Jugador Delta", faction: "T'au" },
+    { id: "e2e-player-003", displayName: "Jugador Gamma", faction: "Orkos" },
+    { id: "e2e-player-004", displayName: "Jugador Delta", faction: "Imperio T'au" },
     { id: "e2e-player-005", displayName: "Jugador Epsilon", faction: "Drukhari" },
     { id: "e2e-player-006", displayName: "Jugador Zeta", faction: "Necrones" },
   ];

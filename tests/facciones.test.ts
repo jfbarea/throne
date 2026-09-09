@@ -59,9 +59,77 @@ describe("catálogo de facciones", () => {
     expect(serialised!.length).toBeLessThanOrEqual(MAX_FACTION_FIELD_LENGTH);
   });
 
+  it("está en español: ningún nombre traducible se quedó en inglés", () => {
+    // El catálogo sigue la edición española, que deja sin traducir solo los
+    // nombres latinos que el trasfondo usa como nombre propio y los
+    // endónimos xenos. Todo lo demás tiene forma española, y este test lo
+    // fija para que una reversión a medias no pase desapercibida.
+    const untranslated = [
+      "Space Marines",
+      "Blood Angels",
+      "Dark Angels",
+      "Space Wolves",
+      "Black Templars",
+      "Deathwatch",
+      "Grey Knights",
+      "Chaos Space Marines",
+      "Death Guard",
+      "Thousand Sons",
+      "World Eaters",
+      "Emperor's Children",
+      "Orks",
+      "Necrons",
+      "Tyranids",
+      "Genestealer Cults",
+      "Imperial Knights",
+      "Chaos Knights",
+      "Leagues of Votann",
+      "T'au Empire",
+    ];
+    for (const name of untranslated) {
+      expect(ALL_FACTIONS).not.toContain(name);
+    }
+
+    // Y las contrapartidas españolas sí están.
+    for (const name of [
+      "Marines Espaciales",
+      "Ángeles Sangrientos",
+      "Vigilantes de la Muerte",
+      "Caballeros Grises",
+      "Marines Espaciales del Caos",
+      "Guardia de la Muerte",
+      "Mil Hijos",
+      "Devoradores de Mundos",
+      "Hijos del Emperador",
+      "Orkos",
+      "Necrones",
+      "Tiránidos",
+      "Cultos Genestealer",
+      "Caballeros Imperiales",
+      "Caballeros del Caos",
+      "Ligas de Votann",
+      "Imperio T'au",
+    ]) {
+      expect(ALL_FACTIONS).toContain(name);
+    }
+  });
+
+  it("mantiene sin traducir solo los nombres latinos y los endónimos xenos", () => {
+    for (const name of [
+      "Adepta Sororitas",
+      "Adeptus Custodes",
+      "Adeptus Mechanicus",
+      "Astra Militarum",
+      "Aeldari",
+      "Drukhari",
+    ]) {
+      expect(ALL_FACTIONS).toContain(name);
+    }
+  });
+
   it("isKnownFaction distingue catálogo de texto libre", () => {
-    expect(isKnownFaction("Orks")).toBe(true);
-    expect(isKnownFaction("  Orks  ")).toBe(true);
+    expect(isKnownFaction("Orkos")).toBe(true);
+    expect(isKnownFaction("  Orkos  ")).toBe(true);
     expect(isKnownFaction("Ejército de mi primo")).toBe(false);
   });
 });
@@ -77,28 +145,29 @@ describe("parseFactions", () => {
   it("lee un valor de texto libre antiguo como una sola facción", () => {
     // Written before the catalogue existed (prisma/seed.ts uses these).
     expect(parseFactions("Astra Militarum")).toEqual(["Astra Militarum"]);
-    expect(parseFactions("Inquisición")).toEqual(["Inquisición"]);
+    // Un nombre en inglés de antes de traducir el catálogo: sigue leyéndose.
+    expect(parseFactions("Space Marines")).toEqual(["Space Marines"]);
   });
 
   it("separa varias facciones y respeta el orden", () => {
-    expect(parseFactions("Orks · Death Guard · Necrones")).toEqual([
-      "Orks",
-      "Death Guard",
+    expect(parseFactions("Orkos · Guardia de la Muerte · Necrones")).toEqual([
+      "Orkos",
+      "Guardia de la Muerte",
       "Necrones",
     ]);
   });
 
   it("tolera el separador sin espacios o con espaciado irregular", () => {
-    expect(parseFactions("Orks·Death Guard")).toEqual(["Orks", "Death Guard"]);
-    expect(parseFactions("Orks   ·    Death Guard")).toEqual([
-      "Orks",
-      "Death Guard",
+    expect(parseFactions("Orkos·Tiránidos")).toEqual(["Orkos", "Tiránidos"]);
+    expect(parseFactions("Orkos   ·    Tiránidos")).toEqual([
+      "Orkos",
+      "Tiránidos",
     ]);
   });
 
   it("descarta huecos vacíos y duplicados conservando el primero", () => {
-    expect(parseFactions("Orks ·  · Orks · Necrones")).toEqual([
-      "Orks",
+    expect(parseFactions("Orkos ·  · Orkos · Necrones")).toEqual([
+      "Orkos",
       "Necrones",
     ]);
   });
@@ -111,19 +180,19 @@ describe("serialiseFactions", () => {
   });
 
   it("une con el separador canónico", () => {
-    expect(serialiseFactions(["Orks", "Necrones"])).toBe(
-      `Orks${FACTION_SEPARATOR}Necrones`
+    expect(serialiseFactions(["Orkos", "Necrones"])).toBe(
+      `Orkos${FACTION_SEPARATOR}Necrones`
     );
   });
 
   it("elimina duplicados y espacios sobrantes", () => {
-    expect(serialiseFactions([" Orks ", "Orks", "Necrones"])).toBe(
-      "Orks · Necrones"
+    expect(serialiseFactions([" Orkos ", "Orkos", "Necrones"])).toBe(
+      "Orkos · Necrones"
     );
   });
 
   it("quita los puntos medios de dentro de un nombre para que no se re-parseen", () => {
-    const stored = serialiseFactions(["Orks · Necrones"]);
+    const stored = serialiseFactions(["Orkos · Necrones"]);
     // Both halves collapse into one name; parsing it back yields one faction,
     // not two, so the count a caller validated is the count that survives.
     expect(parseFactions(stored)).toHaveLength(1);
@@ -132,7 +201,11 @@ describe("serialiseFactions", () => {
 
 describe("round-trip parse ↔ serialise", () => {
   it("una selección del catálogo sobrevive intacta al ir y volver", () => {
-    const picked = ["Space Marines", "Death Guard", "Imperio T'au"];
+    const picked = [
+      "Marines Espaciales",
+      "Guardia de la Muerte",
+      "Imperio T'au",
+    ];
     expect(parseFactions(serialiseFactions(picked))).toEqual(picked);
   });
 
@@ -142,7 +215,7 @@ describe("round-trip parse ↔ serialise", () => {
   });
 
   it("formatFactions normaliza un valor mal espaciado sin perder nada", () => {
-    expect(formatFactions("Orks·  Necrones ")).toBe("Orks · Necrones");
+    expect(formatFactions("Orkos·  Necrones ")).toBe("Orkos · Necrones");
     expect(formatFactions(null)).toBeNull();
   });
 });
@@ -172,8 +245,8 @@ describe("factionFieldSchema (lo que valida el servidor en los formularios de ad
   it("acepta varias facciones unidas, que no cabían en el viejo límite de 80", async () => {
     const { updatePlayerSchema } = await import("@/lib/schemas");
     const faction = serialiseFactions([
-      "Chaos Space Marines",
-      "Emperor's Children",
+      "Marines Espaciales del Caos",
+      "Hijos del Emperador",
       "Caballeros Imperiales",
       "Cultos Genestealer",
     ]);

@@ -37,26 +37,31 @@ export const MAX_FACTION_NAME_LENGTH = 80;
 
 /**
  * The Warhammer 40.000 factions offered in the dropdown, grouped the way the
- * game groups them. Spanish forms are used where the community actually says
- * them in Spanish ("Necrones", "Tiránidos"); Latin and English proper names
- * are kept as-is ("Astra Militarum", "Death Guard").
+ * game groups them, in Spanish.
+ *
+ * Names follow the Spanish edition, which leaves a handful untranslated
+ * because the Spanish edition itself does: the Latin ones the setting uses as
+ * proper nouns ("Astra Militarum", "Adeptus Mechanicus", "Adepta Sororitas",
+ * "Adeptus Custodes") and the xenos endonyms ("Aeldari", "Drukhari",
+ * "Votann"). Everything with a Spanish form uses it.
  *
  * The catalogue is not a closed set: `Player.faction` may hold a value that is
- * not listed here (free text written before this catalogue existed, or a
- * homebrew army), and the selector surfaces those as removable extras rather
- * than dropping them silently.
+ * not listed here (free text written before this catalogue existed, an English
+ * name from before this list was translated, or a homebrew army), and the
+ * selector surfaces those as removable extras rather than dropping them
+ * silently.
  */
 export const FACTION_GROUPS: FactionGroup[] = [
   {
     label: "Imperium",
     factions: [
-      "Space Marines",
-      "Blood Angels",
-      "Dark Angels",
-      "Space Wolves",
-      "Black Templars",
-      "Deathwatch",
-      "Grey Knights",
+      "Marines Espaciales",
+      "Ángeles Sangrientos",
+      "Ángeles Oscuros",
+      "Lobos Espaciales",
+      "Templarios Negros",
+      "Vigilantes de la Muerte",
+      "Caballeros Grises",
       "Adepta Sororitas",
       "Adeptus Custodes",
       "Adeptus Mechanicus",
@@ -68,11 +73,11 @@ export const FACTION_GROUPS: FactionGroup[] = [
   {
     label: "Caos",
     factions: [
-      "Chaos Space Marines",
-      "Death Guard",
-      "Thousand Sons",
-      "World Eaters",
-      "Emperor's Children",
+      "Marines Espaciales del Caos",
+      "Guardia de la Muerte",
+      "Mil Hijos",
+      "Devoradores de Mundos",
+      "Hijos del Emperador",
       "Demonios del Caos",
       "Caballeros del Caos",
     ],
@@ -83,7 +88,7 @@ export const FACTION_GROUPS: FactionGroup[] = [
       "Aeldari",
       "Drukhari",
       "Necrones",
-      "Orks",
+      "Orkos",
       "Imperio T'au",
       "Tiránidos",
       "Cultos Genestealer",

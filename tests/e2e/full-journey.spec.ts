@@ -69,8 +69,8 @@ const PLAYER3_NAME = "Jugador Gamma";
 const SCALE_PLAYERS = [
   { name: "Jugador Eta", faction: "Necrones" },
   { name: "Jugador Theta", faction: "Adeptus Custodes" },
-  { name: "Jugador Iota", faction: "World Eaters" },
-  { name: "Jugador Kappa", faction: "Death Guard" },
+  { name: "Jugador Iota", faction: "Devoradores de Mundos" },
+  { name: "Jugador Kappa", faction: "Guardia de la Muerte" },
   { name: "Jugador Lambda", faction: "Aeldari" },
 ];
 const LAST_SCALE_PLAYER = SCALE_PLAYERS[SCALE_PLAYERS.length - 1].name;

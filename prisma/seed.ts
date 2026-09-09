@@ -8,6 +8,7 @@
 import "dotenv/config";
 import { PrismaLibSql } from "@prisma/adapter-libsql";
 import { PrismaClient } from "../src/generated/prisma/client";
+import { serialiseFactions } from "../src/lib/factions";
 
 function createClient(): PrismaClient {
   const url = process.env.DATABASE_URL ?? "file:./dev.db";
@@ -41,19 +42,50 @@ interface PlayerSeed {
   role: "ADMIN" | "PLAYER";
 }
 
+// Factions come from the catalogue in src/lib/factions.ts so the seeded
+// players match what the selector offers. `Señor del Caos Rhan` carries two on
+// purpose: dev data should exercise the multi-faction encoding, not just the
+// single-value case. `Overlord Zahndrekh` keeps none, for the null case.
 const PLAYERS: PlayerSeed[] = [
-  { displayName: "Comisario Valdris",     faction: "Astra Militarum",        role: "ADMIN"  },
-  { displayName: "Inquisidor Marak",      faction: "Inquisición",             role: "PLAYER" },
-  { displayName: "Capitán Torvayne",      faction: "Space Marines",           role: "PLAYER" },
-  { displayName: "Magos Drekk",           faction: "Adeptus Mechanicus",      role: "PLAYER" },
-  { displayName: "Señor Fantasma Aelyr",  faction: "Craftworlds Aeldari",     role: "PLAYER" },
-  { displayName: "Patriarca Vex",         faction: "Genestealers",            role: "PLAYER" },
-  { displayName: "Señora de la Guerra Kovash", faction: "Orks",              role: "PLAYER" },
-  { displayName: "Archon Nyss",           faction: "Drukhari",                role: "PLAYER" },
-  { displayName: "Shas'O Vior'la",        faction: "T'au",                    role: "PLAYER" },
-  { displayName: "Gran Tirano Skrell",    faction: "Tiránidos",               role: "PLAYER" },
-  { displayName: "Señor del Caos Rhan",   faction: "Legiones del Caos",       role: "PLAYER" },
-  { displayName: "Overlord Zahndrekh",    faction: null,                      role: "PLAYER" },
+  {
+    displayName: "Comisario Valdris",
+    faction: "Astra Militarum",
+    role: "ADMIN",
+  },
+  {
+    displayName: "Inquisidor Marak",
+    faction: "Agentes del Imperio",
+    role: "PLAYER",
+  },
+  {
+    displayName: "Capitán Torvayne",
+    faction: "Marines Espaciales",
+    role: "PLAYER",
+  },
+  { displayName: "Magos Drekk", faction: "Adeptus Mechanicus", role: "PLAYER" },
+  { displayName: "Señor Fantasma Aelyr", faction: "Aeldari", role: "PLAYER" },
+  {
+    displayName: "Patriarca Vex",
+    faction: "Cultos Genestealer",
+    role: "PLAYER",
+  },
+  {
+    displayName: "Señora de la Guerra Kovash",
+    faction: "Orkos",
+    role: "PLAYER",
+  },
+  { displayName: "Archon Nyss", faction: "Drukhari", role: "PLAYER" },
+  { displayName: "Shas'O Vior'la", faction: "Imperio T'au", role: "PLAYER" },
+  { displayName: "Gran Tirano Skrell", faction: "Tiránidos", role: "PLAYER" },
+  {
+    displayName: "Señor del Caos Rhan",
+    faction: serialiseFactions([
+      "Marines Espaciales del Caos",
+      "Guardia de la Muerte",
+    ]),
+    role: "PLAYER",
+  },
+  { displayName: "Overlord Zahndrekh", faction: null, role: "PLAYER" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -148,10 +180,10 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `\nSeed completado: ${created} creados, ${updated} actualizados.`,
+    `\nSeed completado: ${created} creados, ${updated} actualizados.`
   );
   console.log(
-    `Liga "${league.name}" en estado ${league.status} con ${PLAYERS.length} jugadores.`,
+    `Liga "${league.name}" en estado ${league.status} con ${PLAYERS.length} jugadores.`
   );
 }
 
