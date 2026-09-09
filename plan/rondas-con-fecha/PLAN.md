@@ -419,6 +419,28 @@ que con todas las rondas cerradas el bracket, el seeding y los byes salen
 
 Cierre de la feature. Spec §6.1, §6.5, §6.6, §7.3.
 
+- **Poner al día la ficción de confirmación y disputas** (deuda **preexistente**,
+  ajena a esta feature). Detectado al arrancar H10, el primer trabajo que lee la
+  feature entera de golpe: `SPEC.md`, `docs/guia-de-uso.md` y
+  `docs/guion-de-pruebas.md` describen íntegramente un flujo con **confirmación
+  del rival y disputas** (`REPORTED → CONFIRMED/DISPUTED`, ruta
+  `/admin/disputas`, standings que solo cuentan `CONFIRMED`) que **el hito 15
+  `resultados-directos` eliminó del código el 4 de junio de 2026** en `1ed9faa`.
+  Ese commit **no tocó ni `SPEC.md` ni `docs/`**: verificado, 0 ficheros de
+  documentación en su diff. Hoy `docs/guia-de-uso.md:182` manda al usuario a
+  `/admin/disputas`, que **no existe**.
+
+  **Se corrige aquí, y la razón es que no hay alternativa buena**: H10 reescribe
+  §7.4 y §7.5, que **son** las secciones del flujo de disputa. Escribirlas
+  dejando la ficción alrededor produce un documento que se contradice a sí mismo
+  —unas frases dicen «cuenta al confirmar el rival», otras «cuenta en cuanto se
+  apunta»—, y añadir pasos a un guion de pruebas que ordena visitar una ruta que
+  da 404 entrega un guion inservible.
+
+  **Solo documentación, cero cambio de producto.** No es una desviación de esta
+  spec (no entra en D1-D5): es una corrección de deuda ajena que este hito no
+  puede esquivar sin entregar algo peor.
+
 - `SPEC.md` — reescribir §4.3 («(Eliminada) Round»), §7.2, §7.4, §7.5, §8, y
   añadir el **ADR nuevo** que registra la derogación parcial de ADR-007 (cae la
   entidad `Round` y el circle method; se mantienen «sin byes de liga» y
