@@ -7,6 +7,7 @@ import { getSession } from "@/lib/session";
 import { AppHeaderUser } from "@/components/AppHeaderUser";
 import { AdminMenu } from "@/components/AdminMenu";
 import {
+  BookOpenText,
   CalendarBlank,
   ChartBar,
   ListChecks,
@@ -20,6 +21,7 @@ export type AppSection =
   | "rondas"
   | "clasificacion"
   | "bracket"
+  | "guia"
   | "admin";
 
 const NAV_LINKS = [
@@ -28,6 +30,7 @@ const NAV_LINKS = [
   { href: "/rondas", label: "Rondas", section: "rondas", Icon: ListChecks },
   { href: "/clasificacion", label: "Clasificación", section: "clasificacion", Icon: ChartBar },
   { href: "/bracket", label: "Playoffs", section: "bracket", Icon: Trophy },
+  { href: "/guia", label: "Guía", section: "guia", Icon: BookOpenText },
 ] as const;
 
 export async function AppHeader({ active }: { active?: AppSection }) {
@@ -50,11 +53,12 @@ export async function AppHeader({ active }: { active?: AppSection }) {
       </Link>
 
       {/* The scrollable region wraps ONLY the plain links.
-          `overflow-x-auto` is needed because with 5 nav links plus the admin
+          `overflow-x-auto` is needed because with 6 nav links plus the admin
           menu and the user avatar, icon-only mode on a narrow phone can
           outgrow the header's own width (PLAN.md H6, adding "Rondas" as the
-          5th link made this overflow real) — it scrolls inside itself, never
-          the page body.
+          5th link made this overflow real; H12 added "Guía" as the 6th,
+          verified against the same overflow test) — it scrolls inside
+          itself, never the page body.
           But `AdminMenu` and `AppHeaderUser` MUST stay outside it: both open
           an `absolute`-positioned dropdown, and declaring `overflow-x` makes
           the vertical axis compute from `visible` to `auto` (CSS overflow

@@ -226,14 +226,26 @@ export function LoginForm() {
         </p>
       </Card>
 
-      {/* Public link to the league rules — no login required */}
-      <Link
-        href="/bases"
-        className="mt-6 text-[13px] font-semibold no-underline"
-        style={{ color: "var(--accent)", fontFamily: "var(--font-sans)" }}
-      >
-        Ver las bases de la liga
-      </Link>
+      {/* Public links — no login required. /guia has to be reachable from
+          here too: it's public, but AppHeader (where the other nav links
+          live) only renders once there's a session, so the login page is
+          the only way an unauthenticated visitor can find it (Hito 12). */}
+      <div className="mt-6 flex items-center gap-4">
+        <Link
+          href="/bases"
+          className="text-[13px] font-semibold no-underline"
+          style={{ color: "var(--accent)", fontFamily: "var(--font-sans)" }}
+        >
+          Ver las bases de la liga
+        </Link>
+        <Link
+          href="/guia"
+          className="text-[13px] font-semibold no-underline"
+          style={{ color: "var(--accent)", fontFamily: "var(--font-sans)" }}
+        >
+          Guía de uso
+        </Link>
+      </div>
 
       {/* Footer */}
       <div className="mt-8">

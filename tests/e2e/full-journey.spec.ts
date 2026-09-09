@@ -623,6 +623,21 @@ test.describe("Mobile viewport — sin scroll horizontal roto", () => {
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
     expect(bodyWidth).toBeLessThanOrEqual(391);
   });
+
+  test("guia no tiene overflow horizontal, con o sin sesión", async ({ page }) => {
+    // Hito 12 (guia-de-usuario): /guia es la sexta entrada del nav — igual
+    // que "Rondas" fue la quinta en Hito 6, verificar que no reabre el
+    // desbordamiento que aquel hito arregló con overflow-x-auto.
+    await page.goto("/guia");
+    await expect(page.locator("body")).toContainText(/Guía de uso/i);
+    let bodyWidth = await page.evaluate(() => document.body.scrollWidth);
+    expect(bodyWidth).toBeLessThanOrEqual(391);
+
+    await loginPlayer(page, PLAYER1_NAME, PLAYER_PASSCODE);
+    await page.goto("/guia");
+    bodyWidth = await page.evaluate(() => document.body.scrollWidth);
+    expect(bodyWidth).toBeLessThanOrEqual(391);
+  });
 });
 
 // ---------------------------------------------------------------------------
