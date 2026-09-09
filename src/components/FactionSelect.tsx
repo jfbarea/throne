@@ -4,9 +4,13 @@
 // catalogue (src/lib/factions.ts). Used by the player's own profile
 // (/mi-perfil) and by the admin player forms so both write the same shape.
 //
-// Values not present in the catalogue (legacy free text, homebrew armies) are
-// never dropped: they render in an extra "Otras" group, already checked, so the
-// only way to lose one is to deliberately uncheck it.
+// A selection can be undone one at a time — the aspa on each chip, or
+// unchecking the row — or all at once with "Quitar todas".
+//
+// Values not present in the catalogue (legacy free text, an English name from
+// before the catalogue was translated, homebrew armies) are never dropped:
+// they render as chips like any other and in an extra "Otras" group, already
+// checked, so the only way to lose one is to remove it deliberately.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CaretDown, Check, MagnifyingGlass, X } from "@phosphor-icons/react";
@@ -118,15 +122,13 @@ export function FactionSelect({
       )}
 
       <div className="relative" ref={ref}>
-        {/* Trigger — mirrors the Input shell so both fields line up. */}
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => setOpen((v) => !v)}
-          aria-haspopup="listbox"
-          aria-expanded={open}
-          aria-label={label}
-          className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] border px-3 py-[10px] text-left transition-all duration-[120ms]"
+        {/* Shell — mirrors the Input shell so both fields line up. It is a
+            div, not a button: each chip carries its own remove button, and a
+            button may not nest another button. The toggle is the flex-1
+            button that fills whatever space the chips leave, so clicking the
+            empty part of the field still opens the dropdown. */}
+        <div
+          className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] border px-3 py-[10px] transition-all duration-[120ms]"
           style={{
             background: "var(--bg-raised)",
             borderColor: showErrorBorder
@@ -136,23 +138,15 @@ export function FactionSelect({
                 : "var(--border)",
             color: "var(--fg)",
             fontFamily: "var(--font-sans)",
-            cursor: disabled ? "not-allowed" : "pointer",
             opacity: disabled ? 0.4 : 1,
           }}
         >
-          <span className="flex min-w-0 flex-1 flex-wrap gap-1.5">
-            {value.length === 0 ? (
-              <span
-                className="text-[14px]"
-                style={{ color: "var(--fg-faint)" }}
-              >
-                {placeholder}
-              </span>
-            ) : (
-              value.map((name) => (
+          {value.length > 0 && (
+            <span className="flex min-w-0 flex-wrap gap-1.5">
+              {value.map((name) => (
                 <span
                   key={name}
-                  className="inline-flex items-center gap-1 rounded px-2 py-[2px] text-[12px] font-semibold"
+                  className="inline-flex items-center gap-1 rounded py-[2px] pr-1 pl-2 text-[12px] font-semibold"
                   style={{
                     background: "var(--surface)",
                     border: "1px solid var(--border-strong)",
@@ -160,20 +154,66 @@ export function FactionSelect({
                   }}
                 >
                   {name}
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => toggle(name)}
+                    aria-label={`Quitar ${name}`}
+                    title={`Quitar ${name}`}
+                    className="flex items-center rounded p-[2px] transition-colors duration-[120ms]"
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--fg-faint)",
+                      cursor: disabled ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    <X size={10} />
+                  </button>
                 </span>
-              ))
-            )}
-          </span>
-          <CaretDown
-            size={13}
+              ))}
+            </span>
+          )}
+
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => setOpen((v) => !v)}
+            aria-haspopup="listbox"
+            aria-expanded={open}
+            aria-label={label}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
             style={{
-              color: "var(--fg-faint)",
-              flexShrink: 0,
-              transform: open ? "rotate(180deg)" : undefined,
-              transition: "transform 120ms",
+              background: "transparent",
+              border: "none",
+              color: "var(--fg)",
+              fontFamily: "var(--font-sans)",
+              cursor: disabled ? "not-allowed" : "pointer",
+              // Keeps the row the same height as an Input when there are no
+              // chips to give it one.
+              minHeight: 20,
             }}
-          />
-        </button>
+          >
+            {value.length === 0 && (
+              <span
+                className="text-[14px]"
+                style={{ color: "var(--fg-faint)" }}
+              >
+                {placeholder}
+              </span>
+            )}
+            <CaretDown
+              size={13}
+              className="ml-auto"
+              style={{
+                color: "var(--fg-faint)",
+                flexShrink: 0,
+                transform: open ? "rotate(180deg)" : undefined,
+                transition: "transform 120ms",
+              }}
+            />
+          </button>
+        </div>
 
         {open && (
           <div

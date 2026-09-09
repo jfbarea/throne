@@ -76,6 +76,7 @@ export const GUIDE_SECTIONS: GuideSection[] = [
     bullets: [
       "Tus ejércitos los eliges tú: abre el menú de tu nombre, arriba a la derecha, y entra en «Mi perfil».",
       "El desplegable lleva la lista de facciones agrupada por Imperium, Caos y Xenos, con un buscador. Puedes marcar varias, hasta seis, y se muestran en el orden en que las eliges.",
+      "Para quitar una sola, pulsa el aspa de su etiqueta; «Quitar todas» las borra de golpe. Acuérdate de guardar.",
       "Aparecen junto a tu nombre en la clasificación, en los emparejamientos y en los playoffs. No afectan a nada del juego: son informativas.",
       "El nombre, el rol y el código de acceso siguen siendo cosa del admin — en tu perfil los ves, pero no los editas.",
     ],
