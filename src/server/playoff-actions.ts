@@ -159,6 +159,16 @@ export async function startPlayoffs(
   // this point (`activePlayers`, `league.playoffSize` itself). Flagged here,
   // not fixed, the same way `redistributePending` documents its own
   // unfixed double-redistribution race (src/server/round-actions.ts).
+  //
+  // This leftover is NOT hypothetical: it was reproduced during the H9 review
+  // (plan/rondas-con-fecha/reviews/puerta-a-playoffs.md). The observable
+  // consequence is a persisted playoff `Match` whose seeding comes from the
+  // pre-edit version of that Result — i.e. a bracket built on a standings
+  // snapshot that was already superseded when it committed. It does NOT
+  // corrupt the league phase: the edited Result stays edited, and reverting
+  // the bracket is an admin action (reset). Recording it precisely so nobody
+  // re-derives the wrong conclusion that `Round.closedAt` covers every path
+  // by which the standings can go stale — it does not.
 
   // Load all confirmed LEAGUE matches for standings computation.
   const leagueMatches = await prisma.match.findMany({
