@@ -10,6 +10,7 @@ import { Badge } from "@/components";
 import { ReportForm } from "./ReportForm";
 import { WalkoverForm } from "./WalkoverForm";
 import { CalendarBlank, MapPin, Pencil, Flag } from "@phosphor-icons/react";
+import { resolveMatchStatusLabel } from "@/server/round-ui";
 
 // REPORTED and CONFIRMED are both "has result" statuses.
 // CONFIRMED only appears in legacy data (old confirmation flow); new matches use REPORTED.
@@ -32,9 +33,10 @@ interface MatchCardProps {
       reportedById: string;
       bonusHome: number;
       bonusAway: number;
-      // Rondas-con-fecha (Hito 5): how this Result came to be. Only WALKOVER
-      // is labeled here — the systematic labeling of the three values across
-      // this view and calendario is Hito 6's job (plan/rondas-con-fecha).
+      // Rondas-con-fecha (Hito 5, SPEC §4.9): how this Result came to be.
+      // Consumed by resolveMatchStatusLabel (Hito 6, src/server/round-ui.ts)
+      // to label the badge above (Apuntada / Incomparecencia / Saldada sin
+      // jugar) instead of collapsing every REPORTED match into "Apuntada".
       resolution: string;
     } | null;
   };
@@ -43,18 +45,6 @@ interface MatchCardProps {
   // Whether the current user is admin.
   isAdmin: boolean;
 }
-
-// Status labels: REPORTED = "Apuntada" (new flow), CONFIRMED = "Confirmada" (legacy).
-// Tolerant with DISPUTED (legacy data may exist).
-const STATUS_LABEL: Record<
-  string,
-  { label: string; variant: "brass" | "moss" | "ash" | "ember" | "neutral" }
-> = {
-  SCHEDULED: { label: "Pendiente", variant: "neutral" },
-  REPORTED: { label: "Apuntada", variant: "brass" },
-  CONFIRMED: { label: "Confirmada", variant: "moss" },
-  DISPUTED: { label: "Disputada", variant: "ember" },
-};
 
 function outcomeLabel(
   outcome: string,
@@ -71,10 +61,14 @@ export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
   const [showReport, setShowReport] = useState(false);
   const [showWalkover, setShowWalkover] = useState(false);
 
-  const st = STATUS_LABEL[match.status] ?? {
-    label: match.status,
-    variant: "neutral" as const,
-  };
+  // Hito 6 (ui-cupo-y-rondas): the badge honors resolution — WALKOVER and
+  // UNPLAYED_DRAW no longer show up looking like an ordinary "Apuntada".
+  const st = resolveMatchStatusLabel(
+    match.status,
+    (match.result?.resolution as "PLAYED" | "WALKOVER" | "UNPLAYED_DRAW" | undefined) ??
+      null,
+    "Apuntada"
+  );
 
   const isHome = match.playerHomeId === currentPlayerId;
   const isAway = match.playerAwayId === currentPlayerId;
@@ -203,9 +197,6 @@ export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
                 <span style={{ color: "var(--accent)", fontSize: "12px" }}>
                   Bonus: +{match.result.bonusHome} / +{match.result.bonusAway}
                 </span>
-              )}
-              {match.result.resolution === "WALKOVER" && (
-                <Badge variant="ember">incomparecencia</Badge>
               )}
             </div>
           )}

@@ -45,6 +45,8 @@ export default async function CalendarioPage() {
   }
 
   // Load all league matches (LEAGUE phase) with player names.
+  // roundId/round.index (etiqueta, SPEC §4.6) and result.resolution (label,
+  // SPEC §4.9) added in Hito 6 (ui-cupo-y-rondas).
   const rawMatches = await prisma.match.findMany({
     where: { leagueId: league.id, phase: "LEAGUE" },
     select: {
@@ -56,6 +58,8 @@ export default async function CalendarioPage() {
       playerAwayId: true,
       playerHome: { select: { displayName: true } },
       playerAway: { select: { displayName: true } },
+      round: { select: { index: true } },
+      result: { select: { resolution: true } },
     },
   });
 
@@ -84,6 +88,8 @@ export default async function CalendarioPage() {
         scheduledAt: m.scheduledAt ? m.scheduledAt.toISOString() : null,
         location: m.location,
         status: m.status,
+        roundIndex: m.round?.index ?? null,
+        resolution: m.result?.resolution ?? null,
       },
       canEdit,
     };

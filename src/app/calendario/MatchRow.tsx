@@ -7,6 +7,7 @@ import { useState } from "react";
 import { Badge } from "@/components";
 import { ScheduleForm } from "./ScheduleForm";
 import { CalendarBlank, MapPin, Pencil } from "@phosphor-icons/react";
+import { resolveMatchStatusLabel } from "@/server/round-ui";
 
 interface MatchRowProps {
   match: {
@@ -16,31 +17,25 @@ interface MatchRowProps {
     scheduledAt: string | null; // ISO string or null
     location: string | null;
     status: string;
+    // Ronda a la que pertenece la partida (etiqueta, SPEC §4.6). null para
+    // partidas de liga sin ronda asignada todavía (PLAN.md H6).
+    roundIndex: number | null;
+    // Cómo se resolvió el Result (SPEC §4.9). null si todavía no hay Result.
+    resolution: string | null;
   };
   // Whether the current user can edit the schedule for this match.
   canEdit: boolean;
 }
 
-// Status labels for the calendar view.
-// Hito 15: REPORTED = "Jugada/Apuntada" (counts for standings).
-// CONFIRMED and DISPUTED are legacy statuses from the old confirmation flow —
-// kept here for backward compatibility if legacy data is displayed.
-const STATUS_LABEL: Record<
-  string,
-  { label: string; variant: "brass" | "moss" | "ash" | "ember" | "neutral" }
-> = {
-  SCHEDULED: { label: "Pendiente", variant: "neutral" },
-  REPORTED: { label: "Jugada", variant: "brass" },
-  CONFIRMED: { label: "Confirmada", variant: "moss" },
-  DISPUTED: { label: "Disputada", variant: "ember" },
-};
-
 export function MatchRow({ match, canEdit }: MatchRowProps) {
   const [editing, setEditing] = useState(false);
-  const st = STATUS_LABEL[match.status] ?? {
-    label: match.status,
-    variant: "neutral" as const,
-  };
+  // Hito 6 (ui-cupo-y-rondas): the badge honors resolution — WALKOVER and
+  // UNPLAYED_DRAW no longer show up looking like an ordinary "Jugada".
+  const st = resolveMatchStatusLabel(
+    match.status as "SCHEDULED" | "REPORTED" | "CONFIRMED" | "DISPUTED",
+    match.resolution as "PLAYED" | "WALKOVER" | "UNPLAYED_DRAW" | null,
+    "Jugada"
+  );
 
   const formattedDate = match.scheduledAt
     ? new Date(match.scheduledAt).toLocaleDateString("es-ES", {
@@ -112,6 +107,10 @@ export function MatchRow({ match, canEdit }: MatchRowProps) {
                 Sin fecha acordada
               </span>
             )}
+            {/* Ronda como etiqueta (SPEC §4.6, §6.4: "la ronda aparece como
+                agrupador o etiqueta"; la vista sigue siendo la lista por
+                scheduledAt). null = todavía sin ronda asignada (PLAN.md H6). */}
+            <span>{match.roundIndex !== null ? `Ronda ${match.roundIndex}` : "Sin ronda"}</span>
           </div>
         </div>
 
