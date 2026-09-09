@@ -168,16 +168,41 @@ test.describe("Recorrido completo", () => {
     // Find the first "Apuntar resultado" button (new label, Hito 15)
     const reportBtn = page.getByRole("button", { name: /apuntar resultado/i }).first();
     await expect(reportBtn).toBeVisible();
+
+    // Rondas-con-fecha Hito 6 (ui-cupo-y-rondas): "Mis partidas" now groups
+    // matches by round, closest deadline first (SPEC §4.6, criterio 9).
+    // Which specific match's "Apuntar resultado" button happens to render
+    // first is no longer guaranteed to have PLAYER1 as the home player —
+    // that used to hold only by accident (PLAYER1 is home in every one of
+    // their pairings except the one against admin, and step 4 always dated
+    // that exact match, which pushed it to the back of the old flat,
+    // status-only list). Read who's home directly from the card instead of
+    // assuming, so this test stays correct regardless of match order —
+    // today, and after Hito 10 reshapes this flow for rondas.
+    const card = reportBtn.locator(
+      "xpath=ancestor::div[contains(@class,'rounded') and contains(@class,'border') and contains(@class,'p-4')][1]"
+    );
+    const nameSpans = card.locator("p").first().locator("span");
+    const homeName = (await nameSpans.first().innerText()).trim();
+    const isPlayer1Home = homeName === PLAYER1_NAME;
+
     await reportBtn.click();
 
-    // Fill VP values - two number inputs
+    // Fill VP values - two number inputs - putting the winning score on
+    // whichever side PLAYER1 actually plays.
     const vpInputs = page.locator('input[type="number"]');
-    await vpInputs.nth(0).fill("60"); // home VP
-    await vpInputs.nth(1).fill("40"); // away VP
+    if (isPlayer1Home) {
+      await vpInputs.nth(0).fill("60"); // home VP (PLAYER1)
+      await vpInputs.nth(1).fill("40"); // away VP
+    } else {
+      await vpInputs.nth(0).fill("40"); // home VP
+      await vpInputs.nth(1).fill("60"); // away VP (PLAYER1)
+    }
 
     // Hito 15: there is no outcome picker any more. The outcome is derived from
     // the VP (deriveOutcome) and shown as a read-only label in ReportForm, so
-    // 60-40 already implies a home win. Assert the derived label instead.
+    // this already implies a PLAYER1 win regardless of which side they're on.
+    // Assert the derived label instead.
     await expect(
       page.getByText(new RegExp(`Victoria ${PLAYER1_NAME}`, "i")).first()
     ).toBeVisible();
