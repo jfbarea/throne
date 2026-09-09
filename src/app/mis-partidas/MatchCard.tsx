@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import { Badge } from "@/components";
+import { ScheduleForm } from "@/components/ScheduleForm";
 import { ReportForm } from "./ReportForm";
 import { WalkoverForm } from "./WalkoverForm";
 import { CalendarBlank, MapPin, Pencil, Flag } from "@phosphor-icons/react";
@@ -60,6 +61,7 @@ function outcomeLabel(
 export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
   const [showReport, setShowReport] = useState(false);
   const [showWalkover, setShowWalkover] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
 
   // Hito 6 (ui-cupo-y-rondas): the badge honors resolution — WALKOVER and
   // UNPLAYED_DRAW no longer show up looking like an ordinary "Apuntada".
@@ -84,6 +86,15 @@ export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
 
   // Button label depends on whether a result already exists.
   const reportButtonLabel = match.result ? "Editar resultado" : "Apuntar resultado";
+
+  // Agreeing on a date is a different permission from reporting a result:
+  // `setMatchSchedule` (src/server/match-actions.ts) authorizes any
+  // participant or the admin and does NOT gate on match status, so the date
+  // can still be fixed or corrected on a match whose result is already in.
+  // This mirrors the calendar, where the same form has always been available.
+  const canSchedule = isAdmin || isParticipant;
+
+  const scheduleButtonLabel = match.scheduledAt ? "Cambiar fecha" : "Poner fecha";
 
   const formattedDate = match.scheduledAt
     ? new Date(match.scheduledAt).toLocaleDateString("es-ES", {
@@ -208,25 +219,43 @@ export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
         </div>
       </div>
 
-      {/* Action buttons: apuntar/editar y declarar incomparecencia (collapsed
-          by default for cleanliness). Incomparecencia needs a real rival —
-          it never applies to a bye. */}
-      {!showReport && !showWalkover && canReportOrEdit && (
+      {/* Action buttons: poner/cambiar fecha, apuntar/editar resultado y
+          declarar incomparecencia (collapsed by default for cleanliness).
+          Incomparecencia needs a real rival — it never applies to a bye. */}
+      {!showReport && !showWalkover && !showSchedule &&
+        (canSchedule || canReportOrEdit) && (
         <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            onClick={() => setShowReport(true)}
-            className="flex items-center gap-1 px-3 py-[7px] rounded text-[13px] font-semibold border transition-colors duration-[120ms] cursor-pointer"
-            style={{
-              background: "transparent",
-              borderColor: "var(--border-strong)",
-              color: "var(--fg-muted)",
-              fontFamily: "var(--font-sans)",
-            }}
-          >
-            {match.result ? <Pencil size={13} /> : <Flag size={13} />}
-            {reportButtonLabel}
-          </button>
-          {match.playerAwayId && (
+          {canSchedule && (
+            <button
+              onClick={() => setShowSchedule(true)}
+              className="flex items-center gap-1 px-3 py-[7px] rounded text-[13px] font-semibold border transition-colors duration-[120ms] cursor-pointer"
+              style={{
+                background: "transparent",
+                borderColor: "var(--border-strong)",
+                color: "var(--fg-muted)",
+                fontFamily: "var(--font-sans)",
+              }}
+            >
+              <CalendarBlank size={13} />
+              {scheduleButtonLabel}
+            </button>
+          )}
+          {canReportOrEdit && (
+            <button
+              onClick={() => setShowReport(true)}
+              className="flex items-center gap-1 px-3 py-[7px] rounded text-[13px] font-semibold border transition-colors duration-[120ms] cursor-pointer"
+              style={{
+                background: "transparent",
+                borderColor: "var(--border-strong)",
+                color: "var(--fg-muted)",
+                fontFamily: "var(--font-sans)",
+              }}
+            >
+              {match.result ? <Pencil size={13} /> : <Flag size={13} />}
+              {reportButtonLabel}
+            </button>
+          )}
+          {canReportOrEdit && match.playerAwayId && (
             <button
               onClick={() => setShowWalkover(true)}
               className="flex items-center gap-1 px-3 py-[7px] rounded text-[13px] font-semibold border transition-colors duration-[120ms] cursor-pointer"
@@ -242,6 +271,16 @@ export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
             </button>
           )}
         </div>
+      )}
+
+      {/* Schedule form — same component the calendar uses. */}
+      {showSchedule && (
+        <ScheduleForm
+          matchId={match.id}
+          currentScheduledAt={match.scheduledAt}
+          currentLocation={match.location}
+          onDone={() => setShowSchedule(false)}
+        />
       )}
 
       {/* Report / edit form */}

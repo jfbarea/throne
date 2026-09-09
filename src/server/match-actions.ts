@@ -438,8 +438,13 @@ export async function setMatchSchedule(
     data: updateData,
   });
 
+  // Every view that prints a match date. "/mis-partidas" and "/rondas" were
+  // added when the schedule form became reachable from the match card too:
+  // without them the card kept showing the stale date until a hard reload.
   revalidatePath("/calendario");
   revalidatePath("/admin/emparejamientos");
+  revalidatePath("/mis-partidas");
+  revalidatePath("/rondas");
 
   return { ok: true, data: undefined };
 }
