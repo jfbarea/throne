@@ -60,4 +60,24 @@ export const GUIDE_SECTIONS: GuideSection[] = [
       "Una vez cerrada la ronda, ya no puedes apuntar resultados nuevos en ella; solo el admin puede corregir algo si hace falta.",
     ],
   },
+  {
+    label: "06",
+    title: "Poner fecha a una partida",
+    bullets: [
+      "Cuando quedes con tu rival, apunta la fecha: en Mis partidas, en la propia tarjeta de la partida, con «Poner fecha». También puedes hacerlo desde Calendario, es el mismo formulario.",
+      "La hora y el lugar son opcionales. Si solo sabes el día, deja el resto en blanco.",
+      "La puede poner y cambiar cualquiera de los dos jugadores, tantas veces como haga falta, y también después de tener el resultado apuntado. «Limpiar fecha» la vuelve a dejar sin fecha acordada.",
+      "La fecha no tiene nada que ver con la fecha límite de la ronda: quedar el 3 de noviembre no mueve el cierre de la ronda ni te cambia el cupo.",
+    ],
+  },
+  {
+    label: "07",
+    title: "Tus facciones",
+    bullets: [
+      "Tus ejércitos los eliges tú: abre el menú de tu nombre, arriba a la derecha, y entra en «Mi perfil».",
+      "El desplegable lleva la lista de facciones agrupada por Imperium, Caos y Xenos, con un buscador. Puedes marcar varias, hasta seis, y se muestran en el orden en que las eliges.",
+      "Aparecen junto a tu nombre en la clasificación, en los emparejamientos y en los playoffs. No afectan a nada del juego: son informativas.",
+      "El nombre, el rol y el código de acceso siguen siendo cosa del admin — en tu perfil los ves, pero no los editas.",
+    ],
+  },
 ];
