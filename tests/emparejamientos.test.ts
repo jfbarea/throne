@@ -40,8 +40,15 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 vi.mock("@/lib/guards", () => ({
   // The action only awaits these for their side effect (throw/redirect on
-  // unauthorized); returning undefined emulates an authorized ADMIN.
-  requireAdmin: vi.fn(async () => undefined),
+  // unauthorized). `requireAdmin` now needs a real `playerId` too:
+  // `redistributePending` (Hito 8, src/server/round-actions.ts) — called by
+  // `addMissingLeagueMatches` after it creates matches — reads
+  // `session.playerId` to attribute its `AuditLog` entry, same convention as
+  // every other admin write action in this codebase.
+  requireAdmin: vi.fn(async () => ({
+    role: "ADMIN",
+    playerId: "test-admin-001",
+  })),
   requireAuth: vi.fn(async () => ({ role: "ADMIN", playerId: null })),
 }));
 
@@ -51,8 +58,19 @@ vi.mock("@/lib/db", () => {
       findMany: dbMock.spies.txFindMany,
       createMany: dbMock.spies.createMany,
       deleteMany: dbMock.spies.deleteMany,
+      // redistributePending's writes inside its own transaction — no test in
+      // this file exercises an actual reparto (see the note on the top-level
+      // `match.findMany` below), so these are harmless no-ops here.
+      updateMany: vi.fn(async () => ({ count: 0 })),
+      count: vi.fn(async () => 0),
     },
     league: { update: dbMock.spies.leagueUpdate },
+    round: {
+      findMany: vi.fn(async () => []),
+      create: vi.fn(async () => ({ id: "test-round-id" })),
+      delete: vi.fn(async () => ({})),
+    },
+    auditLog: { create: vi.fn(async () => ({})) },
   };
   return {
     prisma: {
@@ -62,10 +80,21 @@ vi.mock("@/lib/db", () => {
       player: {
         findMany: vi.fn(async () => dbMock.state.players),
       },
+      // `addMissingLeagueMatches` itself never reads this top-level
+      // `match.findMany` — its own read of existing pairs goes entirely
+      // through `tx.match.findMany` (`dbMock.spies.txFindMany`) inside its
+      // transaction. This one is free for `redistributePending`'s own OUTER
+      // (pre-transaction) read of pending matches (rondas-con-fecha spec
+      // §5.1, Hito 8), always empty here — nothing in this file's fake
+      // `existingMatches` fixtures carries an `id` field anyway, so a
+      // non-empty answer here would be nonsensical, not just untested.
       match: {
-        findMany: vi.fn(async () => dbMock.state.existingMatches),
+        findMany: vi.fn(async () => []),
         createMany: dbMock.spies.createMany,
         deleteMany: dbMock.spies.deleteMany,
+      },
+      round: {
+        findMany: vi.fn(async () => []),
       },
       $transaction: vi.fn(async (cb: (client: typeof tx) => unknown) =>
         cb(tx)

@@ -9,6 +9,7 @@ import { prisma } from "@/lib/db";
 import { requireAdmin, requireAuth } from "@/lib/guards";
 import { missingPairings } from "@/server/pairings";
 import { roundRobinRounds, deriveDeadlines } from "@/server/rounds";
+import { redistributePending } from "@/server/round-actions";
 import { z } from "zod";
 
 // Re-export the ActionResult type consistent with league-actions.
@@ -221,6 +222,14 @@ export async function generateLeagueMatches(
  *
  * Guard (SPEC §5): requires ADMIN session.
  *
+ * Rondas-con-fecha §5.1 (Hito 8, criterios 29-31): the new pairs are created
+ * here with `roundId: null` — same as always — but as soon as they exist,
+ * `redistributePending` (src/server/round-actions.ts) is invoked to place
+ * *every* pending match (the freshly created ones and any other match still
+ * without a `Result`) into the open rounds, adding rounds at the end if the
+ * quota doesn't fit. There is no invalid `roundId: null` state left standing
+ * once this returns successfully.
+ *
  * @returns { count } — number of new matches created (0 if none were missing).
  */
 export async function addMissingLeagueMatches(
@@ -308,9 +317,20 @@ export async function addMissingLeagueMatches(
   });
 
   if (createdCount > 0) {
+    const redistributeResult = await redistributePending(leagueId);
+    if (!redistributeResult.ok) {
+      return {
+        ok: false,
+        error: `Se añadieron ${createdCount} partida${createdCount !== 1 ? "s" : ""}, pero no se pudieron repartir en rondas: ${redistributeResult.error}`,
+      };
+    }
+
     revalidatePath("/admin/emparejamientos");
     revalidatePath("/calendario");
     revalidatePath("/admin");
+    revalidatePath("/admin/rondas");
+    revalidatePath("/mis-partidas");
+    revalidatePath("/rondas");
   }
 
   return { ok: true, data: { count: createdCount } };

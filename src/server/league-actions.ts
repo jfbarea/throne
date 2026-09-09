@@ -18,6 +18,8 @@ import {
 } from "@/lib/schemas";
 import { generateHashedPasscode } from "@/lib/passcode";
 import { requireAdmin } from "@/lib/guards";
+import { redistributePending } from "@/server/round-actions";
+import { WALKOVER_VICTORY_POINTS } from "@/server/result-logic";
 
 // ---------------------------------------------------------------------------
 // Types returned to the client
@@ -120,6 +122,15 @@ export async function updateLeague(
     };
   }
 
+  // Read the previous value to detect a real matchesPerRound change below —
+  // rondas-con-fecha §5.5 (Hito 8, criterios 34-35) only recomputes the
+  // reparto when this specific field actually changes, not on every league
+  // settings save.
+  const previousLeague = await prisma.league.findUnique({
+    where: { id: leagueId },
+    select: { matchesPerRound: true },
+  });
+
   await prisma.league.update({
     where: { id: leagueId },
     data: {
@@ -136,17 +147,37 @@ export async function updateLeague(
       playoffSize: d.playoffSize,
       tiebreakers: serialiseTiebreakers(d.tiebreakers),
       // Rondas-con-fecha (PLAN.md H3): persisted as-is, normalised to the
-      // first day of the month at UTC midnight by the schema. No recompute
-      // of existing rounds/matches here — that is Hito 8's job (§5.5); in
-      // this hito the new value only takes effect the next time
-      // `generateLeagueMatches` runs (blocked once results exist).
+      // first day of the month at UTC midnight by the schema.
       matchesPerRound: d.matchesPerRound,
       startMonth: d.startMonth ?? null,
     },
   });
 
+  // Rondas-con-fecha §5.5 (Hito 8, criterios 34-35): a real change to
+  // matchesPerRound recomputes the reparto of every still-pending match
+  // across the open rounds — raising it shrinks the league (surplus trailing
+  // rounds get dropped if they end up empty), lowering it grows it (new
+  // rounds appended). Closed rounds and matches that already have a Result
+  // are never touched, same as every other trigger of this hito.
+  if (
+    previousLeague !== null &&
+    previousLeague.matchesPerRound !== d.matchesPerRound
+  ) {
+    const redistributeResult = await redistributePending(leagueId);
+    if (!redistributeResult.ok) {
+      return {
+        ok: false,
+        error: `La configuración se guardó, pero no se pudo recalcular el reparto de rondas: ${redistributeResult.error}`,
+      };
+    }
+  }
+
   revalidatePath("/admin");
   revalidatePath("/admin/liga");
+  revalidatePath("/admin/rondas");
+  revalidatePath("/mis-partidas");
+  revalidatePath("/rondas");
+  revalidatePath("/calendario");
   return { ok: true, data: undefined };
 }
 
@@ -245,21 +276,131 @@ export async function updatePlayer(
 }
 
 // ---------------------------------------------------------------------------
-// Player: soft deactivate / reactivate (SPEC §4.2 — active flag for history)
+// Player: soft deactivate / reactivate (SPEC §4.2 — active flag for history;
+// rondas-con-fecha §5.6 — Hito 8, criterios 32-33)
 // ---------------------------------------------------------------------------
 
+/**
+ * Deactivate or reactivate a player.
+ *
+ * Deactivating (`active: false`, rondas-con-fecha §5.6, criterio 32): before
+ * flipping the flag, every one of this player's `phase = LEAGUE` matches that
+ * has no `Result` yet and belongs to an open round (or no round at all) is
+ * settled as an 80-0 walkover **in favor of the opponent** —
+ * `resolution = WALKOVER`, `bonusHome = bonusAway = 0` forced (never through
+ * `calculateBonus`, same reasoning as `declareWalkover`), with an `AuditLog`
+ * entry — all inside one transaction. Matches that already had a `Result`
+ * are left untouched. Afterwards, `redistributePending` recomputes the
+ * reparto of whatever is still pending (§5.1): those settled matches just
+ * vanished from the open rounds' bookkeeping.
+ *
+ * Reactivating (`active: true`) deliberately does none of this — it is a
+ * plain flag flip. Reactivating a deactivated player does **not** revert the
+ * walkovers their deactivation produced (criterio 33): the admin would have
+ * to edit those results by hand, via the usual §7.5 override.
+ *
+ * No settlement (and no redistribute) happens if the player was already in
+ * the target state — this only fires on a genuine `true → false` edge.
+ */
 export async function setPlayerActive(
   playerId: string,
   active: boolean
 ): Promise<ActionResult> {
-  await requireAdmin();
+  const session = await requireAdmin();
+
+  const player = await prisma.player.findUnique({ where: { id: playerId } });
+  if (!player) {
+    return { ok: false, error: "Jugador no encontrado" };
+  }
+
+  const isDeactivating = !active && player.active;
+
+  if (isDeactivating) {
+    if (!session.playerId) {
+      return {
+        ok: false,
+        error:
+          "La sesión de administrador no tiene un jugador asociado. Usa un jugador con rol ADMIN.",
+      };
+    }
+    const actorId = session.playerId;
+
+    await prisma.$transaction(async (tx) => {
+      const pendingMatches = await tx.match.findMany({
+        where: {
+          leagueId: player.leagueId,
+          phase: "LEAGUE",
+          result: null,
+          OR: [{ playerHomeId: playerId }, { playerAwayId: playerId }],
+          AND: [{ OR: [{ roundId: null }, { round: { closedAt: null } }] }],
+        },
+        select: { id: true, playerHomeId: true, playerAwayId: true },
+      });
+
+      if (pendingMatches.length === 0) return;
+
+      await tx.result.createMany({
+        data: pendingMatches.map((m) => {
+          const deactivatedIsHome = m.playerHomeId === playerId;
+          const outcome: "HOME_WIN" | "AWAY_WIN" = deactivatedIsHome
+            ? "AWAY_WIN"
+            : "HOME_WIN";
+          return {
+            matchId: m.id,
+            homeVictoryPoints: deactivatedIsHome ? 0 : WALKOVER_VICTORY_POINTS,
+            awayVictoryPoints: deactivatedIsHome ? WALKOVER_VICTORY_POINTS : 0,
+            outcome,
+            resolution: "WALKOVER" as const,
+            reportedById: actorId,
+            bonusHome: 0,
+            bonusAway: 0,
+          };
+        }),
+      });
+
+      await tx.match.updateMany({
+        where: { id: { in: pendingMatches.map((m) => m.id) } },
+        data: { status: "REPORTED" },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: "SETTLE_PLAYER_DEACTIVATION",
+          entityType: "Player",
+          entityId: playerId,
+          payload: JSON.stringify({
+            leagueId: player.leagueId,
+            settledCount: pendingMatches.length,
+          }),
+        },
+      });
+    });
+  }
 
   await prisma.player.update({
     where: { id: playerId },
     data: { active },
   });
 
+  if (isDeactivating) {
+    const redistributeResult = await redistributePending(player.leagueId);
+    if (!redistributeResult.ok) {
+      return {
+        ok: false,
+        error: `El jugador se dio de baja y sus partidas pendientes se saldaron, pero no se pudo recalcular el reparto de rondas: ${redistributeResult.error}`,
+      };
+    }
+  }
+
   revalidatePath("/admin/jugadores");
+  if (isDeactivating) {
+    revalidatePath("/mis-partidas");
+    revalidatePath("/clasificacion");
+    revalidatePath("/rondas");
+    revalidatePath("/calendario");
+    revalidatePath("/admin/rondas");
+  }
   return { ok: true, data: undefined };
 }
 
