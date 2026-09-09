@@ -497,7 +497,12 @@ describe("addMissingLeagueMatches (orchestration)", () => {
   function createdPairKeys(): string[] {
     const calls = dbMock.spies.createMany.mock.calls;
     if (calls.length === 0) return [];
-    const arg = calls[0][0] as { data: { playerHomeId: string; playerAwayId: string }[] };
+    // The mock's createMany spy is declared with no typed parameters, so
+    // indexing its call tuple needs a cast through `unknown` — otherwise
+    // `tsc --noEmit` reports TS2352 + TS2493 here (the args tuple is `[]`).
+    const [arg] = calls[0] as unknown as [
+      { data: { playerHomeId: string; playerAwayId: string }[] },
+    ];
     return arg.data
       .map((d) => [d.playerHomeId, d.playerAwayId].sort().join("|"))
       .sort();
