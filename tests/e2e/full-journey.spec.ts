@@ -626,6 +626,68 @@ test.describe("Mobile viewport — sin scroll horizontal roto", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Header dropdowns
+//
+// Regression guard. Hito 6 added `overflow-x-auto` to the header `<nav>` to
+// keep 5 icon-only links from overflowing a narrow phone. That silently broke
+// BOTH dropdowns: declaring `overflow-x` makes the vertical axis compute from
+// `visible` to `auto` (CSS overflow spec), so the `absolute`-positioned panels
+// of `AdminMenu` and `UserMenu` were clipped inside a ~40px-tall strip — they
+// opened, but nothing was visible.
+//
+// Nothing caught it: the horizontal-overflow tests below measure the page
+// body's `scrollWidth`, and no test ever opened a dropdown. These do.
+// ---------------------------------------------------------------------------
+
+test.describe("Desplegables del header", () => {
+  test("el menú de Admin se despliega y sus enlaces son visibles y clicables", async ({
+    page,
+  }) => {
+    await loginAdmin(page);
+    await page.goto("/clasificacion");
+
+    // Closed to begin with: the panel is conditionally rendered.
+    await expect(page.getByRole("link", { name: "Emparejamientos" })).toHaveCount(0);
+
+    await page.getByRole("button", { name: /admin/i }).click();
+
+    // Every entry of ADMIN_LINKS must be genuinely visible — not merely
+    // present in the DOM, which is what the clipping bug produced.
+    for (const label of [
+      "Panel",
+      "Liga",
+      "Jugadores",
+      "Emparejamientos",
+      "Rondas",
+      "Playoffs",
+    ]) {
+      await expect(page.getByRole("link", { name: label })).toBeVisible();
+    }
+
+    // Visible is not enough: it must be reachable by a real click.
+    await page.getByRole("link", { name: "Rondas" }).click();
+    await expect(page).toHaveURL(/\/admin\/rondas$/);
+  });
+
+  test("el menú de usuario se despliega (mismo recorte que rompió el de Admin)", async ({
+    page,
+  }) => {
+    await loginPlayer(page, PLAYER1_NAME, PLAYER_PASSCODE);
+    await page.goto("/clasificacion");
+
+    // The avatar button is the only one left once the admin menu is absent.
+    const userButton = page.locator("header button").last();
+    await userButton.click();
+
+    // Logout lives in the user dropdown; if the panel is clipped it is not
+    // visible even though it renders.
+    await expect(
+      page.getByRole("button", { name: /salir|cerrar sesión/i })
+    ).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Empty states
 // ---------------------------------------------------------------------------
 

@@ -489,3 +489,76 @@ H1 modelo-datos-rondas
 
 H2 no necesita H1 para escribirse ni testearse (es puro), pero se ordena después
 para que el tipo `Resolution` ya exista y no haya que duplicarlo.
+
+---
+
+# Hitos nacidos del feedback en `HUMAN_REVIEW`
+
+La feature volvió a `BUILDING` el 9 de septiembre de 2026 con dos peticiones del
+usuario tras probarla en local.
+
+## H11 · `fix-desplegables-header`
+
+**Estado:** READY_FOR_REVIEW · **e2e sin verificar** (ver abajo)
+**Cierra criterios de la spec:** ninguno (regresión de H6).
+
+«No se despliega el desplegable de Admin.» **Regresión de H6.**
+
+`AdminMenu` abre su panel con `position: absolute` dentro de un `div.relative`
+que vivía dentro del `<nav>` al que H6 añadió `overflow-x-auto`. **Declarar
+`overflow-x` hace que el eje vertical pase de `visible` a `auto`** (especificación
+CSS de overflow), así que el nav se volvió contenedor de scroll en los dos ejes y
+recortaba el panel en una franja de ~40 px: el menú se abría y no se veía nada.
+
+**Afectaba a los dos dropdowns**, no solo al de admin: `UserMenu.tsx:77` usa el
+mismo `absolute`.
+
+**Arreglo:** el scroll horizontal envuelve **solo los enlaces planos**;
+`AdminMenu` y `AppHeaderUser` salen fuera del contenedor que recorta. Se conserva
+el arreglo de desbordamiento de H6.
+
+**Por qué se coló once hitos de revisión** — lo importante de este hito:
+**ningún test abría un dropdown.** Los tests de overflow miden el `scrollWidth`
+del `body`, y el `reviewer` de H6 verificó el arreglo por esa vía, correctamente
+para lo que medía. El e2e recorre catorce pantallas sin pulsar el botón de Admin.
+
+**Criterios de aceptación:**
+
+1. El menú de Admin se abre y **sus seis enlaces son visibles** —no solo
+   presentes en el DOM, que es lo que producía el bug— y uno se puede pulsar
+   hasta navegar.
+2. El menú de usuario se abre y su acción de salir es visible.
+3. El arreglo de desbordamiento de H6 sigue en pie: `/rondas` y el resto no
+   desbordan el body a 390 px.
+4. Los 496 tests y el e2e siguen verdes.
+
+## H12 · `guia-de-usuario`
+
+**Estado:** PENDING
+**Cierra criterios de la spec:** ninguno (feature nueva, fuera de la spec de
+rondas).
+
+Ruta nueva **`/guia`, pública**, con la guía de uso para jugadores.
+
+- Contenido derivado de `docs/guia-de-uso.md`, que H10 acaba de poner al día.
+  Reescrito **para jugadores**: cómo entrar, apuntar un resultado, declarar una
+  incomparecencia, ver tu cupo de la ronda y qué pasa al cerrarse.
+- **Pública, sin sesión**, como `/bases`.
+- **Enlazada en los dos sitios**, y esto importa: `/bases` hoy se enlaza **solo
+  desde el formulario de login** (`LoginForm.tsx:231`), y ni `/bases` ni
+  `/login` renderizan el `AppHeader`. Si `/guia` va solo en el header, quien no
+  tiene sesión no la encuentra nunca — que es justo lo contrario de hacerla
+  pública. Va en el menú **y** junto a «Bases» en el login.
+- Séptimo elemento del header (6 enlaces + menú de admin + usuario). El nav ya
+  scrollea desde H6, pero **verificar que no reaparece el desbordamiento** ni el
+  recorte de H11.
+
+**Criterios de aceptación:**
+
+1. `/guia` responde **sin sesión** (no redirige a `/login`).
+2. Está enlazada desde el header con sesión **y** desde `/login` sin ella.
+3. Cubre las cinco secciones: entrar, apuntar resultado, incomparecencia y 0-0,
+   cupo de la ronda, cierre de ronda.
+4. No desborda el body a 390 px, y los dropdowns del header siguen abriéndose
+   (criterios 1-3 de H11).
+5. Español llano, para jugadores, sin jerga técnica. Mobile-first, dark mode.

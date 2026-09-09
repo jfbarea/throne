@@ -1,5 +1,5 @@
 {
-  "status": "HUMAN_REVIEW",
+  "status": "BUILDING",
   "spec": "plan/specs/rondas-con-fecha.md",
   "branch": "feat/rondas-con-fecha",
   "milestones": [
@@ -179,6 +179,27 @@
       ],
       "review_feedback": null,
       "notes": "HALLAZGO DE PRIMER ORDEN al arrancar, el primer trabajo que lee la feature entera: SPEC.md, docs/guia-de-uso.md y docs/guion-de-pruebas.md describian INTEGRAMENTE el flujo de confirmacion del rival y disputas que el hito 15 resultados-directos elimino del codigo el 4 de junio de 2026 en 1ed9faa, commit que NO toco ni SPEC.md ni docs/ (verificado: 0 ficheros de doc en su diff). docs/guia-de-uso.md:182 mandaba al usuario a /admin/disputas, ruta INEXISTENTE. El builder paro antes de escribir nada y escalo con tres opciones. El coordinador eligio la 1 -corregirlo dentro de H10- porque no habia alternativa buena: H10 reescribe 7.4 y 7.5, que SON las secciones contaminadas, asi que dejarlo daria un SPEC.md autocontradictorio y un guion de pruebas que ordena visitar un 404. Solo documentacion, cero cambio de producto. Registrado en PLAN.md como deuda PREEXISTENTE ajena a la feature, no como desviacion D. Verificado con grep tras el cierre: ninguna referencia viva a /admin/disputas ni al flujo de confirmacion en SPEC.md, docs/, README.md ni src/, solo menciones negadas y el test de regresion que confirma que la ruta sigue sin existir. ADR-008 nuevo con la tabla de 6.1 (Round y circle method derogados; sin byes de liga y calendario por fecha libre se mantienen) y la correccion de D4: Misra & Gries con cadenas de Kempe, sin escribir nunca la afirmacion falsa del voraz. ADR-007 no se borra: nota de derogacion parcial arriba y cada consecuencia marcada inline, conservando el cuerpo como registro historico. E2E REESCRITO POR COMPLETO: escala la liga a 12 jugadores (seed minimo + 5 altas via UI) antes de generar, para probar /rondas a escala real sin tocar el seed global; declara una incomparecencia y cierra todas las rondas, ejercitando EN PANTALLA por primera vez las etiquetas de H6 y el contador PJ N (M saldadas) de H7; recupera startPlayoffs de verdad sin test.skip. 54/54 pasan, CERO skips, estable en tres corridas. El builder corrigio un bug propio: un locator con .filter({has}) dejaba de coincidir tras el primer click porque su condicion desaparecia al abrir el formulario; cambiado a localizacion posicional. trazabilidad.md cubre los 43 criterios sin huecos, con tabla criterio->test para 1-37 y secciones propias para 38-42, incluida la honestidad de H7 sobre sus 3 tests que son guarda de regresion y no fallo-antes-del-cambio. El 43 verificado contra coverage-final.json: rounds.ts 259/259 statements y 86/86 branches, pairings.ts y result-logic.ts tambien al 100. lint 0/0, tsc limpio, test 496/496, build con las 18 rutas reales incluidas /rondas y /admin/rondas -la discrepancia 19 vs 21 de los informes es de como conto cada agente la leyenda, no una ruta perdida, verificado por el coordinador-. REVIEW 1 -> APPROVED sin bloqueantes, 2 sugerencias. El reviewer verifico las DOS mitades de la premisa de la ampliacion de alcance: 1ed9faa no toco ni un fichero de doc (0 de sus 20 ficheros) y la contaminacion era real y extensa (14 referencias vivas a CONFIRMED/DISPUTED como flujo activo en SPEC.md mas un guion de cuatro pasos mandando a /admin/disputas, que da 404). De acuerdo con la decision. Verificado: la ficcion esta muerta sin el problema inverso (las 15 coincidencias restantes son negaciones o referencias legitimas al enum legado); SPEC.md sin contradicciones leido de corrido; D4 corregido en los TRES sitios donde podia reaparecer; tabla de ADR-008 identica a 6.1 y ADR-007 preservado; el e2e 54/54 en tres corridas con los tres hallazgos encargados verificados LEYENDO EL CODIGO del test, no el resumen; el cambio de locator a nth NO reintroduce el problema de H6 (busqueda por contenido una vez, luego posicion fija en una secuencia ininterrumpida sin reordenacion); trazabilidad.md con los 43 criterios y 8 mapeos verificados al azar contra tests reales; /bases en espanol llano con los cuatro puntos exigidos; solo bases/page.tsx tocado en src/. HALLAZGO TRANSVERSAL vista la feature en conjunto: los tres riesgos admin-contra-admin aceptados (H8 x2, H9) estaban documentados en el codigo pero AUSENTES de SPEC.md 9, que es donde los busca quien revisa. Cerrado por el coordinador anadiendolos con su modo de fallo y su via de recuperacion."
+    },
+    {
+      "id": "H11",
+      "slug": "fix-desplegables-header",
+      "status": "READY_FOR_REVIEW",
+      "commit_sha": null,
+      "files_changed": [
+        "src/components/AppHeader.tsx",
+        "tests/e2e/full-journey.spec.ts"
+      ],
+      "review_feedback": null,
+      "notes": "FEEDBACK DEL USUARIO en HUMAN_REVIEW: 'no se despliega el desplegable de Admin'. REGRESION DE H6, diagnosticada y arreglada por el coordinador. Causa: AdminMenu abre su panel con position absolute dentro de un div.relative que vivia dentro del <nav> al que H6 puso overflow-x-auto para que 5 enlaces en modo icono no desbordaran en movil. Declarar overflow-x hace que el eje vertical pase de visible a auto por la especificacion CSS, asi que el nav se volvio contenedor de scroll en los DOS ejes y recortaba el panel en una franja de ~40px: el menu se abria pero no se veia nada. AFECTABA A LOS DOS DROPDOWNS, no solo al de admin: UserMenu.tsx:77 usa el mismo absolute; el usuario solo noto el primero. ARREGLO: el scroll horizontal se queda solo alrededor de los enlaces planos y los dos menus salen fuera del contenedor que recorta, conservando el arreglo de desbordamiento de H6. POR QUE SE COLO ONCE HITOS: ningun test abria un dropdown. Los tests de overflow miden scrollWidth del body -el reviewer de H6 verifico el arreglo por esa via, correctamente para lo que medía- y el e2e recorre catorce pantallas sin pulsar el boton de Admin. Anadidos dos tests que abren cada menu y comprueban que sus enlaces son VISIBLES (no solo presentes en el DOM, que es lo que producia el bug) y que uno se puede pulsar hasta navegar. PENDIENTE: el e2e no se ha podido ejecutar porque el usuario tiene npm run dev levantado y Next 16 bloquea un segundo next dev en el mismo directorio sea cual sea el puerto (Playwright usa el 3001). lint 0/0, tsc limpio, test 496/496."
+    },
+    {
+      "id": "H12",
+      "slug": "guia-de-usuario",
+      "status": "PENDING",
+      "commit_sha": null,
+      "files_changed": [],
+      "review_feedback": null,
+      "notes": "Feedback del usuario en HUMAN_REVIEW: anadir una seccion de guia de usuario. Decidido: ruta nueva /guia, publica."
     }
   ]
 }

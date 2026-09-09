@@ -49,29 +49,37 @@ export async function AppHeader({ active }: { active?: AppSection }) {
         </span>
       </Link>
 
-      {/* min-w-0 + overflow-x-auto: with 5 nav links plus the admin menu and
-          the user avatar, icon-only mode on a narrow phone can outgrow the
-          header's own width (PLAN.md H6, adding "Rondas" as the 5th link
-          made this overflow real). If it ever doesn't fit, it scrolls
-          inside the nav itself — never the page body. */}
-      <nav className="flex items-center gap-1 overflow-x-auto min-w-0">
-        {NAV_LINKS.map(({ href, label, section, Icon }) => (
-          <Link
-            key={href}
-            href={href}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[13px] font-semibold transition-colors duration-[120ms] no-underline flex-shrink-0"
-            style={{
-              fontFamily: "var(--font-sans)",
-              color: active === section ? "var(--accent)" : "var(--fg-muted)",
-            }}
-          >
-            <Icon size={14} />
-            <span className="hidden sm:inline">{label}</span>
-          </Link>
-        ))}
+      {/* The scrollable region wraps ONLY the plain links.
+          `overflow-x-auto` is needed because with 5 nav links plus the admin
+          menu and the user avatar, icon-only mode on a narrow phone can
+          outgrow the header's own width (PLAN.md H6, adding "Rondas" as the
+          5th link made this overflow real) — it scrolls inside itself, never
+          the page body.
+          But `AdminMenu` and `AppHeaderUser` MUST stay outside it: both open
+          an `absolute`-positioned dropdown, and declaring `overflow-x` makes
+          the vertical axis compute from `visible` to `auto` (CSS overflow
+          spec), so an ancestor with `overflow-x-auto` clips the panel inside
+          a ~40px-tall strip — the dropdowns opened but were invisible. */}
+      <div className="flex items-center gap-1 min-w-0">
+        <nav className="flex items-center gap-1 overflow-x-auto min-w-0">
+          {NAV_LINKS.map(({ href, label, section, Icon }) => (
+            <Link
+              key={href}
+              href={href}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[13px] font-semibold transition-colors duration-[120ms] no-underline flex-shrink-0"
+              style={{
+                fontFamily: "var(--font-sans)",
+                color: active === section ? "var(--accent)" : "var(--fg-muted)",
+              }}
+            >
+              <Icon size={14} />
+              <span className="hidden sm:inline">{label}</span>
+            </Link>
+          ))}
+        </nav>
         {isAdmin && <AdminMenu active={active === "admin"} />}
         <AppHeaderUser />
-      </nav>
+      </div>
     </header>
   );
 }
