@@ -430,6 +430,12 @@ Cierre de la feature. Spec §6.1, §6.5, §6.6, §7.3.
 - `tests/e2e/full-journey.spec.ts` — actualizado al flujo con rondas (hoy sus
   pasos 3 y 4 dan por hecho el flujo sin ellas).
 - **Mapa criterio → test** escrito en las notas del hito en `_state.json`.
+- **Test de overflow horizontal para `/rondas` a escala real.** Sugerencia de la
+  review de H6: los tests de overflow existentes cubren `login`,
+  `mis-partidas`, `clasificacion`, `calendario` y `bracket`, pero **ninguno
+  visita `/rondas`**, que es justo la vista más ancha (cupo de 12-20 jugadores)
+  y el requisito explícito de §7.2. Añadirlo con la liga e2e a **escala real**,
+  no con los 6 jugadores del seed mínimo.
 
 **Criterios de aceptación del hito:** los **38-42** de la spec. El 42 (cada test
 falla antes del cambio) se acredita en las notas, criterio a criterio.
