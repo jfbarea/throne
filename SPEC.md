@@ -655,6 +655,27 @@ ese `Result` no lleva bonus.
 - **Confusión fecha vs resultado** → el modelo separa explícitamente
   `scheduledAt` (agendado) del `status` (ciclo del resultado); la UI las muestra
   como acciones distintas (ver 7.5 y 8).
+- **Carreras admin-contra-admin, aceptadas a conciencia** → tres puntos del
+  flujo de rondas compiten entre sí si **dos acciones de admin ocurren en el
+  mismo instante**. Las tres están documentadas en el código, y ninguna corrompe
+  la fase de liga:
+  1. **Dos recálculos de reparto a la vez** (`redistributePending`) pueden
+     planear el mismo índice de ronda y chocar contra
+     `@@unique([leagueId, index])`. Falla **fuerte y atómico**, con rollback
+     completo; relanzar la acción recupera.
+  2. **`addMissingLeagueMatches` no es atómico de punta a punta**: si su segunda
+     transacción falla, las partidas nuevas quedan con `roundId` sin asignar.
+     **No se autorreparan** repitiendo esa acción; la vía es relanzar el
+     recálculo del reparto.
+  3. **La clasificación con la que se construye el bracket se lee antes de
+     escribirlo** (ver 7.4). Un admin que edite un resultado de una ronda ya
+     cerrada —con su override— en ese mismo instante puede hacer que el bracket
+     salga de una clasificación ya superada. El resultado editado **queda
+     editado**; deshacer el bracket es una acción de admin.
+
+  Las escrituras de los participantes **no** entran aquí: sus guardas se
+  reevalúan dentro de la transacción, así que nadie puede colar un resultado en
+  una ronda que se cierra a la vez.
 
 ## 10. Estructura de repositorio (prevista)
 
