@@ -436,6 +436,14 @@ Cierre de la feature. Spec §6.1, §6.5, §6.6, §7.3.
   visita `/rondas`**, que es justo la vista más ancha (cupo de 12-20 jugadores)
   y el requisito explícito de §7.2. Añadirlo con la liga e2e a **escala real**,
   no con los 6 jugadores del seed mínimo.
+- **El e2e tiene que llegar a producir una partida saldada.** Sugerencia de la
+  review de H7: **ningún paso** de `full-journey.spec.ts` declara una
+  incomparecencia ni cierra una ronda, así que el recorrido automático **nunca
+  genera** un `WALKOVER` ni un `UNPLAYED_DRAW`. Consecuencia: las etiquetas de
+  H6 («incomparecencia», «saldada sin jugar») y el texto «PJ 11 (2 saldadas)»
+  de H7 **no los ejercita nadie de punta a punta** — solo los tests unitarios.
+  El e2e reescrito tiene que pasar por el cierre de una ronda y por una
+  incomparecencia, y comprobar las etiquetas y el contador **en la pantalla**.
 
 **Criterios de aceptación del hito:** los **38-42** de la spec. El 42 (cada test
 falla antes del cambio) se acredita en las notas, criterio a criterio.
