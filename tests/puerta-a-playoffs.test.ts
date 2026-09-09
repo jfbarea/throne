@@ -220,6 +220,67 @@ describe("AC-36: startPlayoffs falla mientras exista una ronda sin closedAt, nom
 });
 
 // ---------------------------------------------------------------------------
+// Endurecimiento (encargo del coordinador tras la review de H9): la
+// intención de §4.11 — "los playoffs arrancan con las C(n,2) partidas
+// resueltas" — no se sostiene ni vacuamente si la liga no tiene NINGUNA
+// `Round`. Alcanzable solo a través del hueco no-atómico ya documentado en
+// `redistributePending` (src/server/round-actions.ts): la primera alta de una
+// liga puede dejar `status: LEAGUE` con partidas de `roundId: null` y cero
+// filas `Round` si esa segunda transacción falla. Distinto del mensaje de
+// "faltan rondas por cerrar" (AC-36) — el diagnóstico es otro.
+// ---------------------------------------------------------------------------
+
+describe("Endurecimiento: liga sin ninguna ronda generada (intención de §4.11, no cubierta por la literalidad del criterio 36)", () => {
+  it("con status LEAGUE, cero Round y partidas con roundId: null, startPlayoffs rechaza con un mensaje propio y no crea ningún Bracket ni BracketSlot", async () => {
+    const league = await createLeague({ playoffSize: 2 });
+    const p1 = await createPlayer(league.id, "A");
+    const p2 = await createPlayer(league.id, "B");
+
+    // Reproduces the documented non-atomic gap directly: a LEAGUE match with
+    // roundId: null and zero Round rows for the league — no round-robin
+    // generator involved, this is exactly the state redistributePending's
+    // own docstring says addMissingLeagueMatches can leave behind.
+    await prisma.match.create({
+      data: {
+        leagueId: league.id,
+        roundId: null,
+        phase: "LEAGUE",
+        status: "SCHEDULED",
+        playerHomeId: p1.id,
+        playerAwayId: p2.id,
+      },
+    });
+
+    const roundCountBefore = await prisma.round.count({
+      where: { leagueId: league.id },
+    });
+    expect(roundCountBefore).toBe(0);
+
+    const attempt = await startPlayoffs(league.id);
+
+    expect(attempt.ok).toBe(false);
+    if (attempt.ok) return;
+    // Its own diagnosis — not the "faltan rondas por cerrar" wording, which
+    // would be misleading here (there is nothing to name).
+    expect(attempt.error).toContain("no tiene ninguna ronda generada");
+    expect(attempt.error).not.toContain("sin cerrar");
+
+    const bracket = await prisma.bracket.findUnique({
+      where: { leagueId: league.id },
+    });
+    expect(bracket).toBeNull();
+    const bracketSlots = await prisma.bracketSlot.findMany({
+      where: { bracket: { leagueId: league.id } },
+    });
+    expect(bracketSlots).toHaveLength(0);
+    const leagueAfter = await prisma.league.findUnique({
+      where: { id: league.id },
+    });
+    expect(leagueAfter?.status).toBe("LEAGUE");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AC-37: con todas las rondas cerradas, startPlayoffs funciona exactamente
 // como hoy — mismo bracket, mismo seeding, mismos byes. Comparación de
 // estructura completa contra buildBracket/seedsFromStandings llamados

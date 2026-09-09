@@ -331,3 +331,21 @@ export function formatOpenRoundsMessage(openRounds: OpenRoundInfo[]): string {
     .join(", ");
   return `No se pueden iniciar los playoffs: todavía quedan rondas sin cerrar: ${list}.`;
 }
+
+/**
+ * Rejection message for `startPlayoffs` when the league has **zero** `Round`
+ * rows at all — a distinct diagnosis from `formatOpenRoundsMessage`'s "faltan
+ * rondas por cerrar": here nothing was ever resolved into a round in the
+ * first place, so §4.11's guarantee ("los playoffs arrancan con las C(n,2)
+ * partidas resueltas") can't hold even vacuously. Reachable only through the
+ * documented non-atomic gap in `addMissingLeagueMatches`
+ * (src/server/round-actions.ts's `redistributePending` doc): the league's
+ * very first alta transitions `status` to `LEAGUE` and creates matches with
+ * `roundId: null` in one transaction, then calls `redistributePending` in a
+ * *separate* one to create the rounds — if that second call fails, the
+ * league is left `LEAGUE` with matches but no `Round` at all. Named as a
+ * constant, not a function, since it needs no per-round data — the fix is
+ * the same regardless of how many matches exist.
+ */
+export const NO_ROUNDS_MESSAGE =
+  "No se pueden iniciar los playoffs: esta liga todavía no tiene ninguna ronda generada, así que no hay nada resuelto. Genera los emparejamientos o repite el reparto de partidas pendientes para crear las rondas.";

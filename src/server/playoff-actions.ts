@@ -11,6 +11,7 @@ import { computeStandings } from "@/server/standings";
 import {
   buildBracket,
   formatOpenRoundsMessage,
+  NO_ROUNDS_MESSAGE,
   seedsFromStandings,
   resolvePlayoffWinner,
   type OpenRoundInfo,
@@ -42,6 +43,17 @@ class PlayoffsRoundsOpenError extends Error {
     super();
   }
 }
+
+/**
+ * Internal sentinel thrown inside `startPlayoffs`'s transaction to abort it
+ * when the authoritative re-read finds **zero** `Round` rows at all — a
+ * distinct diagnosis from `PlayoffsRoundsOpenError` (see
+ * `NO_ROUNDS_MESSAGE`'s doc, src/server/bracket.ts, for why and how this is
+ * reachable). Caught right outside `prisma.$transaction` and turned into
+ * `NO_ROUNDS_MESSAGE`; scoped with `instanceof` for the same reason as its
+ * sibling above.
+ */
+class PlayoffsNoRoundsError extends Error {}
 
 // ---------------------------------------------------------------------------
 // startPlayoffs — admin action to close league and initialize playoff bracket
@@ -92,7 +104,14 @@ export async function startPlayoffs(
   // "Puerta a los playoffs" (SPEC §4.11, criterio 36): every round must be
   // closed before the bracket can be built — closing a round settles
   // everything left unplayed to 0-0 (§4.7), so this is what guarantees the
-  // playoffs start with the full C(n,2) resolved and the seeds final.
+  // playoffs start with the full C(n,2) resolved and the seeds final. That
+  // guarantee doesn't hold — not even vacuously — if the league has **zero**
+  // `Round` rows at all, reachable only through the documented non-atomic
+  // gap in `addMissingLeagueMatches`'s first call (`NO_ROUNDS_MESSAGE`'s doc,
+  // src/server/bracket.ts): matches can exist with `roundId: null` and
+  // nothing resolved, so this is checked explicitly, with its own diagnosis,
+  // rather than silently passing because "no round is open" is vacuously
+  // true of an empty set.
   //
   // This is a fast-path shortcut only (fast rejection, no transaction open
   // yet, same convention as `closeRound` — src/server/round-actions.ts): a
@@ -102,10 +121,14 @@ export async function startPlayoffs(
   // below. The authoritative check is the re-read with `tx`, further down,
   // as the very first thing the transaction does — that one decides; this
   // one only gives a fast, friendly rejection for the common case.
-  const openRoundsPreCheck = await prisma.round.findMany({
-    where: { leagueId, closedAt: null },
-    select: { index: true, deadline: true },
+  const roundsPreCheck = await prisma.round.findMany({
+    where: { leagueId },
+    select: { index: true, closedAt: true, deadline: true },
   });
+  if (roundsPreCheck.length === 0) {
+    return { ok: false, error: NO_ROUNDS_MESSAGE };
+  }
+  const openRoundsPreCheck = roundsPreCheck.filter((r) => r.closedAt === null);
   if (openRoundsPreCheck.length > 0) {
     return { ok: false, error: formatOpenRoundsMessage(openRoundsPreCheck) };
   }
@@ -205,6 +228,9 @@ export async function startPlayoffs(
         where: { leagueId },
         select: { index: true, closedAt: true, deadline: true },
       });
+      if (currentRounds.length === 0) {
+        throw new PlayoffsNoRoundsError();
+      }
       const stillOpen = currentRounds.filter((r) => r.closedAt === null);
       if (stillOpen.length > 0) {
         throw new PlayoffsRoundsOpenError(stillOpen);
@@ -319,6 +345,9 @@ export async function startPlayoffs(
       return bracket.id;
     });
   } catch (err) {
+    if (err instanceof PlayoffsNoRoundsError) {
+      return { ok: false, error: NO_ROUNDS_MESSAGE };
+    }
     if (err instanceof PlayoffsRoundsOpenError) {
       return { ok: false, error: formatOpenRoundsMessage(err.openRounds) };
     }
