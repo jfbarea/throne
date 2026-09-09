@@ -107,7 +107,7 @@ describe("catálogo de facciones", () => {
       "Cultos Genestealer",
       "Caballeros Imperiales",
       "Caballeros del Caos",
-      "Ligas de Votann",
+      "Ligas de los Votann",
       "Imperio T'au",
     ]) {
       expect(ALL_FACTIONS).toContain(name);

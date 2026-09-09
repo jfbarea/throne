@@ -92,7 +92,7 @@ export const FACTION_GROUPS: FactionGroup[] = [
       "Imperio T'au",
       "Tiránidos",
       "Cultos Genestealer",
-      "Ligas de Votann",
+      "Ligas de los Votann",
     ],
   },
 ];
