@@ -8,10 +8,13 @@ out/
 # Build artifacts
 dist/
 
-# Environment variables — keep out of version control
+# Environment variables — keep out of version control.
+# Everything except the committed .env.example: the catch-all is deliberate so
+# a new .env.<algo> (a staging target, a throwaway) is ignored by default
+# rather than by remembering to add a line here.
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Prisma generated client
 /src/generated/prisma

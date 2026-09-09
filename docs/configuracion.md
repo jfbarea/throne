@@ -28,7 +28,18 @@ No se necesita ninguna base de datos externa: en desarrollo se usa SQLite, que e
 
 ## 2. Variables de entorno
 
-El fichero `.env.example` en la raíz del proyecto contiene la plantilla. Cópialo a `.env` (que no se versiona) y ajusta los valores:
+Hay **dos entornos, en dos ficheros distintos**, y ninguno se versiona:
+
+| Fichero | Para qué | Quién lo carga |
+|---------|----------|----------------|
+| `.env` | Local: SQLite en fichero, sin red | Todo, por defecto: `npm run dev`, los tests, los scripts de Prisma |
+| `.env.prod` | Producción: Turso | Nadie solo. Solo los scripts `:prod` (§4) |
+
+La asimetría es deliberada: **si se te olvida el flag, te quedas en local**, nunca
+apuntando a la liga de verdad por accidente. Producción hay que pedirla por su
+nombre.
+
+Para empezar, copia la plantilla:
 
 ```bash
 cp .env.example .env
@@ -117,6 +128,20 @@ Estos son los scripts reales definidos en `package.json`:
 | `npm run e2e` | Tests end-to-end con Playwright (arranca un servidor en `:3001`, usa `e2e.db` aislada) |
 | `npm run e2e:ui` | Tests e2e en modo UI interactivo de Playwright |
 | `npm run e2e:report` | Abre el último reporte HTML de los tests e2e |
+
+### Comandos contra producción
+
+Todos leen `.env.prod` (nunca `.env`) y avisan con un banner amarillo de a qué base
+apuntan antes de arrancar. Si `.env.prod` no existe, no tiene token, o su
+`DATABASE_URL` no es una URL `libsql://`, se niegan a ejecutar: un script `:prod`
+que apunte en silencio a otra cosa es peor que uno que falle.
+
+| Comando | Descripción |
+|---------|-------------|
+| `npm run dev:prod` | Servidor de desarrollo **contra la base de producción**. Para reproducir un fallo con datos reales; lo que escribas lo ve la liga |
+| `npm run seed:prod` | Carga los datos de ejemplo en producción (idempotente, pero pisa nombres y facciones de los jugadores del seed) |
+| `npm run studio:prod` | Prisma Studio sobre producción |
+| `npm run db:migrate:turso` | Aplica a producción las migraciones que le falten (ver `docs/despliegue.md` §3) |
 
 ### Comandos de Prisma (base de datos)
 

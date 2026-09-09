@@ -48,14 +48,17 @@ Las migraciones están en `prisma/migrations/` en formato SQLite, que es compati
 con libSQL (el motor de Turso). No es necesario cambiar el dialecto.
 
 Usa el script incluido en el repositorio. Lee `DATABASE_URL` y `DATABASE_AUTH_TOKEN`
-del `.env` automáticamente (`node --env-file-if-exists=.env`); si esas variables ya
-están en `.env` apuntando a Turso, basta con:
+de **`.env.prod`** (`node --env-file-if-exists=.env.prod`), que es donde viven las
+credenciales de producción — nunca de `.env`, que es el entorno local
+(`docs/configuracion.md` §2). Con `.env.prod` puesto, basta con:
 
 ```bash
 npm run db:migrate:turso
 ```
 
-O bien pasándolas en línea (útil si tu `.env` apunta a SQLite local):
+En CI o en Netlify no hay `.env.prod` y las variables vienen del entorno real; por
+eso el flag es `--env-file-if-exists` y no falla si el fichero no está. También
+puedes pasarlas en línea:
 
 ```bash
 DATABASE_URL="libsql://throne-prod-mi-org.turso.io" \

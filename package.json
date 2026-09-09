@@ -16,7 +16,10 @@
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
     "e2e:report": "playwright show-report",
-    "db:migrate:turso": "node --env-file-if-exists=.env scripts/migrate-turso.mjs"
+    "dev:prod": "node scripts/with-prod-env.mjs next dev",
+    "seed:prod": "node scripts/with-prod-env.mjs tsx prisma/seed.ts",
+    "studio:prod": "node scripts/with-prod-env.mjs prisma studio",
+    "db:migrate:turso": "node --env-file-if-exists=.env.prod scripts/migrate-turso.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.17.3",
