@@ -5,7 +5,7 @@
 
 import { useState } from "react";
 import { Badge } from "@/components";
-import { ScheduleForm } from "./ScheduleForm";
+import { ScheduleForm } from "@/components/ScheduleForm";
 import { CalendarBlank, MapPin, Pencil } from "@phosphor-icons/react";
 import { resolveMatchStatusLabel } from "@/server/round-ui";
 

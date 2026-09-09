@@ -1,11 +1,15 @@
 "use client";
 
 // Client component: form to set/edit/clear scheduledAt and location for a match.
-// Used inline in the calendar row for own matches (or all matches for admin).
+// Used inline wherever a participant (or the admin) can agree on a date:
+// the calendar row (src/app/calendario/MatchRow.tsx) and the match card in
+// "Mis partidas" (src/app/mis-partidas/MatchCard.tsx). It lives in
+// src/components/ rather than next to either page precisely because both need
+// it — the authorization is the server's job either way (`setMatchSchedule`).
 
 import { useState, useTransition } from "react";
-import { Button } from "@/components";
-import { Input } from "@/components";
+import { Button } from "./Button";
+import { Input } from "./Input";
 import { setMatchSchedule } from "@/server/match-actions";
 import { CalendarBlank, MapPin, X, Check } from "@phosphor-icons/react";
 
@@ -70,7 +74,7 @@ export function ScheduleForm({
 
   return (
     <div
-      className="mt-3 p-3 rounded space-y-3"
+      className="mt-3 space-y-3 rounded p-3"
       style={{
         background: "var(--bg)",
         border: "1px solid var(--border)",
@@ -96,7 +100,7 @@ export function ScheduleForm({
 
       {error && (
         <p
-          className="text-[12px] rounded p-2"
+          className="rounded p-2 text-[12px]"
           style={{
             background: "rgba(220,85,0,0.10)",
             border: "1px solid rgba(220,85,0,0.25)",
@@ -108,7 +112,7 @@ export function ScheduleForm({
         </p>
       )}
 
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex flex-wrap gap-2">
         <Button
           variant="primary"
           size="sm"
