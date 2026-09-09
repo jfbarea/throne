@@ -287,3 +287,224 @@ desde H5b), no escribir en él.
 3. Un test explícito del cruce de año (una ronda que cierra en diciembre,
    la siguiente derivada cae en enero del año siguiente) para el criterio
    30, aunque el mecanismo subyacente (`Date.UTC`) ya esté probado en H2.
+
+---
+
+# Re-review — precoloreado en `assignPairsToRounds` (commit `a784726`)
+
+## Veredicto: APPROVED
+
+El fix cierra el bloqueante de raíz, no con un parche en `redistributePending`
+sino dándole al propio algoritmo de coloreado la información que le faltaba
+— una decisión de diseño más honesta que envolverlo desde fuera, y que
+comprobé que cumple las dos condiciones que se le exigieron: el camino sin
+precoloreado es idéntico byte a byte al de antes (confirmado por diff, no
+solo por descripción), y el docstring no promete ninguna cota que el caso
+precoloreado no tenga — corrige exactamente el tipo de error que costó una
+vuelta entera en H2 (D4). Verifiqué la cota de seguridad computacionalmente
+con datos adversariales (no solo aleatorios) y no encontré ninguna otra forma
+de romper el invariante. El único hallazgo es un hueco de documentación
+menor: la colisión de índice de `Round` entre dos `redistributePending`
+concurrentes —la limitación aceptada como deuda en la vuelta anterior— no
+tiene comentario en el sitio donde ocurriría de verdad (`redistributePending`
+mismo, junto a `tx.round.create`), solo en sus dos llamadores. No bloquea,
+pero lo señalo como sugerencia.
+
+## 1. El caso reproducido — pinneado exactamente, falla sin el fix
+
+`tests/recalculo-alta-baja-y-cupo.test.ts`, el test nuevo
+("El bloqueante de la review... reproducción exacta del reviewer") usa
+**mis mismos parámetros**: 4 jugadores, `matchesPerRound = 1`, `reportResult`
+real sobre la partida P-A, alta de un 5º jugador vía `addMissingLeagueMatches`
+— el disparador real, no una llamada directa a `redistributePending`. Lo
+verifiqué revirtiendo `rounds.ts`, `round-actions.ts`, `league-actions.ts` y
+`match-actions.ts` a `d50a7bc` (el commit que audité en la primera vuelta) y
+ejecutando solo ese test: falla con `expected 2 to be less than or equal to
+1` dentro de `assertValidReparto` — el mismo síntoma exacto que documenté.
+Restauré los cuatro ficheros después (`git status` limpio) y vuelve a pasar.
+
+## 2. El invariante, ahora en serio — lo intenté romper de nuevo y no pude
+
+Además de ejecutar los 8 tests de H8 (ahora con `assertValidRepartoInDb`,
+que reutiliza `assertValidReparto` de H2 en vez del `assertQuotaInvariant`
+más débil de la vuelta anterior) y la nueva batería de precoloreado de
+`tests/rondas.test.ts`, hice mi propia verificación independiente, con datos
+**adversariales** a propósito, no solo aleatorios:
+
+- **566 casos** con precoloreado hostil: para cada tamaño (2-15 jugadores) y
+  `k` ∈ {1,2,3}, generé un subgrafo pendiente aleatorio y **agoté hasta el
+  cupo completo** (`k` de `k`, no solo `k-1`) de jugadores al azar en las
+  rondas existentes con partidas "precoloreadas" ficticias, antes de llamar a
+  `assignPairsToRounds` con `participantIds.length` candidatos extra. Cero
+  violaciones de cupo, cero fallos inesperados.
+- **Caso estrella extremo**: un jugador P con partidas pendientes contra
+  **los otros 11** (`n=12`, `k=2`), con P precoloreado a `k-1` en las 5
+  rondas abiertas existentes (solo una plaza libre por ronda) — el reparto
+  resultante respeta el cupo de P en las 8 rondas que termina usando (5
+  existentes + 3 nuevas), verificado campo a campo.
+- **Caso de infactibilidad real** (3 jugadores, `k=1`, un jugador ya agotado
+  en la única ronda ofrecida): lanza el error diagnosticable
+  (`no open round has enough remaining capacity`), no corrompe nada.
+
+No encontré ninguna forma adicional de romper el invariante. Los 8 tests de
+H8 y la batería de `tests/rondas.test.ts` (24 tests nuevos: el caso
+pinneado, cupo agotado, cupo justo, 18 combinaciones de tamaño/`k`, el test
+de "vacío = idéntico a antes", el de infactibilidad, y un property test de
+33 casos con PRNG de semilla fija) cubren el terreno con solidez.
+
+## 3. El caso libre — diff acotado a una sola función, lógica idéntica
+
+`git diff d50a7bc..a784726 -- src/server/rounds.ts` tiene **un único hunk**,
+desde la línea 573 (la declaración de `RoundAssignment`/el docstring de
+`assignPairsToRounds`) hasta el final de la función — nada por encima se
+toca: `misraGriesColoring`, `decomposeCompleteGraph`, `isCompleteGraph`,
+`waleckiFactors`, `roundRobinRounds`, `deriveDeadlines`, `roundQuota`,
+`quotaLabel` quedan exactamente como estaban. Dentro de la función, comparé
+línea a línea el cuerpo de la rama `if (preassigned.length === 0)` contra el
+cuerpo completo de la función **antes** de este commit: mismo cálculo de
+`groupSize`, mismo `neededRounds`, mismo mensaje de error, mismo bucle de
+construcción de `assignments` — literalmente el mismo código, solo movido
+dentro de un `if` con un `return` al final. No hay ninguna rama compartida
+entre los dos caminos que pudiera arrastrar un cambio de comportamiento al
+caso libre: `assignFactorsRespectingPreassignedCapacity` es una función
+aparte, solo alcanzable cuando `preassigned.length > 0`.
+
+## 4. La cota de seguridad — verificada, se sostiene con precoloreado
+
+Confirmé la prueba matemática: `factors` se calcula **antes** de tocar
+`preassigned` (`misraGriesColoring`/`decomposeCompleteGraph` no reciben
+`preassigned` en ningún punto), así que `factors.length` no cambia por la
+precoloración — sigue acotado por `Δ+1 ≤ participantIds.length` exactamente
+como en el caso libre. Lo que sí puede crecer es cuántas **rondas** hacen
+falta para colocar esos mismos factores (en el peor caso, uno por ronda si
+cada ronda existente está agotada para alguno de sus jugadores), pero nunca
+más de `factors.length` rondas — porque un factor siempre cabe en una ronda
+completamente nueva y vacía (su grado interno por jugador es como mucho
+`matchesPerRound`, así que `remaining(nueva, jugador) = matchesPerRound ≥
+demanda` siempre). De ahí que `participantIds.length` candidatos extra sigan
+siendo suficientes en el peor caso, confirmado también en mis 566+2 pruebas
+adversariales sin ni un solo fallo de "no cabe" cuando de verdad cabía.
+
+## 5. El docstring — sin promesas indebidas
+
+Leí el docstring completo de `assignPairsToRounds` y el nuevo de
+`assignFactorsRespectingPreassignedCapacity`. El primero dice explícitamente
+**"the `Δ + 1` bound does not carry over"** para el caso precoloreado, con
+la razón (precoloring-extension es un problema conocido más duro, no un
+defecto de esta implementación) y mantiene la garantía `Δ+1` intacta y
+explícita para el caso libre. El segundo solo promete "determinista" — no
+reclama ninguna cota de optimalidad. Ninguna frase del código nuevo
+menciona `Δ+1` en relación con el caso precoloreado salvo para decir que
+**no** aplica.
+
+## 6. Cobertura — 100 % real, verificado contra `coverage-final.json`
+
+`npm run test:coverage` da **489/489** tests. Leí `coverage-final.json`
+directamente (no el resumen de consola, que ni siquiera lista `rounds.ts`
+por estar al 100 %): `s` (statements) tiene **259/259** cubiertos, `b`
+(branches) **86/86**, cero ids sin cubrir en ninguna de las dos listas.
+Confirmé con `grep` que solo hay **una** pareja `v8 ignore start`/`stop` en
+todo el fichero (líneas 460/476) — la guarda defensiva de H2, fuera por
+completo del rango que toca este diff (que empieza en la línea 573). No se
+añadió ninguna exclusión nueva. Sobre si el 100 % se logró con tests
+significativos: los 24 tests nuevos de `tests/rondas.test.ts` no son relleno
+— cubren específicamente el caso pinneado, el cupo exacto al límite, el cupo
+agotado, la infactibilidad diagnosticable, la equivalencia con el
+comportamiento anterior, y un property test de 33 combinaciones — cada uno
+ejercitando una rama distinta de `assignFactorsRespectingPreassignedCapacity`
+(la búsqueda de ronda con hueco, el `throw` cuando no hay ninguna, la
+acumulación de `demand`/`consumed`), no un test genérico repetido.
+
+## 7. `tests/helpers/reparto.ts` — extracción fiel, sin debilitar nada
+
+Comparé el cuerpo de `assertValidReparto`/`groupByRoundIndex` en el nuevo
+fichero contra la versión que vivía en `tests/rondas.test.ts` antes de este
+commit (`git show d50a7bc:tests/rondas.test.ts`): son **idénticos**, solo
+cambia dónde viven. `tests/rondas.test.ts` ahora importa desde
+`./helpers/reparto` en vez de declarar las funciones localmente — confirmé
+que no queda ninguna declaración duplicada. Ejecuté el fichero completo:
+**135 tests pasan** (111 de H2 + 24 nuevos de precoloreado), así que la
+extracción no rompió ni debilitó ninguno de los tests que ya dependían de
+este helper.
+
+## 8. La corrección del fixture de AC-32 — arregla un bug del test, no del criterio
+
+El estado inicial anterior amontonaba **3** partidas de p1 (la jugada p1-p2
+más las pendientes p1-p3 y p1-p4) en una sola ronda con `matchesPerRound =
+2` — ya inválido antes de que `setPlayerActive` hiciera nada, un bug del
+*fixture*, no del producto. La corrección separa p1-p4 a una segunda ronda
+(round1 queda con p1-p2 jugada + p1-p3 pendiente = exactamente 2, al
+límite). Comparé las aserciones sustantivas del test antes y después del
+commit: **ninguna cambió** — el resultado ya jugado sigue comparado byte a
+byte (`toEqual`), los dos WALKOVER siguen verificados con `bonusHome: 0,
+bonusAway: 0` forzado pese a que `calculateBonus` daría 2 (con la prueba
+explícita de ese valor), y la partida no relacionada sigue sin tocar. Lo
+único que se añade es `assertValidRepartoInDb` al final — el criterio 32
+sigue probando exactamente lo que pedía, y además ahora también verifica
+que la redistribución posterior a la baja no rompe el cupo, que es
+precisamente la forma que destapó el bloqueante original.
+
+## 9. `setPlayerActive` gateado en `!active` — verificado con mi propia sonda
+
+Confirmé el razonamiento del cambio con una prueba propia, aparte de AC-33:
+desactivé a un jugador (1 entrada `REDISTRIBUTE_PENDING` en `AuditLog`),
+lo reactivé (**sigue en 1** — la reactivación no dispara redistribución,
+confirmado empíricamente, no solo leyendo que `!active` es `false` cuando
+`active: true`), y volví a llamar a `setPlayerActive(id, false)` sobre un
+jugador ya inactivo (sube a **2** — la redistribución se reintenta, tal como
+documenta el commit, mientras que `SETTLE_PLAYER_DEACTIVATION` se queda en
+**1**: no vuelve a saldar partidas ya saldadas). Esto confirma las dos
+mitades del cambio: el criterio 33 (reactivar no revierte) sigue intacto —
+AC-33 pasa sin cambios en sus aserciones sustantivas—, y la nueva vía de
+recuperación (reintentar la misma llamada tras un fallo de
+`redistributePending`) funciona de verdad, no solo sobre el papel.
+
+## 10. Los comentarios de las limitaciones — presentes, con un hueco en el origen
+
+- `addMissingLeagueMatches` (`match-actions.ts`): comentario explícito,
+  en el docstring exportado, con la vía de recuperación exacta ("cualquier
+  otro disparador de este hito... o simplemente llamar a
+  `redistributePending(leagueId)` directamente"). Bien situado — es donde
+  un futuro lector de esa función necesita verlo.
+- `setPlayerActive` (`league-actions.ts`): mismo patrón, con el matiz de que
+  esta acción **sí** se autorrepara reintentando, explicado con precisión.
+- **Hueco encontrado**: `redistributePending` en sí —donde de verdad ocurre
+  la colisión de `@@unique([leagueId, index])`, en las llamadas a
+  `tx.round.create`— no tiene ningún comentario sobre esta limitación. Los
+  otros dos riesgos de la misma función (la carrera de `closeRound` y el
+  "autocuración" del `Result` recibido en la ventana) sí están documentados
+  justo donde ocurren; este tercero solo se explica en sus dos llamadores,
+  no en el sitio donde realmente pasa. No es un hueco de conocimiento (la
+  información existe y es correcta), pero sí de ubicación — quien audite
+  `redistributePending` en solitario, sin mirar sus callers, no se
+  encontraría con el aviso. Sugerencia, no bloqueante: añadir un comentario
+  corto junto al bucle `for (const nr of plan.newRounds) { tx.round.create(...) }`.
+
+## Regresión
+
+- `npm run lint` → **0 errores, 0 warnings**.
+- `npm run test` → `Test Files 16 passed (16)` / `Tests 489 passed (489)`.
+- `npx tsc --noEmit` → limpio, sin salida.
+- `npm run build` → compila, 21 rutas, sin errores.
+- `npm run e2e` → ejecutado **dos veces**: **43 pasan, 1 skipped** en ambas
+  corridas, sin intermitencia.
+- `npm run test:coverage` → 489/489; `src/server/rounds.ts` **259/259**
+  statements, **86/86** branches (verificado contra `coverage-final.json`,
+  no solo el resumen de consola), con la misma y única exclusión de H2 sin
+  ninguna nueva.
+
+## Bloqueantes
+
+Ninguno.
+
+## Sugerencias (no bloqueantes)
+
+1. **(Punto 10)** Añadir un comentario corto en `redistributePending`, junto
+   al bucle que crea las `Round` nuevas (`for (const nr of plan.newRounds)
+   { tx.round.create(...) }`), documentando la colisión de índice entre dos
+   `redistributePending` concurrentes en el sitio exacto donde ocurriría —
+   hoy solo se explica en sus dos llamadores.
+2. (Heredada de la vuelta anterior, ya registrada como deuda por el
+   coordinador) Ninguna acción adicional necesaria de mi parte; confirmado
+   que el matiz sobre la no-autorreparación de `addMissingLeagueMatches`
+   quedó documentado con precisión en el propio código, tal como se pidió.

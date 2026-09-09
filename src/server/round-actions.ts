@@ -591,6 +591,19 @@ function planRedistribution(params: {
  * Guard: `requireAdmin()` first, even though every current caller is itself
  * an already-admin-gated action — this stays a standalone action in its own
  * right (same convention as the rest of this file).
+ *
+ * Known limitation — two concurrent `redistributePending` on the same league:
+ * both can plan the same new round index and race to create it, so the loser
+ * hits the `@@unique([leagueId, index])` constraint. It fails hard and atomic
+ * (the whole transaction rolls back; no half-written rounds), so the league is
+ * never left inconsistent by this alone, and re-running the action recovers.
+ * Not guarded because it needs two admins acting at the same instant and the
+ * failure is loud — unlike the silent double-close that H5b had to fix in
+ * `closeRound`. Documented here, at the place it actually happens, as well as
+ * in both callers: `addMissingLeagueMatches` is the one composite flow that is
+ * NOT atomic end to end, so a failure there can leave the newly created
+ * matches with `roundId: null`, and those do not self-heal on a plain retry of
+ * that action — the recovery path is to run this redistribution again.
  */
 export async function redistributePending(
   leagueId: string
