@@ -4,6 +4,7 @@
 import { requireAdmin } from "@/lib/guards";
 import { prisma } from "@/lib/db";
 import { computeStandings } from "@/server/standings";
+import { formatOpenRoundsMessage } from "@/server/bracket";
 import Link from "next/link";
 import { StartPlayoffsButton } from "./StartPlayoffsButton";
 
@@ -82,7 +83,19 @@ export default async function AdminPlayoffsPage() {
     (m) => m.status !== "REPORTED" && m.status !== "CONFIRMED"
   ).length;
 
-  const canStart = league.status === "LEAGUE";
+  // Puerta a los playoffs (SPEC §4.11, criterio 36): rondas sin cerrar, para
+  // que el admin vea POR QUÉ no puede arrancar antes de intentarlo. La misma
+  // lista y el mismo mensaje que devuelve startPlayoffs si pulsa igualmente
+  // (server/playoff-actions.ts) — es solo una lectura de apoyo para la UI,
+  // la comprobación autoritativa vive en la propia acción.
+  const openRounds = await prisma.round.findMany({
+    where: { leagueId: league.id, closedAt: null },
+    orderBy: { index: "asc" },
+    select: { index: true, deadline: true },
+  });
+  const roundsBlocking = openRounds.length > 0;
+
+  const canStart = league.status === "LEAGUE" && !roundsBlocking;
   const alreadyStarted =
     league.status === "PLAYOFFS" || league.status === "FINISHED";
 
@@ -91,18 +104,18 @@ export default async function AdminPlayoffsPage() {
       {/* Page title */}
       <div className="mb-6">
         <p
-          className="text-[11px] font-semibold uppercase tracking-[0.1em] mb-1"
+          className="mb-1 text-[11px] font-semibold tracking-[0.1em] uppercase"
           style={{ color: "var(--accent)" }}
         >
           {league.name} · {league.season}
         </p>
         <h1
-          className="text-[26px] font-bold leading-tight"
+          className="text-[26px] leading-tight font-bold"
           style={{ fontFamily: "var(--font-display)", color: "var(--fg)" }}
         >
           Iniciar playoffs
         </h1>
-        <p className="text-sm mt-1" style={{ color: "var(--fg-muted)" }}>
+        <p className="mt-1 text-sm" style={{ color: "var(--fg-muted)" }}>
           Cierra la fase de liga y construye el cuadro de eliminatoria.
         </p>
       </div>
@@ -110,15 +123,21 @@ export default async function AdminPlayoffsPage() {
       {/* Status banner */}
       {alreadyStarted && (
         <div
-          className="mb-6 p-4 rounded-[var(--radius-sm)] border"
-          style={{ borderColor: "var(--moss-600)", background: "color-mix(in srgb, var(--moss-500) 10%, transparent)" }}
+          className="mb-6 rounded-[var(--radius-sm)] border p-4"
+          style={{
+            borderColor: "var(--moss-600)",
+            background: "color-mix(in srgb, var(--moss-500) 10%, transparent)",
+          }}
         >
-          <p className="text-sm font-semibold" style={{ color: "var(--moss-400)" }}>
+          <p
+            className="text-sm font-semibold"
+            style={{ color: "var(--moss-400)" }}
+          >
             Los playoffs ya han sido iniciados (estado: {league.status}).
           </p>
           <Link
             href="/bracket"
-            className="inline-block mt-2 text-sm font-semibold no-underline"
+            className="mt-2 inline-block text-sm font-semibold no-underline"
             style={{ color: "var(--accent)" }}
           >
             Ver bracket →
@@ -127,9 +146,13 @@ export default async function AdminPlayoffsPage() {
       )}
 
       {/* Stats summary */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
         <StatCard label="Partidas jugadas" value={confirmedCount} />
-        <StatCard label="Partidas pendientes" value={pendingCount} color={pendingCount > 0 ? "var(--ember-400)" : undefined} />
+        <StatCard
+          label="Partidas pendientes"
+          value={pendingCount}
+          color={pendingCount > 0 ? "var(--ember-400)" : undefined}
+        />
         <StatCard label="Clasifican a playoffs" value={league.playoffSize} />
       </div>
 
@@ -139,7 +162,7 @@ export default async function AdminPlayoffsPage() {
         style={{ borderColor: "var(--border)", background: "var(--bg-raised)" }}
       >
         <div
-          className="px-4 py-3 border-b"
+          className="border-b px-4 py-3"
           style={{ borderColor: "var(--border)" }}
         >
           <h2
@@ -148,8 +171,12 @@ export default async function AdminPlayoffsPage() {
           >
             Seeds actuales (top {league.playoffSize})
           </h2>
-          <p className="text-[12px] mt-0.5" style={{ color: "var(--fg-muted)" }}>
-            Solo partidas con resultado apuntado. El orden puede cambiar si hay pendientes.
+          <p
+            className="mt-0.5 text-[12px]"
+            style={{ color: "var(--fg-muted)" }}
+          >
+            Solo partidas con resultado apuntado. El orden puede cambiar si hay
+            pendientes.
           </p>
         </div>
         <div>
@@ -159,7 +186,7 @@ export default async function AdminPlayoffsPage() {
             return (
               <div
                 key={row.playerId}
-                className="flex items-center gap-3 px-4 py-2.5 border-b last:border-b-0"
+                className="flex items-center gap-3 border-b px-4 py-2.5 last:border-b-0"
                 style={{
                   borderColor: "var(--border)",
                   background:
@@ -169,7 +196,7 @@ export default async function AdminPlayoffsPage() {
                 }}
               >
                 <span
-                  className="w-6 text-center text-[13px] font-bold tabular-nums shrink-0"
+                  className="w-6 shrink-0 text-center text-[13px] font-bold tabular-nums"
                   style={{
                     color: isInPlayoffs ? "var(--accent)" : "var(--fg-faint)",
                     fontFamily: "var(--font-mono)",
@@ -177,26 +204,29 @@ export default async function AdminPlayoffsPage() {
                 >
                   {row.rank}
                 </span>
-                <div className="flex-1 min-w-0">
+                <div className="min-w-0 flex-1">
                   <span
-                    className="text-[13px] font-semibold truncate block"
+                    className="block truncate text-[13px] font-semibold"
                     style={{ color: "var(--fg)" }}
                   >
                     {player?.displayName ?? row.playerId}
                   </span>
                   {player?.faction && (
                     <span
-                      className="text-[11px] truncate block"
+                      className="block truncate text-[11px]"
                       style={{ color: "var(--fg-faint)" }}
                     >
                       {player.faction}
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-3 shrink-0">
+                <div className="flex shrink-0 items-center gap-3">
                   <span
                     className="text-[13px] font-semibold tabular-nums"
-                    style={{ color: "var(--fg)", fontFamily: "var(--font-mono)" }}
+                    style={{
+                      color: "var(--fg)",
+                      fontFamily: "var(--font-mono)",
+                    }}
                   >
                     {row.points} pts
                   </span>
@@ -217,36 +247,83 @@ export default async function AdminPlayoffsPage() {
         </div>
       </div>
 
+      {/* Blocked: rounds still open (SPEC §4.11, criterio 36) */}
+      {league.status === "LEAGUE" && roundsBlocking && (
+        <div
+          className="rounded-[var(--radius-sm)] border p-5"
+          style={{
+            borderColor: "var(--danger)",
+            background: "var(--bg-raised)",
+          }}
+        >
+          <h2
+            className="mb-2 text-[14px] font-semibold"
+            style={{ color: "var(--fg)" }}
+          >
+            No se pueden iniciar los playoffs todavía
+          </h2>
+          <p className="mb-3 text-sm" style={{ color: "var(--fg-muted)" }}>
+            {formatOpenRoundsMessage(openRounds)} Cerrar una ronda salda a 0-0
+            todo lo que quede sin jugar, así que los playoffs no pueden arrancar
+            hasta que no quede ninguna ronda abierta.
+          </p>
+          <ul className="space-y-1">
+            {openRounds.map((round) => (
+              <li
+                key={round.index}
+                className="text-[13px]"
+                style={{ color: "var(--fg)", fontFamily: "var(--font-mono)" }}
+              >
+                Ronda {round.index} — cierre{" "}
+                {round.deadline.toLocaleDateString("es-ES")}
+              </li>
+            ))}
+          </ul>
+          <Link
+            href="/admin/rondas"
+            className="mt-3 inline-block text-sm font-semibold no-underline"
+            style={{ color: "var(--accent)" }}
+          >
+            Ir a rondas →
+          </Link>
+        </div>
+      )}
+
       {/* Action */}
       {canStart && (
         <div
           className="rounded-[var(--radius-sm)] border p-5"
-          style={{ borderColor: "var(--border)", background: "var(--bg-raised)" }}
+          style={{
+            borderColor: "var(--border)",
+            background: "var(--bg-raised)",
+          }}
         >
           <h2
-            className="text-[14px] font-semibold mb-2"
+            className="mb-2 text-[14px] font-semibold"
             style={{ color: "var(--fg)" }}
           >
             Cerrar fase de liga e iniciar playoffs
           </h2>
           {pendingCount > 0 && (
             <div
-              className="mb-3 p-3 rounded-[var(--radius-sm)] text-sm"
+              className="mb-3 rounded-[var(--radius-sm)] p-3 text-sm"
               style={{
-                background: "color-mix(in srgb, var(--ember-500) 10%, transparent)",
+                background:
+                  "color-mix(in srgb, var(--ember-500) 10%, transparent)",
                 color: "var(--ember-300)",
                 border: "1px solid var(--ember-700)",
               }}
             >
-              Atención: hay {pendingCount} partida{pendingCount !== 1 ? "s" : ""}{" "}
-              sin confirmar. El bracket se construirá con los resultados confirmados
-              actuales. Puedes continuar igualmente.
+              Atención: hay {pendingCount} partida
+              {pendingCount !== 1 ? "s" : ""} sin confirmar. El bracket se
+              construirá con los resultados confirmados actuales. Puedes
+              continuar igualmente.
             </div>
           )}
-          <p className="text-sm mb-4" style={{ color: "var(--fg-muted)" }}>
-            Se tomarán los {league.playoffSize} mejores seeds según los standings
-            actuales y se construirá el cuadro de eliminatoria. Esta acción no se
-            puede deshacer.
+          <p className="mb-4 text-sm" style={{ color: "var(--fg-muted)" }}>
+            Se tomarán los {league.playoffSize} mejores seeds según los
+            standings actuales y se construirá el cuadro de eliminatoria. Esta
+            acción no se puede deshacer.
           </p>
           <StartPlayoffsButton leagueId={league.id} />
         </div>
@@ -270,7 +347,7 @@ function StatCard({
       style={{ borderColor: "var(--border)", background: "var(--bg-raised)" }}
     >
       <p
-        className="text-[11px] font-semibold uppercase tracking-[0.08em] mb-1"
+        className="mb-1 text-[11px] font-semibold tracking-[0.08em] uppercase"
         style={{ color: "var(--fg-faint)", fontFamily: "var(--font-sans)" }}
       >
         {label}

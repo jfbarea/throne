@@ -10,8 +10,10 @@ import { requireAdmin } from "@/lib/guards";
 import { computeStandings } from "@/server/standings";
 import {
   buildBracket,
+  formatOpenRoundsMessage,
   seedsFromStandings,
   resolvePlayoffWinner,
+  type OpenRoundInfo,
 } from "@/server/bracket";
 
 // ---------------------------------------------------------------------------
@@ -21,6 +23,25 @@ import {
 export type ActionResult<T = void> =
   | { ok: true; data: T }
   | { ok: false; error: string };
+
+// ---------------------------------------------------------------------------
+// startPlayoffs "puerta a los playoffs" guard sentinel (H9, plan/rondas-con-fecha/PLAN.md)
+// ---------------------------------------------------------------------------
+
+/**
+ * Internal sentinel thrown inside `startPlayoffs`'s transaction to abort it
+ * when the authoritative re-read of the league's rounds (with `tx`) finds
+ * one still open. Caught right outside `prisma.$transaction` and turned
+ * into the same Spanish rejection the fast-path check below returns —
+ * `formatOpenRoundsMessage` builds both — scoped with `instanceof` so a real
+ * DB failure inside the transaction is never mistaken for "faltan rondas
+ * por cerrar" (same pattern as D5 and the H5b sweep).
+ */
+class PlayoffsRoundsOpenError extends Error {
+  constructor(public readonly openRounds: OpenRoundInfo[]) {
+    super();
+  }
+}
 
 // ---------------------------------------------------------------------------
 // startPlayoffs — admin action to close league and initialize playoff bracket
@@ -67,6 +88,54 @@ export async function startPlayoffs(
       error: "El tamaño de playoffs debe ser al menos 2.",
     };
   }
+
+  // "Puerta a los playoffs" (SPEC §4.11, criterio 36): every round must be
+  // closed before the bracket can be built — closing a round settles
+  // everything left unplayed to 0-0 (§4.7), so this is what guarantees the
+  // playoffs start with the full C(n,2) resolved and the seeds final.
+  //
+  // This is a fast-path shortcut only (fast rejection, no transaction open
+  // yet, same convention as `closeRound` — src/server/round-actions.ts): a
+  // round could be reopened, or a brand-new one appended by a concurrent
+  // `redistributePending` (an alta mid-liga landing in this exact window,
+  // src/server/round-actions.ts), between this read and the transaction
+  // below. The authoritative check is the re-read with `tx`, further down,
+  // as the very first thing the transaction does — that one decides; this
+  // one only gives a fast, friendly rejection for the common case.
+  const openRoundsPreCheck = await prisma.round.findMany({
+    where: { leagueId, closedAt: null },
+    select: { index: true, deadline: true },
+  });
+  if (openRoundsPreCheck.length > 0) {
+    return { ok: false, error: formatOpenRoundsMessage(openRoundsPreCheck) };
+  }
+
+  // Standings snapshot (leagueMatches + activePlayers, read below) stays a
+  // plain read outside the transaction, same as before this hito. Considered
+  // whether it needs the same "re-read authoritative with `tx`" hardening as
+  // the rounds-closed guard above — decided not to, for two reasons that
+  // both hold at once:
+  //   1. Reach: once every round is closed, participants lose write access
+  //      entirely (§4.7) — the only way this snapshot can go stale before
+  //      the transaction commits is a second, concurrent ADMIN action:
+  //      either editing a Result on an already-closed round via the admin
+  //      override (§7.5), or an alta/baja/`matchesPerRound` change that
+  //      reopens or appends a round via `redistributePending`. That second
+  //      case is exactly what the guard above (and its authoritative re-read
+  //      below) exists to catch — it always touches `Round.closedAt`.
+  //   2. Scope: criterio 37 requires the bracket, seeding and byes to come
+  //      out identical to today for the case this hito actually changes
+  //      behavior for (all rounds already closed). Moving the standings
+  //      computation itself inside the transaction would be a rewrite of
+  //      pre-existing, already-approved bracket-building code that criterios
+  //      36-37 don't touch, not a hardening of the new guard.
+  // What's left over — an admin overriding a Result on a closed round in the
+  // very same instant another admin action starts playoffs — is a narrow
+  // admin-vs-admin race that predates this hito (it existed identically
+  // before rondas-con-fecha) and applies equally to every other read below
+  // this point (`activePlayers`, `league.playoffSize` itself). Flagged here,
+  // not fixed, the same way `redistributePending` documents its own
+  // unfixed double-redistribution race (src/server/round-actions.ts).
 
   // Load all confirmed LEAGUE matches for standings computation.
   const leagueMatches = await prisma.match.findMany({
@@ -122,115 +191,139 @@ export async function startPlayoffs(
   const spec = buildBracket(seeds);
 
   // Persist inside a transaction.
-  const bracketId = await prisma.$transaction(async (tx) => {
-    // Check no existing bracket.
-    const existing = await tx.bracket.findUnique({ where: { leagueId } });
-    if (existing) {
-      throw new Error("Ya existe un bracket para esta liga.");
-    }
+  let bracketId: string;
+  try {
+    bracketId = await prisma.$transaction(async (tx) => {
+      // Authoritative re-read (SPEC §4.11 hardening, H9 — same pattern D5 and
+      // the H5b sweep already validated): the fast-path check above can be
+      // stale by the time this transaction actually runs — a round could have
+      // been reopened, or a new one appended by a concurrent
+      // `redistributePending`, in the window between that read and this one.
+      // Re-verify against `tx`, the transaction's own client, as the very
+      // first thing it does — this is what decides, not the shortcut above.
+      const currentRounds = await tx.round.findMany({
+        where: { leagueId },
+        select: { index: true, closedAt: true, deadline: true },
+      });
+      const stillOpen = currentRounds.filter((r) => r.closedAt === null);
+      if (stillOpen.length > 0) {
+        throw new PlayoffsRoundsOpenError(stillOpen);
+      }
 
-    // Create Bracket.
-    const bracket = await tx.bracket.create({
-      data: {
-        leagueId,
-        size: spec.size,
-      },
-    });
+      // Check no existing bracket.
+      const existing = await tx.bracket.findUnique({ where: { leagueId } });
+      if (existing) {
+        throw new Error("Ya existe un bracket para esta liga.");
+      }
 
-    // Create BracketSlots — two passes:
-    //   Pass 1: create all slots without feedsIntoSlotId (need ids first).
-    //   Pass 2: wire feedsIntoSlotId.
-
-    const createdSlots: Array<{ id: string; specIndex: number }> = [];
-
-    for (let i = 0; i < spec.slots.length; i++) {
-      const slotSpec = spec.slots[i];
-      const slot = await tx.bracketSlot.create({
+      // Create Bracket.
+      const bracket = await tx.bracket.create({
         data: {
-          bracketId: bracket.id,
-          roundIndex: slotSpec.roundIndex,
-          position: slotSpec.position,
-          playerId: slotSpec.playerId,
-          feedsIntoSlotId: null, // wired in pass 2
+          leagueId,
+          size: spec.size,
         },
       });
-      createdSlots.push({ id: slot.id, specIndex: i });
-    }
 
-    // Pass 2: wire feedsIntoSlotId.
-    for (const { id, specIndex } of createdSlots) {
-      const feedsIntoIndex = spec.slots[specIndex].feedsIntoIndex;
-      if (feedsIntoIndex !== null) {
-        const parentSlotId = createdSlots[feedsIntoIndex].id;
-        await tx.bracketSlot.update({
-          where: { id },
-          data: { feedsIntoSlotId: parentSlotId },
-        });
-      }
-    }
+      // Create BracketSlots — two passes:
+      //   Pass 1: create all slots without feedsIntoSlotId (need ids first).
+      //   Pass 2: wire feedsIntoSlotId.
 
-    // Create Matches for each slot.
-    for (let i = 0; i < spec.slots.length; i++) {
-      const slotSpec = spec.slots[i];
-      const slotId = createdSlots[i].id;
+      const createdSlots: Array<{ id: string; specIndex: number }> = [];
 
-      if (slotSpec.isBye) {
-        // Bye match: home = advancing seed, no away player, auto-CONFIRMED.
-        // The seed's playerId is already in slotSpec.playerId.
-        const homePlayerId = slotSpec.playerId!;
-
-        // For a bye, we create the match as CONFIRMED with status indicator.
-        // isBye=true, no away player, no result (bye doesn't have a real score).
-        await tx.match.create({
+      for (let i = 0; i < spec.slots.length; i++) {
+        const slotSpec = spec.slots[i];
+        const slot = await tx.bracketSlot.create({
           data: {
-            leagueId,
-            phase: "PLAYOFF",
-            status: "CONFIRMED",
-            playerHomeId: homePlayerId,
-            playerAwayId: null,
-            isBye: true,
-            bracketSlotId: slotId,
+            bracketId: bracket.id,
+            roundIndex: slotSpec.roundIndex,
+            position: slotSpec.position,
+            playerId: slotSpec.playerId,
+            feedsIntoSlotId: null, // wired in pass 2
           },
         });
-      } else if (slotSpec.roundIndex === 1) {
-        // Round-1 real match: both players are known from seeds.
-        // position p: top seed = p, bottom seed = size + 1 - p.
-        const topSeedNum = slotSpec.position;
-        const bottomSeedNum = spec.size + 1 - slotSpec.position;
-        const homePlayer = seeds.find((s) => s.seed === topSeedNum);
-        const awayPlayer = seeds.find((s) => s.seed === bottomSeedNum);
+        createdSlots.push({ id: slot.id, specIndex: i });
+      }
 
-        if (!homePlayer || !awayPlayer) {
-          // This shouldn't happen for round-1 non-bye slots
-          throw new Error(
-            `Missing seed for round-1 slot position ${slotSpec.position}`
-          );
+      // Pass 2: wire feedsIntoSlotId.
+      for (const { id, specIndex } of createdSlots) {
+        const feedsIntoIndex = spec.slots[specIndex].feedsIntoIndex;
+        if (feedsIntoIndex !== null) {
+          const parentSlotId = createdSlots[feedsIntoIndex].id;
+          await tx.bracketSlot.update({
+            where: { id },
+            data: { feedsIntoSlotId: parentSlotId },
+          });
         }
-
-        await tx.match.create({
-          data: {
-            leagueId,
-            phase: "PLAYOFF",
-            status: "SCHEDULED",
-            playerHomeId: homePlayer.playerId,
-            playerAwayId: awayPlayer.playerId,
-            isBye: false,
-            bracketSlotId: slotId,
-          },
-        });
       }
-      // Later-round slots (roundIndex > 1, not bye) have no match yet.
-      // Matches for those slots are created when both predecessors resolve.
-    }
 
-    // Transition league to PLAYOFFS.
-    await tx.league.update({
-      where: { id: leagueId },
-      data: { status: "PLAYOFFS" },
+      // Create Matches for each slot.
+      for (let i = 0; i < spec.slots.length; i++) {
+        const slotSpec = spec.slots[i];
+        const slotId = createdSlots[i].id;
+
+        if (slotSpec.isBye) {
+          // Bye match: home = advancing seed, no away player, auto-CONFIRMED.
+          // The seed's playerId is already in slotSpec.playerId.
+          const homePlayerId = slotSpec.playerId!;
+
+          // For a bye, we create the match as CONFIRMED with status indicator.
+          // isBye=true, no away player, no result (bye doesn't have a real score).
+          await tx.match.create({
+            data: {
+              leagueId,
+              phase: "PLAYOFF",
+              status: "CONFIRMED",
+              playerHomeId: homePlayerId,
+              playerAwayId: null,
+              isBye: true,
+              bracketSlotId: slotId,
+            },
+          });
+        } else if (slotSpec.roundIndex === 1) {
+          // Round-1 real match: both players are known from seeds.
+          // position p: top seed = p, bottom seed = size + 1 - p.
+          const topSeedNum = slotSpec.position;
+          const bottomSeedNum = spec.size + 1 - slotSpec.position;
+          const homePlayer = seeds.find((s) => s.seed === topSeedNum);
+          const awayPlayer = seeds.find((s) => s.seed === bottomSeedNum);
+
+          if (!homePlayer || !awayPlayer) {
+            // This shouldn't happen for round-1 non-bye slots
+            throw new Error(
+              `Missing seed for round-1 slot position ${slotSpec.position}`
+            );
+          }
+
+          await tx.match.create({
+            data: {
+              leagueId,
+              phase: "PLAYOFF",
+              status: "SCHEDULED",
+              playerHomeId: homePlayer.playerId,
+              playerAwayId: awayPlayer.playerId,
+              isBye: false,
+              bracketSlotId: slotId,
+            },
+          });
+        }
+        // Later-round slots (roundIndex > 1, not bye) have no match yet.
+        // Matches for those slots are created when both predecessors resolve.
+      }
+
+      // Transition league to PLAYOFFS.
+      await tx.league.update({
+        where: { id: leagueId },
+        data: { status: "PLAYOFFS" },
+      });
+
+      return bracket.id;
     });
-
-    return bracket.id;
-  });
+  } catch (err) {
+    if (err instanceof PlayoffsRoundsOpenError) {
+      return { ok: false, error: formatOpenRoundsMessage(err.openRounds) };
+    }
+    throw err;
+  }
 
   revalidatePath("/bracket");
   revalidatePath("/admin");
@@ -283,7 +376,12 @@ export async function advancePlayoffWinner(
 
   const currentSlot = await tx.bracketSlot.findUnique({
     where: { id: currentMatch.bracketSlotId },
-    select: { id: true, feedsIntoSlotId: true, roundIndex: true, position: true },
+    select: {
+      id: true,
+      feedsIntoSlotId: true,
+      roundIndex: true,
+      position: true,
+    },
   });
 
   if (!currentSlot) return;
@@ -329,7 +427,9 @@ export async function advancePlayoffWinner(
   });
   // Build the resolved player list from all feeders.
   const resolvedPlayers = allFeeders.map((f) =>
-    f.id === currentSlot.id ? updatedCurrentSlot?.playerId ?? null : f.playerId
+    f.id === currentSlot.id
+      ? (updatedCurrentSlot?.playerId ?? null)
+      : f.playerId
   );
   const allResolved = resolvedPlayers.every((p) => p !== null);
 
@@ -373,8 +473,12 @@ export async function getBracket(leagueId: string) {
               phase: true,
               playerHomeId: true,
               playerAwayId: true,
-              playerHome: { select: { id: true, displayName: true, faction: true } },
-              playerAway: { select: { id: true, displayName: true, faction: true } },
+              playerHome: {
+                select: { id: true, displayName: true, faction: true },
+              },
+              playerAway: {
+                select: { id: true, displayName: true, faction: true },
+              },
               result: {
                 select: {
                   id: true,

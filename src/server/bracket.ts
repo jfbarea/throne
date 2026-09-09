@@ -278,7 +278,9 @@ export function resolvePlayoffWinner(
   playerAwayId: string | null
 ): string {
   if (outcome === "DRAW") {
-    throw new Error("Draw is not valid in playoff matches. A winner is required.");
+    throw new Error(
+      "Draw is not valid in playoff matches. A winner is required."
+    );
   }
   if (outcome === "HOME_WIN") {
     return playerHomeId;
@@ -290,4 +292,42 @@ export function resolvePlayoffWinner(
     return playerAwayId;
   }
   throw new Error(`Unknown outcome: ${outcome}`);
+}
+
+// ---------------------------------------------------------------------------
+// formatOpenRoundsMessage — pure message builder for the "puerta a los
+// playoffs" guard (rondas-con-fecha spec §4.11, criterio 36)
+// ---------------------------------------------------------------------------
+
+/** The subset of a `Round` this message needs — kept minimal so both the
+ * fast-path check and the transactional re-read in
+ * `src/server/playoff-actions.ts` can pass either a Prisma row or the plain
+ * shape straight off a `select`. */
+export interface OpenRoundInfo {
+  index: number;
+  deadline: Date;
+}
+
+/**
+ * Build the Spanish, admin-facing rejection message for `startPlayoffs`
+ * when one or more rounds still lack `closedAt`. Named per round, with its
+ * deadline, per criterio 36 ("nombrando las rondas que faltan y su fecha de
+ * cierre") — not a generic "faltan rondas".
+ *
+ * Pure and DB-free on purpose: `src/server/playoff-actions.ts` calls it both
+ * from the fast-path check (before opening the transaction) and from the
+ * `catch` block that translates the authoritative re-read's failure (inside
+ * the transaction), so the two rejections always read identically —
+ * `src/app/admin/playoffs/page.tsx` also uses it to render the same
+ * information before the admin ever presses the button.
+ */
+export function formatOpenRoundsMessage(openRounds: OpenRoundInfo[]): string {
+  const sorted = [...openRounds].sort((a, b) => a.index - b.index);
+  const list = sorted
+    .map(
+      (r) =>
+        `ronda ${r.index} (cierre ${r.deadline.toLocaleDateString("es-ES")})`
+    )
+    .join(", ");
+  return `No se pueden iniciar los playoffs: todavía quedan rondas sin cerrar: ${list}.`;
 }
