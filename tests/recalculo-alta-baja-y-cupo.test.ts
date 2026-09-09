@@ -30,8 +30,11 @@ import { prisma } from "@/lib/db";
 import { closeRound, redistributePending } from "@/server/round-actions";
 import { addMissingLeagueMatches, generateLeagueMatches } from "@/server/match-actions";
 import { setPlayerActive, updateLeague } from "@/server/league-actions";
+import { reportResult } from "@/server/result-actions";
 import { roundRobinRounds } from "@/server/rounds";
 import { TIEBREAKER_VALUES, type LeagueConfigInput } from "@/lib/schemas";
+import type { Pairing } from "@/server/pairings";
+import { assertValidReparto } from "./helpers/reparto";
 
 // ---------------------------------------------------------------------------
 // Helpers (same conventions as tests/cierre-de-ronda.test.ts)
@@ -155,27 +158,52 @@ function baseLeagueConfig(
   };
 }
 
-/** Every league match with an assigned round, grouped by (roundId, playerId),
- * asserts no group exceeds `matchesPerRound` — SPEC §8 criterio 2, the
- * invariant every redistribution has to preserve. */
-async function assertQuotaInvariant(leagueId: string, matchesPerRound: number) {
+/**
+ * DB-backed reuse of H2's `assertValidReparto` (tests/helpers/reparto.ts),
+ * per the Hito 8 review (plan/rondas-con-fecha/reviews/recalculo-alta-baja-y-cupo.md,
+ * "sugerencia 2"): H8's own from-scratch `assertQuotaInvariant` only checked
+ * the cupo cap and didn't reliably catch a "lost" pair depending on where in
+ * the plan it went missing. This checks BOTH properties `assertValidReparto`
+ * has always checked — no round exceeds `matchesPerRound` for any player,
+ * AND every one of the league's current matches is accounted for exactly
+ * once, nothing lost, nothing duplicated — by grouping every LEAGUE match by
+ * its `roundId` and feeding that straight into the same helper Hito 2's own
+ * suite trusts.
+ *
+ * Also asserts every LEAGUE match actually **has** a `roundId` at all — a
+ * match still sitting at `roundId: null` after a redistribution is exactly
+ * the kind of "lost" pair criterio 29 ("todas las partidas sin resultado
+ * quedan repartidas") rules out, and a bare cupo check would never notice it
+ * missing entirely.
+ */
+async function assertValidRepartoInDb(
+  leagueId: string,
+  matchesPerRound: number
+): Promise<void> {
   const matches = await prisma.match.findMany({
-    where: { leagueId, phase: "LEAGUE", roundId: { not: null } },
+    where: { leagueId, phase: "LEAGUE" },
     select: { roundId: true, playerHomeId: true, playerAwayId: true },
   });
-  const counts = new Map<string, number>();
-  for (const m of matches) {
-    for (const playerId of [m.playerHomeId, m.playerAwayId]) {
-      if (!playerId) continue;
-      const key = `${m.roundId}|${playerId}`;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
+  const withRound = matches.filter(
+    (m): m is typeof m & { roundId: string; playerAwayId: string } =>
+      m.roundId !== null && m.playerAwayId !== null
+  );
+  expect(
+    withRound.length,
+    "toda partida de liga debería tener roundId tras el recálculo"
+  ).toBe(matches.length);
+
+  const byRound = new Map<string, Pairing[]>();
+  for (const m of withRound) {
+    const list = byRound.get(m.roundId) ?? [];
+    list.push({ homeId: m.playerHomeId, awayId: m.playerAwayId });
+    byRound.set(m.roundId, list);
   }
-  for (const [key, count] of counts) {
-    expect(count, `cupo excedido en ${key}: ${count} > ${matchesPerRound}`).toBeLessThanOrEqual(
-      matchesPerRound
-    );
-  }
+  const expectedPairs: Pairing[] = withRound.map((m) => ({
+    homeId: m.playerHomeId,
+    awayId: m.playerAwayId,
+  }));
+  assertValidReparto([...byRound.values()], expectedPairs, matchesPerRound);
 }
 
 /** Spy on prisma.$transaction so the very next call runs `injected` first
@@ -292,7 +320,7 @@ describe("AC-29: alta de jugador con las rondas 1 y 2 cerradas", () => {
       where: { leagueId: league.id, phase: "LEAGUE", result: null, roundId: null },
     });
     expect(stillPending).toBe(0);
-    await assertQuotaInvariant(league.id, 2);
+    await assertValidRepartoInDb(league.id, 2);
 
     const totalMatches = await prisma.match.count({
       where: { leagueId: league.id, phase: "LEAGUE" },
@@ -339,7 +367,7 @@ describe("AC-30: el recálculo añade rondas al final con fechas derivadas del m
     expect(rounds[1].deadline).toEqual(new Date(Date.UTC(2026, 3, 30))); // 30 abr 2026
     expect(rounds[2].deadline).toEqual(new Date(Date.UTC(2026, 4, 31))); // 31 may 2026
 
-    await assertQuotaInvariant(league.id, 1);
+    await assertValidRepartoInDb(league.id, 1);
     const totalMatches = await prisma.match.count({
       where: { leagueId: league.id, phase: "LEAGUE" },
     });
@@ -418,7 +446,7 @@ describe("AC-31: el recálculo no modifica el scheduledAt de ninguna partida", (
     const round2CountAfter = after.filter((m) => m.roundId === round2.id).length;
     expect(round2CountAfter).toBe(5);
 
-    await assertQuotaInvariant(league.id, 2);
+    await assertValidRepartoInDb(league.id, 2);
   });
 });
 
@@ -443,7 +471,15 @@ describe("AC-32: dar de baja a un jugador salda sus pendientes como 80-0 WALKOVE
     const p4 = await createPlayer(league.id, "D");
 
     const round1 = await createRound(league.id, 1, new Date(Date.UTC(2026, 2, 31)));
+    const round2 = await createRound(league.id, 2, new Date(Date.UTC(2026, 3, 30)));
 
+    // A realistic, quota-respecting starting state (matchesPerRound = 2):
+    // p1's matches are split across two open rounds — round1 already has
+    // p1's played match *and* one of their pending ones (exactly 2, at
+    // cap), so this exercises the review's own bloqueante shape (a played
+    // match and a pending one sharing a round) instead of a starting state
+    // that was already over quota before any redistribution ran.
+    //
     // p1 vs p2 already played — must stay untouched.
     const played = await createMatch(league.id, round1.id, p1.id, p2.id);
     await prisma.result.create({
@@ -466,9 +502,10 @@ describe("AC-32: dar de baja a un jugador salda sus pendientes como 80-0 WALKOVE
       where: { matchId: played.id },
     });
 
-    // p1 vs p3 and p1 vs p4 are pending — must be settled 80-0 for the rival.
+    // p1 vs p3 (round1, alongside the played match) and p1 vs p4 (round2)
+    // are pending — must be settled 80-0 for the rival.
     const pendingP1P3 = await createMatch(league.id, round1.id, p1.id, p3.id);
-    const pendingP1P4 = await createMatch(league.id, round1.id, p1.id, p4.id);
+    const pendingP1P4 = await createMatch(league.id, round2.id, p1.id, p4.id);
     // p2 vs p3 does not involve p1 — must stay pending (result: null).
     const unrelated = await createMatch(league.id, round1.id, p2.id, p3.id);
 
@@ -526,6 +563,12 @@ describe("AC-32: dar de baja a un jugador salda sus pendientes como 80-0 WALKOVE
       bonusMinVP: 40,
     });
     expect(wouldBeBonus.bonusAway).toBe(2);
+
+    // The redistribution `setPlayerActive` triggers afterwards must also
+    // leave the reparto valid — this is precisely the shape the review's
+    // bloqueante broke: p1's own played match (p1-p2) and p2's still-pending
+    // match (p2-p3, "unrelated") share round1.
+    await assertValidRepartoInDb(league.id, 2);
   });
 });
 
@@ -562,6 +605,8 @@ describe("AC-33: reactivar a un jugador no revierte los resultados que produjo s
       where: { matchId: pending.id },
     });
     expect(walkoverAfter).toEqual(walkoverBefore);
+
+    await assertValidRepartoInDb(league.id, 2);
   });
 });
 
@@ -646,7 +691,7 @@ describe("AC-34: editar matchesPerRound recalcula el reparto respetando el cupo 
     });
     expect(deletedRound).toBeNull();
 
-    await assertQuotaInvariant(league.id, 3);
+    await assertValidRepartoInDb(league.id, 3);
     const totalAfter = await prisma.match.count({
       where: { leagueId: league.id, phase: "LEAGUE" },
     });
@@ -693,7 +738,7 @@ describe("AC-35: bajar matchesPerRound de 2 a 1 aumenta el número de rondas", (
     });
     expect(roundsAfter).toHaveLength(5);
 
-    await assertQuotaInvariant(league.id, 1);
+    await assertValidRepartoInDb(league.id, 1);
     const totalAfter = await prisma.match.count({
       where: { leagueId: league.id, phase: "LEAGUE" },
     });
@@ -771,5 +816,73 @@ describe("H8 endurecimiento: redistributePending compite con closeRound", () => 
       orderBy: { id: "asc" },
     });
     expect(round2MatchesAfter).toEqual(round2MatchesBefore);
+
+    await assertValidRepartoInDb(league.id, 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// El bloqueante de la primera review: assignPairsToRounds coloreaba a
+// ciegas sobre un hueco ya ocupado por una partida con Result.
+// plan/rondas-con-fecha/reviews/recalculo-alta-baja-y-cupo.md.
+// ---------------------------------------------------------------------------
+
+describe("El bloqueante de la review: el recálculo respeta el cupo ya consumido por partidas con Result", () => {
+  it("reproducción exacta del reviewer — 4 jugadores, matchesPerRound=1, una partida real jugada, alta de un 5º: nadie termina con 2 partidas en la misma ronda", async () => {
+    const league = await createTestLeague({ matchesPerRound: 1 });
+    const admin = await createAdmin(league.id);
+    mockSession.adminPlayerId = admin.id;
+
+    const P = await createPlayer(league.id, "P");
+    const A = await createPlayer(league.id, "A");
+    await createPlayer(league.id, "X");
+    await createPlayer(league.id, "Y");
+
+    const genResult = await generateLeagueMatches(league.id);
+    expect(genResult.ok).toBe(true);
+    if (!genResult.ok) return;
+    expect(genResult.data.count).toBe(6); // C(4,2)
+
+    // The P-A match — home/away depends on lexicographic id order, either
+    // could be home, so look it up rather than assume.
+    const matchPA = await prisma.match.findFirst({
+      where: {
+        leagueId: league.id,
+        OR: [
+          { playerHomeId: P.id, playerAwayId: A.id },
+          { playerHomeId: A.id, playerAwayId: P.id },
+        ],
+      },
+    });
+    expect(matchPA).not.toBeNull();
+    if (!matchPA) return;
+
+    // Report it for real, through the actual reportResult action — the
+    // match now has a genuine Result and sits wherever generateLeagueMatches
+    // originally placed it (an open round, matchesPerRound = 1).
+    const reportRes = await reportResult(matchPA.id, {
+      homeVictoryPoints: 45,
+      awayVictoryPoints: 38,
+    });
+    expect(reportRes.ok).toBe(true);
+
+    // A 5th player joins mid-league (SPEC §5.1) — the real product trigger,
+    // exactly as the reviewer reproduced it.
+    await createPlayer(league.id, "5th");
+
+    const syncResult = await addMissingLeagueMatches(league.id);
+    expect(syncResult.ok).toBe(true);
+    if (!syncResult.ok) return;
+    expect(syncResult.data.count).toBe(4); // the 5th player vs the other 4.
+
+    // The bloqueante, reproduced: without the fix, P (or A) ends up with a
+    // second match in the same round as the one already played. This is
+    // the exact property that failed before the fix.
+    await assertValidRepartoInDb(league.id, 1);
+
+    const totalMatches = await prisma.match.count({
+      where: { leagueId: league.id, phase: "LEAGUE" },
+    });
+    expect(totalMatches).toBe(10); // C(5,2)
   });
 });

@@ -301,6 +301,18 @@ export async function updatePlayer(
  *
  * No settlement (and no redistribute) happens if the player was already in
  * the target state — this only fires on a genuine `true → false` edge.
+ *
+ * **Not atomic end-to-end**, in a smaller way than `addMissingLeagueMatches`
+ * (Hito 8 review, plan/rondas-con-fecha/reviews/recalculo-alta-baja-y-cupo.md):
+ * the walkover settlement and the `active` flag flip commit before
+ * `redistributePending` opens its own separate transaction. If that call
+ * fails, the player is already inactive and their pendings already saldadas
+ * — only the reparto recompute is missing. Unlike `addMissingLeagueMatches`,
+ * this one **is** self-repairing by simply retrying: the redistribute call
+ * below is gated on the *target* state (`!active`), not on whether the
+ * settlement actually ran, so calling `setPlayerActive(playerId, false)`
+ * again on an already-inactive player skips the (already-done) settlement
+ * but still retries `redistributePending`.
  */
 export async function setPlayerActive(
   playerId: string,
@@ -383,7 +395,13 @@ export async function setPlayerActive(
     data: { active },
   });
 
-  if (isDeactivating) {
+  // Gated on the *target* state (`!active`), not `isDeactivating`: retrying
+  // this action on a player that is already inactive skips the settlement
+  // (already done, `isDeactivating` is false) but still retries the
+  // redistribution — the actual recovery path if a previous call's
+  // `redistributePending` failed after the flag and the walkovers had
+  // already committed (see the docstring above).
+  if (!active) {
     const redistributeResult = await redistributePending(player.leagueId);
     if (!redistributeResult.ok) {
       return {
@@ -394,7 +412,7 @@ export async function setPlayerActive(
   }
 
   revalidatePath("/admin/jugadores");
-  if (isDeactivating) {
+  if (!active) {
     revalidatePath("/mis-partidas");
     revalidatePath("/clasificacion");
     revalidatePath("/rondas");

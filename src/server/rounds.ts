@@ -574,16 +574,20 @@ export interface RoundAssignment extends Pairing {
 }
 
 /**
+ * A pair already fixed to a round — a match with a `Result`, sitting in an
+ * open round, that `assignPairsToRounds` must never move but whose seat it
+ * has to know about (see `preassigned` below).
+ */
+export type PreassignedPair = RoundAssignment;
+
+/**
  * Assign a set of pairs to rounds, restricted to the given open round
  * indexes (closed rounds are never touched — Hito 8's job is to pick which
  * indexes count as open, not this function's).
  *
- * Formulated as edge coloring (SPEC §4.3): each "factor" is a color, a round
- * is a fixed number of consecutive factors, and the invariant is that no
- * player has more than `matchesPerRound` pairs in the same round. Grouping
- * whole factors together guarantees that invariant by construction, for any
- * factor-producing strategy — the real work is making sure every factor is
- * internally valid (no player exceeding `factor`'s own per-player degree).
+ * Formulated as edge coloring (SPEC §4.3): each "factor" is a color, and the
+ * invariant is that no player has more than `matchesPerRound` pairs in the
+ * same round.
  *
  * - When `pairs` is exactly the full round-robin over `playerIds` (K_n),
  *   this delegates to the same exact construction `roundRobinRounds` uses
@@ -592,6 +596,43 @@ export interface RoundAssignment extends Pairing {
  *   a Hito 8 recalculation) it falls back to `misraGriesColoring`, which is
  *   *proven* to never need more than `Δ + 1` matchings (unlike a plain
  *   greedy — see that function's doc).
+ *
+ * **Precoloring (`preassigned`, Hito 8).** SPEC §4.3's own framing is edge
+ * coloring; in graph-theory terms, placing new pairs around matches that
+ * already sit in a fixed round is precisely *list edge coloring with
+ * precolored edges* — some edges (`preassigned`) already have a color (their
+ * round), and the rest have to be colored around them without conflict. This
+ * is a strictly harder problem than free coloring: **the `Δ + 1` bound does
+ * not carry over.** A precolored edge can leave a player with zero remaining
+ * capacity in an otherwise-empty round for reasons that have nothing to do
+ * with the pending subgraph's own degree, and no fixed number of extra
+ * colors is guaranteed to route around an adversarial-enough precoloring
+ * (this is a known hard case in the precoloring-extension literature, not an
+ * implementation gap here). Grouping whole factors together (the free-coloring
+ * path's `groupFactorsIntoRounds`) is what made the `Δ + 1` bound achievable
+ * by construction; it assumes every round starts with `matchesPerRound` of
+ * slack for everyone, which `preassigned` breaks by definition.
+ *
+ * When `preassigned` is empty, behavior is **byte-for-byte identical** to
+ * before this parameter existed (same grouping, same round counts, same
+ * `Δ + 1` guarantee) — the two code paths below only diverge when there is
+ * real precoloring to route around. This is deliberate and load-bearing:
+ * every one of Hito 2's existing guarantees (exact `K_n` constructions,
+ * `Δ + 1` for free subgraphs, determinism, validity) holds exactly as before
+ * for every call site that has nothing to precolor.
+ *
+ * With `preassigned` non-empty, this instead **prioritizes correctness over
+ * optimality** (Hito 8 review, plan/rondas-con-fecha/PLAN.md): each factor is
+ * placed, whole, into the earliest candidate round where *every* player it
+ * touches still has spare capacity — counting both what `preassigned` already
+ * consumes there and what this same placement pass has consumed so far. This
+ * can use more rounds than the free-coloring case ever would (never fewer:
+ * with `preassigned` empty the two algorithms coincide, see above), but it
+ * never lets `matchesPerRound` be exceeded, which is the one thing SPEC §8
+ * criterio 2 actually requires — the caller (Hito 8's `redistributePending`)
+ * is expected to offer extra open-round candidates and add real `Round` rows
+ * for whichever of them end up used, same as it already does for the
+ * free-coloring case's `Δ + 1` rounds.
  *
  * @param pairs - Pairs to place. Every pair not already resolved elsewhere;
  *   this function never sees, and therefore never reassigns, a pair that
@@ -604,12 +645,19 @@ export interface RoundAssignment extends Pairing {
  *   used ascending. Throws if there are not enough of them to hold every
  *   pair without exceeding `matchesPerRound` per round — adding more open
  *   rounds to retry is the caller's decision (Hito 8), not this function's.
+ * @param preassigned - Pairs already fixed to one of `openRoundIndexes`
+ *   (typically: matches with a `Result`, sitting in an open round) that this
+ *   call must not move but whose seats still count against
+ *   `matchesPerRound`. Never reassigned, never returned — purely capacity
+ *   bookkeeping. Defaults to `[]`, which reduces to the pre-Hito-8 behavior
+ *   exactly (see above).
  */
 export function assignPairsToRounds(
   pairs: Pairing[],
   playerIds: string[],
   matchesPerRound: number,
-  openRoundIndexes: number[]
+  openRoundIndexes: number[],
+  preassigned: PreassignedPair[] = []
 ): RoundAssignment[] {
   assertValidMatchesPerRound(matchesPerRound);
 
@@ -626,23 +674,104 @@ export function assignPairsToRounds(
   const { factors, unitDegree } = isCompleteGraph(pairs, sortedIds)
     ? decomposeCompleteGraph(sortedIds, matchesPerRound)
     : { factors: misraGriesColoring(pairs, sortedIds), unitDegree: 1 as const };
-  const groupSize = matchesPerRound / unitDegree;
 
   const sortedRoundIndexes = [...openRoundIndexes].sort((a, b) => a - b);
-  const neededRounds = Math.ceil(factors.length / groupSize);
-  if (neededRounds > sortedRoundIndexes.length) {
-    throw new Error(
-      `assignPairsToRounds: need ${neededRounds} round(s) to place every pair, only ${sortedRoundIndexes.length} open`
-    );
+
+  // Free coloring (no precoloring to route around): unchanged from before
+  // this parameter existed — same grouping, same Δ + 1 guarantee.
+  if (preassigned.length === 0) {
+    const groupSize = matchesPerRound / unitDegree;
+    const neededRounds = Math.ceil(factors.length / groupSize);
+    if (neededRounds > sortedRoundIndexes.length) {
+      throw new Error(
+        `assignPairsToRounds: need ${neededRounds} round(s) to place every pair, only ${sortedRoundIndexes.length} open`
+      );
+    }
+
+    const assignments: RoundAssignment[] = [];
+    for (let i = 0; i < factors.length; i += groupSize) {
+      const roundIndex = sortedRoundIndexes[i / groupSize];
+      for (const factor of factors.slice(i, i + groupSize)) {
+        for (const pair of factor) {
+          assignments.push({ ...pair, roundIndex });
+        }
+      }
+    }
+    return assignments;
+  }
+
+  // Precoloring-aware path — see the docstring above for why this can't
+  // reuse the Δ + 1-optimal grouping above and settles for correctness.
+  return assignFactorsRespectingPreassignedCapacity(
+    factors,
+    sortedRoundIndexes,
+    matchesPerRound,
+    preassigned
+  );
+}
+
+/**
+ * Places whole factors (never split — a factor is already internally valid,
+ * no player exceeds its own per-player degree within it) into the earliest
+ * candidate round where every player the factor touches still has spare
+ * `matchesPerRound` capacity, counting `preassigned` plus every factor
+ * already placed into that round by this same pass.
+ *
+ * Deterministic: `factors` arrives in the fixed order the caller's coloring
+ * produced it, `sortedRoundIndexes` is ascending, and `demand` is built by
+ * iterating a factor's pairs in their own fixed order — no randomness, no
+ * data-dependent tie-break beyond "first round with room".
+ */
+function assignFactorsRespectingPreassignedCapacity(
+  factors: Pairing[][],
+  sortedRoundIndexes: number[],
+  matchesPerRound: number,
+  preassigned: PreassignedPair[]
+): RoundAssignment[] {
+  // consumed[roundIndex].get(playerId) — how many of that player's
+  // `matchesPerRound` slots are already spoken for in that round, seeded
+  // from `preassigned` and grown as this pass places factors.
+  const consumed = new Map<number, Map<string, number>>();
+  for (const p of preassigned) {
+    const perPlayer = consumed.get(p.roundIndex) ?? new Map<string, number>();
+    perPlayer.set(p.homeId, (perPlayer.get(p.homeId) ?? 0) + 1);
+    perPlayer.set(p.awayId, (perPlayer.get(p.awayId) ?? 0) + 1);
+    consumed.set(p.roundIndex, perPlayer);
+  }
+
+  function remaining(roundIndex: number, playerId: string): number {
+    return matchesPerRound - (consumed.get(roundIndex)?.get(playerId) ?? 0);
   }
 
   const assignments: RoundAssignment[] = [];
-  for (let i = 0; i < factors.length; i += groupSize) {
-    const roundIndex = sortedRoundIndexes[i / groupSize];
-    for (const factor of factors.slice(i, i + groupSize)) {
-      for (const pair of factor) {
-        assignments.push({ ...pair, roundIndex });
-      }
+  for (const factor of factors) {
+    // How many seats this one factor needs from each player it touches —
+    // normally 1 (a matching), possibly 2 for the same player in a Walecki
+    // 2-regular factor (see waleckiFactors's own doc).
+    const demand = new Map<string, number>();
+    for (const pair of factor) {
+      demand.set(pair.homeId, (demand.get(pair.homeId) ?? 0) + 1);
+      demand.set(pair.awayId, (demand.get(pair.awayId) ?? 0) + 1);
+    }
+
+    const roundIndex = sortedRoundIndexes.find((idx) =>
+      [...demand.entries()].every(([playerId, need]) => remaining(idx, playerId) >= need)
+    );
+
+    if (roundIndex === undefined) {
+      throw new Error(
+        `assignPairsToRounds: no open round has enough remaining capacity (after preassigned matches) for a factor of ${factor.length} pair(s) — offer more open rounds`
+      );
+    }
+
+    const perPlayer = consumed.get(roundIndex) ?? new Map<string, number>();
+    for (const [playerId, need] of demand) {
+      perPlayer.set(playerId, (perPlayer.get(playerId) ?? 0) + need);
+    }
+    consumed.set(roundIndex, perPlayer);
+
+    for (const pair of factor) {
+      assignments.push({ ...pair, roundIndex });
     }
   }
   return assignments;

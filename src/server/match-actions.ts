@@ -230,6 +230,19 @@ export async function generateLeagueMatches(
  * quota doesn't fit. There is no invalid `roundId: null` state left standing
  * once this returns successfully.
  *
+ * **Not atomic end-to-end** (Hito 8 review, plan/rondas-con-fecha/reviews/recalculo-alta-baja-y-cupo.md):
+ * the new matches are created and committed in their own transaction
+ * *before* `redistributePending` opens its own, separate transaction. If
+ * `redistributePending` fails afterwards — the documented `Round`-index
+ * collision between two concurrent redistributions, or anything else — the
+ * new matches stay committed with `roundId: null`. The UI already renders
+ * that state ("Sin ronda asignada", Hito 6), so it isn't corrupt, but
+ * **retrying this exact action does not repair it**: `missingPairings` would
+ * see zero pairs left to create and never call `redistributePending` again.
+ * The recovery path is any *other* trigger of this hito running afterwards
+ * (an admin editing `matchesPerRound`, another alta, a baja) — or simply
+ * calling `redistributePending(leagueId)` directly.
+ *
  * @returns { count } — number of new matches created (0 if none were missing).
  */
 export async function addMissingLeagueMatches(

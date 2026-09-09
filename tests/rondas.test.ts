@@ -16,8 +16,11 @@ import {
   roundQuota,
   quotaLabel,
   type RoundMatchInput,
+  type PreassignedPair,
+  type RoundAssignment,
 } from "@/server/rounds";
 import type { Pairing } from "@/server/pairings";
+import { pairKey, assertValidReparto, groupByRoundIndex } from "./helpers/reparto";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,10 +28,6 @@ import type { Pairing } from "@/server/pairings";
 
 function makeIds(n: number): string[] {
   return Array.from({ length: n }, (_, i) => `player-${String(i + 1).padStart(3, "0")}`);
-}
-
-function pairKey(p: Pairing): string {
-  return p.homeId < p.awayId ? `${p.homeId}|${p.awayId}` : `${p.awayId}|${p.homeId}`;
 }
 
 /** Every appearance count of `playerId` inside a single round's pairs. */
@@ -45,55 +44,6 @@ function fullRoundRobin(ids: string[]): Pairing[] {
     }
   }
   return pairs;
-}
-
-/**
- * The three properties that actually make a reparto correct, not just "the
- * right number of rounds" or "within Δ+1 colors" (SPEC §4.3, §8 criterio 2):
- *
- *   1. No round has any player appearing more than `maxPerRound` times —
- *      with `maxPerRound = 1` this literally means "no repeated player in
- *      the round" (the property a bare color-count assertion can miss
- *      entirely: a coloring can respect Δ+1 colors and still double-book a
- *      player if a round is built from the wrong color classes).
- *   2. The exact multiset of `expectedPairs` is covered by the output:
- *      every one of them appears exactly once, and nothing else does — no
- *      duplicate, nothing missing, nothing invented.
- *
- * Every test that builds a reparto (via `roundRobinRounds` or
- * `assignPairsToRounds`) should run its result through this, instead of
- * repeating ad-hoc loops that usually only check one of the two.
- */
-function assertValidReparto(
-  rounds: Pairing[][],
-  expectedPairs: Pairing[],
-  maxPerRound: number
-): void {
-  for (const round of rounds) {
-    const appearances = new Map<string, number>();
-    for (const p of round) {
-      appearances.set(p.homeId, (appearances.get(p.homeId) ?? 0) + 1);
-      appearances.set(p.awayId, (appearances.get(p.awayId) ?? 0) + 1);
-    }
-    for (const count of appearances.values()) {
-      expect(count).toBeLessThanOrEqual(maxPerRound);
-    }
-  }
-
-  const outputKeys = rounds.flat().map(pairKey).sort();
-  const expectedKeys = expectedPairs.map(pairKey).sort();
-  expect(outputKeys).toEqual(expectedKeys);
-}
-
-/** Groups `assignPairsToRounds`'s flat output back into per-round arrays. */
-function groupByRoundIndex(assigned: { roundIndex: number; homeId: string; awayId: string }[]): Pairing[][] {
-  const byIndex = new Map<number, Pairing[]>();
-  for (const a of assigned) {
-    const list = byIndex.get(a.roundIndex) ?? [];
-    list.push({ homeId: a.homeId, awayId: a.awayId });
-    byIndex.set(a.roundIndex, list);
-  }
-  return [...byIndex.values()];
 }
 
 const SIZES = [10, 11, 12, 13, 20]; // even and odd, per the task's requirement.
@@ -568,6 +518,293 @@ describe("Misra & Gries: nunca usa más de Δ+1 colores (SPEC §4.3, corrige D4)
       ...rounds.slice(2),
     ];
     expect(() => assertValidReparto(corrupted, pairs, 1)).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Precoloreado (Hito 8 review, plan/rondas-con-fecha/reviews/recalculo-alta-baja-y-cupo.md):
+// assignPairsToRounds con partidas ya fijas en una ronda.
+//
+// El bloqueante que abrió esta ronda de review: `assignPairsToRounds`
+// coloreaba a ciegas sobre un hueco que en realidad ya estaba ocupado por
+// partidas con `Result` — nada le comunicaba cuánto cupo consumían esas
+// partidas excluidas en cada ronda abierta. `preassigned` cierra ese hueco:
+// en términos de coloreado de aristas es coloreado con aristas precoloreadas
+// (algunas aristas ya tienen color — su ronda fija — y hay que colorear el
+// resto respetando la adyacencia Y el cupo que las precoloreadas ya
+// consumen). Ver el docstring de `assignPairsToRounds` para la prueba de por
+// qué Δ+1 deja de estar garantizado en este caso — aquí solo se verifica el
+// invariante que sí tiene que sostenerse siempre: ningún jugador excede
+// `matchesPerRound` en ninguna ronda, contando precoloreadas y nuevas juntas.
+// ---------------------------------------------------------------------------
+
+describe("Precoloreado: assignPairsToRounds respeta el cupo ya consumido por partidas fijas", () => {
+  /** Combines `preassigned` and the freshly-colored `assignments` into one
+   * `Pairing[][]` grouped by round, and the full expected pair set — the
+   * shape `assertValidReparto` needs to check the cupo across BOTH sources
+   * together, which is exactly what the bloqueante missed. */
+  function combined(
+    preassigned: PreassignedPair[],
+    assignments: RoundAssignment[]
+  ): { rounds: Pairing[][]; expectedPairs: Pairing[] } {
+    return {
+      rounds: groupByRoundIndex([...preassigned, ...assignments]),
+      expectedPairs: [...preassigned, ...assignments].map((a) => ({
+        homeId: a.homeId,
+        awayId: a.awayId,
+      })),
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // El caso exacto que reprodujo el reviewer, pinneado — falla sin el fix.
+  // ---------------------------------------------------------------------
+
+  it("el caso del reviewer: 4 jugadores, matchesPerRound=1, una partida ya jugada, no deja a nadie con 2 partidas en la misma ronda", () => {
+    const ids = makeIds(4); // [P, A, X, Y]
+    const [P, A, X, Y] = ids;
+    const all = fullRoundRobin(ids); // 6 pairs: P-A, P-X, P-Y, A-X, A-Y, X-Y
+
+    // P vs A already played, sitting in round 1 — excluded from `pending`
+    // (the existing contract) but still consuming P's and A's only slot in
+    // round 1 when matchesPerRound = 1.
+    const playedKey = pairKey({ homeId: P, awayId: A });
+    const preassigned: PreassignedPair[] = [{ homeId: P, awayId: A, roundIndex: 1 }];
+    const pending = all.filter((p) => pairKey(p) !== playedKey);
+
+    const assignments = assignPairsToRounds(pending, ids, 1, [1, 2, 3], preassigned);
+
+    // The bug, reproduced directly: without the fix, P (or A) ends up with
+    // a second pair in round 1 alongside the one already sitting there.
+    const round1 = assignments.filter((a) => a.roundIndex === 1);
+    for (const a of round1) {
+      expect(a.homeId).not.toBe(P);
+      expect(a.homeId).not.toBe(A);
+      expect(a.awayId).not.toBe(P);
+      expect(a.awayId).not.toBe(A);
+    }
+
+    const { rounds, expectedPairs } = combined(preassigned, assignments);
+    assertValidReparto(rounds, expectedPairs, 1);
+    // Nothing lost, nothing invented, nothing re-colored: every pending
+    // pair placed exactly once, the played pair never touched.
+    expect(assignments).toHaveLength(pending.length);
+    void X;
+    void Y;
+  });
+
+  // ---------------------------------------------------------------------
+  // El cupo justo o agotado por las precoloreadas.
+  // ---------------------------------------------------------------------
+
+  it("cupo agotado: un jugador con matchesPerRound=2 ya tiene sus 2 partidas de una ronda jugadas — ninguna pendiente suya cae ahí", () => {
+    const ids = makeIds(6);
+    const [hub] = ids;
+    const all = fullRoundRobin(ids);
+
+    // hub already played 2 of its 5 matches, both parked in round 1 —
+    // exactly matchesPerRound=2, so round 1 is fully spoken for hub.
+    const playedPartners = ids.slice(1, 3);
+    const preassigned: PreassignedPair[] = playedPartners.map((partner) => ({
+      homeId: hub < partner ? hub : partner,
+      awayId: hub < partner ? partner : hub,
+      roundIndex: 1,
+    }));
+    const playedKeys = new Set(preassigned.map(pairKey));
+    const pending = all.filter((p) => !playedKeys.has(pairKey(p)));
+
+    const open = [1, 2, 3, 4, 5, 6]; // generous — correctness over optimality.
+    const assignments = assignPairsToRounds(pending, ids, 2, open, preassigned);
+
+    const round1ForHub = assignments.filter(
+      (a) => a.roundIndex === 1 && (a.homeId === hub || a.awayId === hub)
+    );
+    expect(round1ForHub).toHaveLength(0);
+
+    const { rounds, expectedPairs } = combined(preassigned, assignments);
+    assertValidReparto(rounds, expectedPairs, 2);
+    expect(assignments).toHaveLength(pending.length);
+  });
+
+  it("cupo justo: precoloreadas dejan exactamente una plaza libre por jugador en la ronda — se usa sin excederse", () => {
+    const ids = makeIds(5);
+    const all = fullRoundRobin(ids);
+    // Every player's very first pair (lexicographically) gets parked in
+    // round 1 as already-played — matchesPerRound=2 leaves exactly one more
+    // slot per player in round 1, no more.
+    const preassignedKeys = new Set<string>();
+    const preassigned: PreassignedPair[] = [];
+    for (const p of all) {
+      if (preassignedKeys.has(p.homeId) || preassignedKeys.has(p.awayId)) continue;
+      preassigned.push({ ...p, roundIndex: 1 });
+      preassignedKeys.add(p.homeId);
+      preassignedKeys.add(p.awayId);
+    }
+    const playedKeys = new Set(preassigned.map(pairKey));
+    const pending = all.filter((p) => !playedKeys.has(pairKey(p)));
+
+    const open = [1, 2, 3, 4, 5];
+    const assignments = assignPairsToRounds(pending, ids, 2, open, preassigned);
+
+    const { rounds, expectedPairs } = combined(preassigned, assignments);
+    assertValidReparto(rounds, expectedPairs, 2);
+    expect(assignments).toHaveLength(pending.length);
+  });
+
+  // ---------------------------------------------------------------------
+  // Varios tamaños y matchesPerRound ∈ {1, 2, 3}.
+  // ---------------------------------------------------------------------
+
+  /**
+   * Builds a realistic, valid-by-construction `preassigned` set: takes a
+   * genuine full reparto from `roundRobinRounds` (H2's own exact
+   * construction — guaranteed to respect `matchesPerRound` on its own) and
+   * marks a pseudo-random subset of its pairs as "already played, keeps its
+   * round". A subset of a valid-cupo assignment is trivially still
+   * valid-cupo (removing entries can only lower counts), so this can never
+   * hand the algorithm an already-broken precondition — unlike marking
+   * arbitrary pairs with arbitrary round indexes, which is exactly what a
+   * genuinely-played match never looks like (its round always comes from
+   * some prior, itself-valid reparto).
+   */
+  function splitPlayedAndPending(
+    ids: string[],
+    k: number,
+    rnd: () => number,
+    playChance: number
+  ): {
+    preassigned: PreassignedPair[];
+    pending: Pairing[];
+    existingRoundCount: number;
+  } {
+    const rounds = roundRobinRounds(ids, k);
+    const preassigned: PreassignedPair[] = [];
+    const pending: Pairing[] = [];
+    rounds.forEach((round, i) => {
+      for (const pair of round) {
+        if (rnd() < playChance) {
+          preassigned.push({ ...pair, roundIndex: i + 1 });
+        } else {
+          pending.push(pair);
+        }
+      }
+    });
+    return { preassigned, pending, existingRoundCount: rounds.length };
+  }
+
+  /**
+   * Candidate round indexes generous enough for the precoloring-aware path:
+   * every one of the `existingRoundCount` rounds preassigned matches might
+   * already occupy, **plus** `ids.length` fresh ones — the same safe bound
+   * `assignPairsToRounds`'s own docstring proves (`factors.length` never
+   * exceeds `participantIds.length`, and in the worst case every factor
+   * needs a brand-new round of its own because the existing ones are all
+   * saturated for whoever it touches).
+   */
+  function generousOpenRounds(existingRoundCount: number, playerCount: number): number[] {
+    return Array.from(
+      { length: existingRoundCount + playerCount },
+      (_, i) => i + 1
+    );
+  }
+
+  describe("varios tamaños y matchesPerRound, con precoloreado", () => {
+    for (const n of [5, 6, 8, 9, 12, 13]) {
+      for (const k of [1, 2, 3]) {
+        it(`n=${n}, matchesPerRound=${k}: respeta el cupo combinando precoloreadas y nuevas`, () => {
+          const ids = makeIds(n);
+          const rnd = pseudoRandom(n * 131 + k * 7919);
+          const { preassigned, pending, existingRoundCount } = splitPlayedAndPending(
+            ids,
+            k,
+            rnd,
+            0.4
+          );
+          if (pending.length === 0) return;
+
+          const open = generousOpenRounds(existingRoundCount, n);
+          const assignments = assignPairsToRounds(pending, ids, k, open, preassigned);
+
+          const { rounds, expectedPairs } = combined(preassigned, assignments);
+          assertValidReparto(rounds, expectedPairs, k);
+          expect(assignments).toHaveLength(pending.length);
+        });
+      }
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // Sin precoloreado: comportamiento idéntico al de antes de este parámetro.
+  // ---------------------------------------------------------------------
+
+  it("con preassigned vacío, el resultado es idéntico a no pasar el parámetro en absoluto", () => {
+    const ids = makeIds(10);
+    const pairs = fullRoundRobin(ids);
+    const open = Array.from({ length: 12 }, (_, i) => i + 1);
+    const withoutParam = assignPairsToRounds(pairs, ids, 2, open);
+    const withEmptyPreassigned = assignPairsToRounds(pairs, ids, 2, open, []);
+    expect(withEmptyPreassigned).toEqual(withoutParam);
+  });
+
+  // ---------------------------------------------------------------------
+  // Infactible con las rondas ofrecidas: falla limpio y diagnosticable.
+  // ---------------------------------------------------------------------
+
+  it("sin cupo suficiente en ninguna ronda abierta, lanza un error diagnosticable en vez de exceder el cupo", () => {
+    const ids = makeIds(3);
+    const [a, b, c] = ids;
+    // a already has its one match-per-round slot used in the only open
+    // round — the pending a-b pair has nowhere valid to go.
+    const preassigned: PreassignedPair[] = [{ homeId: a, awayId: c, roundIndex: 1 }];
+    const pending: Pairing[] = [{ homeId: a, awayId: b }];
+    expect(() => assignPairsToRounds(pending, ids, 1, [1], preassigned)).toThrow(
+      /no open round has enough remaining capacity/
+    );
+  });
+
+  // ---------------------------------------------------------------------
+  // Property test: muchos tamaños/densidades/reparticiones precoloreadas,
+  // PRNG de semilla fija (sin Math.random — determinismo comprobable).
+  // ---------------------------------------------------------------------
+
+  function pseudoRandom(seed: number) {
+    let s = seed;
+    return () => {
+      s = (s * 1103515245 + 12345) & 0x7fffffff;
+      return s / 0x7fffffff;
+    };
+  }
+
+  it("property test: el cupo combinado (precoloreadas + nuevas) nunca se excede en decenas de casos aleatorios deterministas", () => {
+    let casesChecked = 0;
+    for (let n = 4; n <= 14; n++) {
+      for (const k of [1, 2, 3]) {
+        for (const seed of [1, 2, 3]) {
+          const rnd = pseudoRandom(n * 10007 + k * 131 + seed);
+          const ids = makeIds(n);
+          // A genuine, valid-by-construction split — see
+          // `splitPlayedAndPending`'s doc above for why this is the only
+          // sound way to generate a "some matches already played" fixture:
+          // an arbitrary (player, round) precoloring can be infeasible
+          // before `assignPairsToRounds` ever runs, which would test
+          // nothing about this function.
+          const { preassigned, pending, existingRoundCount } = splitPlayedAndPending(
+            ids,
+            k,
+            rnd,
+            0.3
+          );
+          if (pending.length === 0) continue;
+
+          const open = generousOpenRounds(existingRoundCount, n);
+          const assignments = assignPairsToRounds(pending, ids, k, open, preassigned);
+          casesChecked++;
+          const { rounds, expectedPairs } = combined(preassigned, assignments);
+          assertValidReparto(rounds, expectedPairs, k);
+        }
+      }
+    }
+    expect(casesChecked).toBeGreaterThan(50);
   });
 });
 

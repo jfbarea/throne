@@ -9,7 +9,11 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/guards";
-import { assignPairsToRounds, deriveDeadlines } from "@/server/rounds";
+import {
+  assignPairsToRounds,
+  deriveDeadlines,
+  type PreassignedPair,
+} from "@/server/rounds";
 import type { Pairing } from "@/server/pairings";
 import { z } from "zod";
 
@@ -344,6 +348,20 @@ interface PendingMatchInput {
   playerAwayId: string;
 }
 
+/**
+ * A match that already has a `Result` and sits in an OPEN round — never
+ * moved, but its seat still counts against `matchesPerRound` there (Hito 8
+ * review, plan/rondas-con-fecha/reviews/recalculo-alta-baja-y-cupo.md: the
+ * bloqueante this type exists to close). `roundIndex` is the `Round.index`
+ * it already occupies, not a DB id — `assignPairsToRounds` works purely in
+ * terms of indexes, same as everything else it receives.
+ */
+interface ResolvedMatchInput {
+  playerHomeId: string;
+  playerAwayId: string;
+  roundIndex: number;
+}
+
 interface RoundInput {
   id: string;
   index: number;
@@ -372,25 +390,43 @@ interface RedistributionPlan {
  * Round rows (existing or new) and derives the extra rounds' deadlines
  * (SPEC §5.1 point 3, §4.4).
  *
+ * `resolvedInOpenRounds` (Hito 8 review, plan/rondas-con-fecha/reviews/recalculo-alta-baja-y-cupo.md):
+ * matches that already have a `Result` but sit in an OPEN round — passed to
+ * `assignPairsToRounds` as `preassigned` so the coloring algorithm itself
+ * knows how much of each player's `matchesPerRound` those already-settled
+ * matches consume in that round, instead of coloring the pending subgraph
+ * blind to seats that are actually taken. This is the fix for the
+ * bloqueante that review found: without it, a player with a real, played
+ * match in an open round could end up with a *second* match placed in that
+ * exact round by the recalculation — the invariant SPEC §8 criterio 2
+ * exists to prevent, and criterio 29 repeats explicitly for this hito.
+ *
  * Never retries `assignPairsToRounds` on a "not enough open rounds" error:
  * instead it always offers a generous, provably-sufficient number of extra
  * *candidate* indexes up front — `participantIds.length` of them, one call is
- * enough. This is safe because `assignPairsToRounds` never needs more
- * matchings than `Δ + 1` (Vizing, see rounds.ts's own doc), and `Δ + 1` can
- * never exceed `participantIds.length` (a player's degree is at most
- * `participantIds.length - 1`). Whichever of those candidates actually end up
- * used (`usedNewIndexes` below) are always a contiguous block starting right
- * after the highest existing round index — `assignPairsToRounds` fills the
- * smallest available indexes first, and every candidate here is larger than
- * every existing one.
+ * enough. This bound holds **whether or not there is precoloring**: the
+ * number of factors `assignPairsToRounds` has to place never exceeds
+ * `participantIds.length` either way (Vizing's `Δ + 1` when there is none, a
+ * strictly smaller quantity than the graph's own vertex count either way —
+ * see rounds.ts's own doc), and in the worst case every factor needs a
+ * brand-new, entirely unconsumed round of its own, which `participantIds.length`
+ * fresh candidates always cover on top of whatever the existing open rounds
+ * already offer. What precoloring gives up is *optimality*, not this safety
+ * margin: with real precoloring in play the algorithm may need more of
+ * those candidate rounds than the `Δ + 1` free-coloring case ever would
+ * (see `assignPairsToRounds`'s own doc for why `Δ + 1` itself stops being a
+ * guaranteed bound once matches are already fixed to a round) — this
+ * function never assumes otherwise; it just offers enough room either way.
  */
 function planRedistribution(params: {
   pendingMatches: PendingMatchInput[];
+  resolvedInOpenRounds: ResolvedMatchInput[];
   matchesPerRound: number;
   rounds: RoundInput[];
   startMonth: Date | null;
 }): { ok: true; plan: RedistributionPlan } | { ok: false; error: string } {
-  const { pendingMatches, matchesPerRound, rounds, startMonth } = params;
+  const { pendingMatches, resolvedInOpenRounds, matchesPerRound, rounds, startMonth } =
+    params;
 
   const openRounds = rounds.filter((r) => r.closedAt === null);
   const openIndexes = openRounds.map((r) => r.index);
@@ -411,6 +447,12 @@ function planRedistribution(params: {
     ...new Set(pairs.flatMap((p) => [p.homeId, p.awayId])),
   ];
 
+  const preassigned: PreassignedPair[] = resolvedInOpenRounds.map((m) => ({
+    homeId: m.playerHomeId,
+    awayId: m.playerAwayId,
+    roundIndex: m.roundIndex,
+  }));
+
   const maxExistingIndex = rounds.reduce(
     (max, r) => Math.max(max, r.index),
     0
@@ -420,10 +462,13 @@ function planRedistribution(params: {
     (_, i) => maxExistingIndex + 1 + i
   );
 
-  const assignments = assignPairsToRounds(pairs, participantIds, matchesPerRound, [
-    ...openIndexes,
-    ...candidateNewIndexes,
-  ]);
+  const assignments = assignPairsToRounds(
+    pairs,
+    participantIds,
+    matchesPerRound,
+    [...openIndexes, ...candidateNewIndexes],
+    preassigned
+  );
 
   const usedNewIndexes = [
     ...new Set(
@@ -578,8 +623,38 @@ export async function redistributePending(
     (m): m is typeof m & { playerAwayId: string } => m.playerAwayId !== null
   );
 
+  // Matches that already have a Result but still sit in an OPEN round — the
+  // capacity they already consume there (Hito 8 review: the bloqueante this
+  // closes, see planRedistribution's doc). `round: { closedAt: null }` on a
+  // nullable relation only matches rows whose round actually exists and is
+  // open, so every row here is guaranteed a non-null `round`.
+  const resolvedInOpenRoundsRaw = await prisma.match.findMany({
+    where: {
+      leagueId,
+      phase: "LEAGUE",
+      result: { isNot: null },
+      round: { closedAt: null },
+    },
+    select: {
+      playerHomeId: true,
+      playerAwayId: true,
+      round: { select: { index: true } },
+    },
+  });
+  const resolvedInOpenRounds = resolvedInOpenRoundsRaw
+    .filter(
+      (m): m is typeof m & { playerAwayId: string; round: { index: number } } =>
+        m.playerAwayId !== null && m.round !== null
+    )
+    .map((m) => ({
+      playerHomeId: m.playerHomeId,
+      playerAwayId: m.playerAwayId,
+      roundIndex: m.round.index,
+    }));
+
   const planned = planRedistribution({
     pendingMatches,
+    resolvedInOpenRounds,
     matchesPerRound: league.matchesPerRound,
     rounds,
     startMonth: league.startMonth,
@@ -627,6 +702,19 @@ export async function redistributePending(
       // H5b hardening, part 2: self-heal instead of abort — a match the plan
       // wants to move could have received a real Result in the same window.
       // Re-check and simply exclude those from the write below.
+      //
+      // Known narrow residual, not fixed here (out of scope of the Hito 8
+      // review's bloqueante, which needs no concurrency at all to reproduce):
+      // the excluded match stays wherever it currently sits, but the plan
+      // colored every *other* pending match assuming this one would move —
+      // i.e. without counting the excluded match's true resting round as
+      // `preassigned` capacity. If another of that match's players' pending
+      // pairs was placed into that same round by this same plan, the two
+      // could in principle collide there. This requires two things to land
+      // in the exact same transaction window (a `reportResult` on this
+      // specific match, *and* this specific redistribution), on top of the
+      // already-narrow closeRound race right above — noted for whoever
+      // widens this hardening next, not treated as a blocker now.
       const planMatchIds = plan.assignments.map((a) => a.matchId);
       const stillPending =
         planMatchIds.length > 0
