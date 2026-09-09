@@ -6,7 +6,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { UserCircle, SignOut, CaretDown } from "@phosphor-icons/react";
+import Link from "next/link";
+import { UserCircle, SignOut, CaretDown, IdentificationCard } from "@phosphor-icons/react";
 
 type Role = "ADMIN" | "PLAYER";
 
@@ -107,6 +108,22 @@ export function UserMenu({ label, role }: { label: string; role: Role }) {
               {roleLabel}
             </div>
           </div>
+
+          {/* Own profile — where a player edits their factions. */}
+          <Link
+            href="/mi-perfil"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="w-full flex items-center gap-2 px-4 py-3 text-[13px] font-semibold no-underline border-b transition-colors duration-[120ms]"
+            style={{
+              fontFamily: "var(--font-sans)",
+              color: "var(--fg-muted)",
+              borderColor: "var(--border)",
+            }}
+          >
+            <IdentificationCard size={16} />
+            Mi perfil
+          </Link>
 
           {/* Logout */}
           <button
