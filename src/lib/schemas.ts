@@ -3,6 +3,11 @@
 // All validation logic lives here so it can be tested without Next.js context.
 
 import { z } from "zod";
+import {
+  MAX_FACTIONS_PER_PLAYER,
+  MAX_FACTION_FIELD_LENGTH,
+  MAX_FACTION_NAME_LENGTH,
+} from "./factions";
 
 // ---------------------------------------------------------------------------
 // Tiebreaker constants (SPEC §7.3)
@@ -149,6 +154,53 @@ export const createLeagueSchema = leagueConfigSchema;
 export type CreateLeagueInput = LeagueConfigInput;
 
 // ---------------------------------------------------------------------------
+// Factions (src/lib/factions.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * The serialised `Player.faction` column: one or more faction names joined by
+ * FACTION_SEPARATOR (src/lib/factions.ts). The cap is on the whole field, not
+ * on a single name, because a player may declare several armies.
+ */
+export const factionFieldSchema = z
+  .string()
+  .trim()
+  .max(
+    MAX_FACTION_FIELD_LENGTH,
+    `Las facciones no pueden superar los ${MAX_FACTION_FIELD_LENGTH} caracteres en total`
+  )
+  .nullable()
+  .optional();
+
+/**
+ * The client-side shape of the same data: the list of picked factions, before
+ * `serialiseFactions` joins it. Used by the own-profile action so the server
+ * validates the list (count, per-name length) instead of trusting a
+ * pre-joined string built in the browser.
+ */
+export const factionListSchema = z
+  .array(
+    z
+      .string()
+      .trim()
+      .min(1, "Una facción no puede estar vacía")
+      .max(
+        MAX_FACTION_NAME_LENGTH,
+        `Una facción no puede superar los ${MAX_FACTION_NAME_LENGTH} caracteres`
+      )
+  )
+  .max(
+    MAX_FACTIONS_PER_PLAYER,
+    `No puedes elegir más de ${MAX_FACTIONS_PER_PLAYER} facciones`
+  );
+
+export const updateOwnFactionsSchema = z.object({
+  factions: factionListSchema,
+});
+
+export type UpdateOwnFactionsInput = z.infer<typeof updateOwnFactionsSchema>;
+
+// ---------------------------------------------------------------------------
 // Player create schema (SPEC §4.2)
 // ---------------------------------------------------------------------------
 
@@ -159,12 +211,7 @@ export const createPlayerSchema = z.object({
     .min(1, "El nombre no puede estar vacío")
     .max(80, "El nombre no puede superar los 80 caracteres"),
 
-  faction: z
-    .string()
-    .trim()
-    .max(80, "La facción no puede superar los 80 caracteres")
-    .nullable()
-    .optional(),
+  faction: factionFieldSchema,
 
   role: z.enum(["ADMIN", "PLAYER"]).default("PLAYER"),
 });
@@ -182,12 +229,7 @@ export const updatePlayerSchema = z.object({
     .min(1, "El nombre no puede estar vacío")
     .max(80, "El nombre no puede superar los 80 caracteres"),
 
-  faction: z
-    .string()
-    .trim()
-    .max(80, "La facción no puede superar los 80 caracteres")
-    .nullable()
-    .optional(),
+  faction: factionFieldSchema,
 
   role: z.enum(["ADMIN", "PLAYER"]).optional(),
 });

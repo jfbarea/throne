@@ -4,5 +4,6 @@ export { Card, CardEyebrow, CardTitle } from "./Card";
 export { Badge, StatusBadge } from "./Badge";
 export { Divider } from "./Divider";
 export { Eyebrow } from "./Eyebrow";
+export { FactionSelect } from "./FactionSelect";
 export { ScheduleForm } from "./ScheduleForm";
 export { Toast } from "./Toast";
