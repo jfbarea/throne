@@ -99,10 +99,16 @@ async function loginPlayer(page: Page, name: string, passcode: string) {
 }
 
 /** Creates one player from the admin/jugadores form and dismisses the
- * one-time passcode banner, leaving the form ready for the next player. */
+ * one-time passcode banner, leaving the form ready for the next player.
+ *
+ * The faction field is the grouped multi-select (src/components/FactionSelect.tsx),
+ * not a text input: open it, search, tick the option, close it. */
 async function createPlayer(page: Page, name: string, faction: string) {
   await page.getByLabel("Nombre").fill(name);
-  await page.getByLabel(/facción/i).fill(faction);
+  await page.getByRole("button", { name: /facciones/i }).click();
+  await page.getByLabel("Buscar facción").fill(faction);
+  await page.getByRole("option", { name: faction, exact: true }).click();
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Crear jugador" }).click();
   const dismissBtn = page.getByRole("button", {
     name: /he anotado el código/i,

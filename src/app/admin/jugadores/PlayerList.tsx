@@ -8,6 +8,8 @@ import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { Card } from "@/components/Card";
 import { Badge } from "@/components/Badge";
+import { FactionSelect } from "@/components/FactionSelect";
+import { parseFactions, serialiseFactions } from "@/lib/factions";
 import {
   setPlayerActive,
   resetPlayerPasscode,
@@ -50,7 +52,11 @@ interface EditFormProps {
 function EditForm({ player, onDone }: EditFormProps) {
   const [isPending, startTransition] = useTransition();
   const [displayName, setDisplayName] = useState(player.displayName);
-  const [faction, setFaction] = useState(player.faction ?? "");
+  // Same multi-select the player gets on /mi-perfil, so an admin edit and a
+  // player self-edit write the identical serialised shape (src/lib/factions.ts).
+  const [factions, setFactions] = useState<string[]>(
+    parseFactions(player.faction)
+  );
   const [role, setRole] = useState<"PLAYER" | "ADMIN">(player.role);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
@@ -62,7 +68,7 @@ function EditForm({ player, onDone }: EditFormProps) {
     startTransition(async () => {
       const result = await updatePlayer(player.id, {
         displayName: displayName.trim(),
-        faction: faction.trim() || null,
+        faction: serialiseFactions(factions),
         role,
       });
       if (!result.ok) {
@@ -83,11 +89,10 @@ function EditForm({ player, onDone }: EditFormProps) {
         error={fieldErrors.displayName?.[0]}
         required
       />
-      <Input
-        label="Facción"
-        placeholder="(sin facción)"
-        value={faction}
-        onChange={(e) => setFaction(e.target.value)}
+      <FactionSelect
+        label="Facciones"
+        value={factions}
+        onChange={setFactions}
         error={fieldErrors.faction?.[0]}
       />
       <div className="flex gap-3">

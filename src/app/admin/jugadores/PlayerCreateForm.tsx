@@ -9,6 +9,8 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { Card, CardEyebrow, CardTitle } from "@/components/Card";
+import { FactionSelect } from "@/components/FactionSelect";
+import { serialiseFactions } from "@/lib/factions";
 import { createPlayer } from "@/server/league-actions";
 import { UserPlus, CopySimple, CheckCircle } from "@phosphor-icons/react";
 
@@ -25,7 +27,7 @@ export function PlayerCreateForm({ leagueId, onCreated }: PlayerCreateFormProps)
 
   // Form state
   const [displayName, setDisplayName] = useState("");
-  const [faction, setFaction] = useState("");
+  const [factions, setFactions] = useState<string[]>([]);
   const [role, setRole] = useState<"PLAYER" | "ADMIN">("PLAYER");
 
   // One-time passcode display state
@@ -42,7 +44,7 @@ export function PlayerCreateForm({ leagueId, onCreated }: PlayerCreateFormProps)
     startTransition(async () => {
       const result = await createPlayer(leagueId, {
         displayName: displayName.trim(),
-        faction: faction.trim() || null,
+        faction: serialiseFactions(factions),
         role,
       });
 
@@ -55,7 +57,7 @@ export function PlayerCreateForm({ leagueId, onCreated }: PlayerCreateFormProps)
       // Show the passcode once and reset form for next player.
       setPlainPasscode(result.data.plainPasscode);
       setDisplayName("");
-      setFaction("");
+      setFactions([]);
       setRole("PLAYER");
       onCreated?.();
     });
@@ -160,12 +162,12 @@ export function PlayerCreateForm({ leagueId, onCreated }: PlayerCreateFormProps)
             error={fieldErrors.displayName?.[0]}
             required
           />
-          <Input
-            label="Facción (opcional)"
-            placeholder="Ej: Space Marines"
-            value={faction}
-            onChange={(e) => setFaction(e.target.value)}
+          <FactionSelect
+            label="Facciones (opcional)"
+            value={factions}
+            onChange={setFactions}
             error={fieldErrors.faction?.[0]}
+            helper="El jugador puede cambiarlas luego desde su propio perfil."
           />
 
           {/* Role selector */}
