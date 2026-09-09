@@ -7,7 +7,7 @@ import { Card, Eyebrow, Badge, Divider } from "@/components";
 export const metadata: Metadata = {
   title: "Bases de la liga — throne",
   description:
-    "Bases y reglamento de la liga privada de Warhammer 40.000: formato, ejércitos, misiones, puntuación, incidencias y convivencia.",
+    "Bases y reglamento de la liga privada de Warhammer 40.000: formato, ejércitos, puntuación, incidencias y convivencia.",
 };
 
 // A single rule section: small-caps label + heading + bulleted rules.
@@ -111,7 +111,7 @@ export default function BasesPage() {
         {/* Meta chips */}
         <div className="flex flex-wrap gap-2 mt-6">
           <Badge variant="brass">Edición 11ª</Badge>
-          <Badge variant="neutral">1500 puntos</Badge>
+          <Badge variant="neutral">Puntos acordados por partida</Badge>
           <Badge variant="neutral">Liguilla · todos contra todos</Badge>
           <Badge variant="ash">Rondas mensuales · 2 partidas por ronda</Badge>
         </div>
@@ -147,7 +147,14 @@ export default function BasesPage() {
 
           <RuleSection label="02" title="Ejércitos">
             <Rule>
-              <S>1500 puntos</S>, iguales para todos.
+              El <S>tamaño de las listas lo acordáis los dos</S> antes de cada
+              partida. No hay un valor fijo para toda la liga: lo pactáis al
+              quedar, igual que la fecha y el sitio.
+            </Rule>
+            <Rule>
+              Si no os ponéis de acuerdo, no hay partida que jugar — y entonces
+              aplica lo de siempre: pactáis un vencedor o la ronda la cierra el
+              organizador con un 0-0 (ver «Incidencias»).
             </Rule>
             <Rule>
               Listas legales de matched play de 11ª (puntos del Munitorum Field
@@ -164,15 +171,7 @@ export default function BasesPage() {
             </Rule>
           </RuleSection>
 
-          <RuleSection label="03" title="Misiones">
-            <Rule>
-              Baraja <S>Chapter Approved 2026–2027</S>: se sortea misión y
-              despliegue al empezar.
-            </Rule>
-            <Rule>Límite recomendado de 3 h por partida.</Rule>
-          </RuleSection>
-
-          <RuleSection label="04" title="Puntuación">
+          <RuleSection label="03" title="Puntuación">
             <Rule>
               <S>Victoria 3 · Empate 1 · Derrota 0.</S>
             </Rule>
@@ -186,7 +185,7 @@ export default function BasesPage() {
             </Rule>
           </RuleSection>
 
-          <RuleSection label="05" title="Incidencias">
+          <RuleSection label="04" title="Incidencias">
             <Rule>
               Si os ponéis de acuerdo en quién gana sin llegar a jugar
               (alguien no puede presentarse, no responde, etc.):{" "}
@@ -220,7 +219,7 @@ export default function BasesPage() {
             </Rule>
           </RuleSection>
 
-          <RuleSection label="06" title="Convivencia">
+          <RuleSection label="05" title="Convivencia">
             <Rule>
               Medir claro, declarar intenciones, dados a la vista, sin{" "}
               <em>slow play</em>.

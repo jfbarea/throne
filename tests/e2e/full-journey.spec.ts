@@ -654,20 +654,63 @@ test.describe("Mobile viewport — sin scroll horizontal roto", () => {
 // body's `scrollWidth`, and no test ever opened a dropdown. These do.
 // ---------------------------------------------------------------------------
 
+/**
+ * Asserts a dropdown panel is genuinely PAINTED where it claims to be.
+ *
+ * `toBeVisible()` is not enough for this bug, and that matters: clipping by an
+ * ancestor's `overflow` does not change an element's layout geometry, so a
+ * clipped panel still reports a non-empty bounding box and Playwright still
+ * calls it visible. `click()` is no good either — it scrolls the offending
+ * container to reveal the target, papering over exactly what we want to catch.
+ *
+ * So hit-test instead: take the centre of the item and ask the browser what is
+ * actually painted at that point. If an ancestor clips the panel, the answer is
+ * whatever is behind it, not the panel.
+ */
+async function expectPaintedInsideMenu(page: Page, itemLabel: string) {
+  const item = page.getByRole("menuitem", { name: itemLabel });
+  await expect(item).toBeVisible();
+
+  const box = await item.boundingBox();
+  expect(box, `"${itemLabel}" no tiene caja`).not.toBeNull();
+
+  const hit = await page.evaluate(
+    ({ x, y }) => {
+      const el = document.elementFromPoint(x, y);
+      return el ? !!el.closest('[role="menu"]') : false;
+    },
+    { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 }
+  );
+
+  expect(
+    hit,
+    `"${itemLabel}" reporta caja pero en su centro se pinta otra cosa: el panel está recortado`
+  ).toBe(true);
+}
+
 test.describe("Desplegables del header", () => {
-  test("el menú de Admin se despliega y sus enlaces son visibles y clicables", async ({
+  test("el menú de Admin se despliega, se pinta y es clicable", async ({
     page,
   }) => {
     await loginAdmin(page);
     await page.goto("/clasificacion");
 
-    // Closed to begin with: the panel is conditionally rendered.
-    await expect(page.getByRole("link", { name: "Emparejamientos" })).toHaveCount(0);
+    // The panel is conditionally rendered, so nothing exists while closed.
+    await expect(page.getByRole("menu")).toHaveCount(0);
 
-    await page.getByRole("button", { name: /admin/i }).click();
+    // The admin trigger has no accessible name on a narrow phone: its "Admin"
+    // label sits in a `hidden sm:inline` span. `aria-haspopup="menu"` without
+    // an `aria-label` identifies it on every viewport (the user menu carries
+    // `aria-label="Menú de usuario"`).
+    await page
+      .locator('button[aria-haspopup="menu"]:not([aria-label])')
+      .click();
 
-    // Every entry of ADMIN_LINKS must be genuinely visible — not merely
-    // present in the DOM, which is what the clipping bug produced.
+    await expect(page.getByRole("menu")).toBeVisible();
+
+    // Note the role: the anchors carry an explicit `role="menuitem"`, which
+    // overrides their implicit `link` role — `getByRole("link")` never matches
+    // them.
     for (const label of [
       "Panel",
       "Liga",
@@ -676,29 +719,26 @@ test.describe("Desplegables del header", () => {
       "Rondas",
       "Playoffs",
     ]) {
-      await expect(page.getByRole("link", { name: label })).toBeVisible();
+      await expectPaintedInsideMenu(page, label);
     }
 
-    // Visible is not enough: it must be reachable by a real click.
-    await page.getByRole("link", { name: "Rondas" }).click();
+    await page.getByRole("menuitem", { name: "Rondas" }).click();
     await expect(page).toHaveURL(/\/admin\/rondas$/);
   });
 
-  test("el menú de usuario se despliega (mismo recorte que rompió el de Admin)", async ({
+  test("el menú de usuario se despliega y se pinta (mismo recorte que rompió el de Admin)", async ({
     page,
   }) => {
     await loginPlayer(page, PLAYER1_NAME, PLAYER_PASSCODE);
     await page.goto("/clasificacion");
 
-    // The avatar button is the only one left once the admin menu is absent.
-    const userButton = page.locator("header button").last();
-    await userButton.click();
+    await expect(page.getByRole("menu")).toHaveCount(0);
 
-    // Logout lives in the user dropdown; if the panel is clipped it is not
-    // visible even though it renders.
-    await expect(
-      page.getByRole("button", { name: /salir|cerrar sesión/i })
-    ).toBeVisible();
+    await page.getByRole("button", { name: "Menú de usuario" }).click();
+
+    await expect(page.getByRole("menu")).toBeVisible();
+    // Logout is a `<button role="menuitem">`, so it is not exposed as a button.
+    await expectPaintedInsideMenu(page, "Cerrar sesión");
   });
 });
 

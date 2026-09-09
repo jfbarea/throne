@@ -1,5 +1,5 @@
 {
-  "status": "BUILDING",
+  "status": "HUMAN_REVIEW",
   "spec": "plan/specs/rondas-con-fecha.md",
   "branch": "feat/rondas-con-fecha",
   "milestones": [
@@ -183,23 +183,23 @@
     {
       "id": "H11",
       "slug": "fix-desplegables-header",
-      "status": "READY_FOR_REVIEW",
+      "status": "DONE",
       "commit_sha": null,
       "files_changed": [
         "src/components/AppHeader.tsx",
         "tests/e2e/full-journey.spec.ts"
       ],
       "review_feedback": null,
-      "notes": "FEEDBACK DEL USUARIO en HUMAN_REVIEW: 'no se despliega el desplegable de Admin'. REGRESION DE H6, diagnosticada y arreglada por el coordinador. Causa: AdminMenu abre su panel con position absolute dentro de un div.relative que vivia dentro del <nav> al que H6 puso overflow-x-auto para que 5 enlaces en modo icono no desbordaran en movil. Declarar overflow-x hace que el eje vertical pase de visible a auto por la especificacion CSS, asi que el nav se volvio contenedor de scroll en los DOS ejes y recortaba el panel en una franja de ~40px: el menu se abria pero no se veia nada. AFECTABA A LOS DOS DROPDOWNS, no solo al de admin: UserMenu.tsx:77 usa el mismo absolute; el usuario solo noto el primero. ARREGLO: el scroll horizontal se queda solo alrededor de los enlaces planos y los dos menus salen fuera del contenedor que recorta, conservando el arreglo de desbordamiento de H6. POR QUE SE COLO ONCE HITOS: ningun test abria un dropdown. Los tests de overflow miden scrollWidth del body -el reviewer de H6 verifico el arreglo por esa via, correctamente para lo que medía- y el e2e recorre catorce pantallas sin pulsar el boton de Admin. Anadidos dos tests que abren cada menu y comprueban que sus enlaces son VISIBLES (no solo presentes en el DOM, que es lo que producia el bug) y que uno se puede pulsar hasta navegar. PENDIENTE: el e2e no se ha podido ejecutar porque el usuario tiene npm run dev levantado y Next 16 bloquea un segundo next dev en el mismo directorio sea cual sea el puerto (Playwright usa el 3001). lint 0/0, tsc limpio, test 496/496."
+      "notes": "FEEDBACK DEL USUARIO en HUMAN_REVIEW: 'no se despliega el desplegable de Admin'. REGRESION DE H6, diagnosticada y arreglada por el coordinador. Causa: AdminMenu abre su panel con position absolute dentro de un div.relative que vivia dentro del <nav> al que H6 puso overflow-x-auto para que 5 enlaces en modo icono no desbordaran en movil. Declarar overflow-x hace que el eje vertical pase de visible a auto por la especificacion CSS, asi que el nav se volvio contenedor de scroll en los DOS ejes y recortaba el panel en una franja de ~40px: el menu se abria pero no se veia nada. AFECTABA A LOS DOS DROPDOWNS, no solo al de admin: UserMenu.tsx:77 usa el mismo absolute; el usuario solo noto el primero. ARREGLO: el scroll horizontal se queda solo alrededor de los enlaces planos y los dos menus salen fuera del contenedor que recorta, conservando el arreglo de desbordamiento de H6. POR QUE SE COLO ONCE HITOS: ningun test abria un dropdown. Los tests de overflow miden scrollWidth del body -el reviewer de H6 verifico el arreglo por esa via, correctamente para lo que medía- y el e2e recorre catorce pantallas sin pulsar el boton de Admin. Anadidos dos tests que abren cada menu y comprueban que sus enlaces son VISIBLES (no solo presentes en el DOM, que es lo que producia el bug) y que uno se puede pulsar hasta navegar. PENDIENTE: el e2e no se ha podido ejecutar porque el usuario tiene npm run dev levantado y Next 16 bloquea un segundo next dev en el mismo directorio sea cual sea el puerto (Playwright usa el 3001). lint 0/0, tsc limpio, test 496/496. E2E VERIFICADO tras parar el usuario su dev server. Mis dos tests iniciales FALLABAN, y por errores mios, no del arreglo: (a) los enlaces del AdminMenu llevan role='menuitem' explicito, que ANULA el rol implicito de enlace, asi que getByRole('link') no puede casarlos nunca; lo mismo con el 'Cerrar sesion' de UserMenu, que es button role=menuitem; (b) el boton de admin no tiene nombre accesible en movil porque su texto 'Admin' vive en un span hidden sm:inline. Corregidos usando getByRole('menuitem') y localizando el disparador por button[aria-haspopup=menu]:not([aria-label]) -el de usuario si tiene aria-label='Menu de usuario'-. HALLAZGO IMPORTANTE sobre la calidad del test: toBeVisible() NO habria cazado el bug original. El recorte por overflow de un ancestro no altera la geometria de layout, asi que el panel recortado sigue reportando caja no vacia y Playwright lo considera visible; y click() tampoco sirve porque hace scroll del contenedor culpable y tapa justo lo que se quiere detectar. Anadido el helper expectPaintedInsideMenu, que hace hit-test con document.elementFromPoint en el centro del item y comprueba que lo pintado ahi esta dentro del [role=menu]. VERIFICADO REINTRODUCIENDO EL BUG a mano: los dos tests fallan con el mensaje de diagnostico exacto, y el toBeVisible() PASA -confirmando que un test ingenuo habria salido verde con el bug presente-. Arreglo restaurado. e2e 70/70 sin skips, estable en tres corridas."
     },
     {
       "id": "H12",
       "slug": "guia-de-usuario",
-      "status": "PENDING",
+      "status": "DONE",
       "commit_sha": null,
       "files_changed": [],
       "review_feedback": null,
-      "notes": "Feedback del usuario en HUMAN_REVIEW: anadir una seccion de guia de usuario. Decidido: ruta nueva /guia, publica."
+      "notes": "Feedback del usuario en HUMAN_REVIEW: anadir una seccion de guia de usuario. Decidido: ruta nueva /guia, publica. E2E VERIFICADO: 70/70 sin skips, estable en tres corridas, incluidos los tests de guia.spec.ts (AC-1 sin sesion y AC-2 enlazada desde el header y desde /login) y el de overflow de /guia a 390px. Verificado tambien por el coordinador con curl contra el dev server del usuario: HTTP 200 sin sesion, cero redirecciones, las cinco secciones en el HTML, y /login enlazando a /guia y a /bases. lint 0/0, tsc limpio, 502 tests, build con /guia como estatica."
     }
   ]
 }
