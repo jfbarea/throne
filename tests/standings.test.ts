@@ -5,6 +5,7 @@ import { describe, it, expect } from "vitest";
 import {
   computeStandings,
   isConfirmedForStandings,
+  formatPlayedCount,
   type StandingsMatch,
   type StandingsConfig,
 } from "@/server/standings";
@@ -37,6 +38,10 @@ function makeMatch(
     phase?: string;
     bonusHome?: number;
     bonusAway?: number;
+    /** SPEC §4.9 (Hito 7, AC-27/28). Omitted keeps the old behaviour of every
+     * pre-existing test in this file: no `resolution` in the result object,
+     * treated as `PLAYED` by `computeStandings`. */
+    resolution?: string;
   } = {}
 ): StandingsMatch {
   const status = opts.status ?? "CONFIRMED";
@@ -55,6 +60,7 @@ function makeMatch(
           outcome,
           bonusHome: opts.bonusHome ?? 0,
           bonusAway: opts.bonusAway ?? 0,
+          ...(opts.resolution !== undefined ? { resolution: opts.resolution } : {}),
         }
       : null,
   };
@@ -813,5 +819,174 @@ describe("computeStandings — H2H 3-player cycle", () => {
     expect(standings[2].playerId).toBe("p3");
     expect(standings[1].playerId).toBe("p2");
     void symMatches; void tieMatches; // suppress unused variable warning
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-27: la clasificación distingue las saldadas (Hito 7, SPEC §4.6/§8)
+// "un jugador con 11 partidas de las que 2 son WALKOVER/UNPLAYED_DRAW
+// muestra «PJ 11 (2 saldadas)»".
+// ---------------------------------------------------------------------------
+
+describe("AC-27: computeStandings cuenta las saldadas junto a las jugadas", () => {
+  it("11 partidas confirmadas con 1 WALKOVER y 1 UNPLAYED_DRAW dan played=11, settled=2", () => {
+    const matches: StandingsMatch[] = [];
+    for (let i = 0; i < 9; i++) {
+      matches.push(
+        makeMatch("p1", `opp${i}`, "HOME_WIN", 45, 30, {
+          status: "REPORTED",
+          resolution: "PLAYED",
+        })
+      );
+    }
+    matches.push(
+      makeMatch("p1", "oppWalkover", "HOME_WIN", 80, 0, {
+        status: "REPORTED",
+        resolution: "WALKOVER",
+      })
+    );
+    matches.push(
+      makeMatch("p1", "oppUnplayed", "DRAW", 0, 0, {
+        status: "REPORTED",
+        resolution: "UNPLAYED_DRAW",
+      })
+    );
+
+    const standings = computeStandings(matches, makeConfig());
+    const p1 = standings.find((r) => r.playerId === "p1")!;
+    expect(p1.played).toBe(11);
+    expect(p1.settled).toBe(2);
+  });
+
+  it("una partida sin resolution explícito cuenta como jugada (default PLAYED, Hito 1)", () => {
+    // No `opts.resolution` at all — mirrors a Result row created before this
+    // hito, where the DB default fills PLAYED.
+    const matches = [makeMatch("p1", "p2", "HOME_WIN", 10, 5, { status: "REPORTED" })];
+    const standings = computeStandings(matches, makeConfig());
+    const p1 = standings.find((r) => r.playerId === "p1")!;
+    expect(p1.played).toBe(1);
+    expect(p1.settled).toBe(0);
+  });
+
+  it("cero saldadas: settled es 0, no negativo ni indefinido", () => {
+    const matches = [
+      makeMatch("p1", "p2", "HOME_WIN", 10, 5, {
+        status: "REPORTED",
+        resolution: "PLAYED",
+      }),
+    ];
+    const standings = computeStandings(matches, makeConfig());
+    expect(standings.find((r) => r.playerId === "p1")!.settled).toBe(0);
+  });
+});
+
+describe("AC-27: formatPlayedCount — texto de PJ con saldadas", () => {
+  it('con settled=2 devuelve "11 (2 saldadas)"', () => {
+    expect(formatPlayedCount(11, 2)).toBe("11 (2 saldadas)");
+  });
+
+  it('con settled=1 usa el singular: "5 (1 saldada)"', () => {
+    expect(formatPlayedCount(5, 1)).toBe("5 (1 saldada)");
+  });
+
+  it("con settled=0 no muestra paréntesis vacío ni «(0 saldadas)»", () => {
+    const text = formatPlayedCount(11, 0);
+    expect(text).toBe("11");
+    expect(text).not.toContain("(");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-28: computeStandings procesa WALKOVER/UNPLAYED_DRAW sin ninguna rama
+// especial (Hito 7, SPEC §4.6/§8). Puntos, VP y desempates idénticos a un
+// PLAYED con los mismos números.
+// ---------------------------------------------------------------------------
+
+describe("AC-28: computeStandings sin ramas especiales por resolution", () => {
+  /**
+   * Builds a full two-match standings scenario where p1's own match uses
+   * `resolution`, and a second, unrelated match (p3 vs p4) provides an
+   * identical shape so both scenarios below are self-consistent and directly
+   * comparable player-by-player — including `rank`, not just the raw stats.
+   */
+  function buildScenario(resolution: string) {
+    const matches = [
+      makeMatch("p1", "p2", "HOME_WIN", 80, 0, {
+        status: "REPORTED",
+        resolution,
+      }),
+      makeMatch("p3", "p4", "HOME_WIN", 50, 45, {
+        status: "REPORTED",
+        resolution: "PLAYED",
+      }),
+    ];
+    return computeStandings(matches, makeConfig(), ["p1", "p2", "p3", "p4"]);
+  }
+
+  it("un 80-0 WALKOVER da los mismos puntos, VP, diferencia y posición que un 80-0 PLAYED", () => {
+    const played = buildScenario("PLAYED");
+    const walkover = buildScenario("WALKOVER");
+    const p1played = played.find((r) => r.playerId === "p1")!;
+    const p1walkover = walkover.find((r) => r.playerId === "p1")!;
+
+    expect(p1walkover.points).toBe(p1played.points);
+    expect(p1walkover.wins).toBe(p1played.wins);
+    expect(p1walkover.vpFor).toBe(p1played.vpFor);
+    expect(p1walkover.vpAgainst).toBe(p1played.vpAgainst);
+    expect(p1walkover.vpDiff).toBe(p1played.vpDiff);
+    expect(p1walkover.rank).toBe(p1played.rank);
+  });
+
+  it("un 0-0 UNPLAYED_DRAW da los mismos puntos, VP, diferencia y posición que un 0-0 PLAYED", () => {
+    function buildDrawScenario(resolution: string) {
+      const matches = [
+        makeMatch("p1", "p2", "DRAW", 0, 0, { status: "REPORTED", resolution }),
+        makeMatch("p3", "p4", "HOME_WIN", 50, 45, {
+          status: "REPORTED",
+          resolution: "PLAYED",
+        }),
+      ];
+      return computeStandings(matches, makeConfig(), ["p1", "p2", "p3", "p4"]);
+    }
+    const played = buildDrawScenario("PLAYED");
+    const unplayedDraw = buildDrawScenario("UNPLAYED_DRAW");
+    const p1played = played.find((r) => r.playerId === "p1")!;
+    const p1unplayed = unplayedDraw.find((r) => r.playerId === "p1")!;
+
+    expect(p1unplayed.points).toBe(p1played.points);
+    expect(p1unplayed.draws).toBe(p1played.draws);
+    expect(p1unplayed.vpFor).toBe(p1played.vpFor);
+    expect(p1unplayed.vpAgainst).toBe(p1played.vpAgainst);
+    expect(p1unplayed.vpDiff).toBe(p1played.vpDiff);
+    expect(p1unplayed.rank).toBe(p1played.rank);
+  });
+
+  it("un resolution desconocido no cambia la aritmética (regresión: ninguna rama debe leer resolution ahí)", () => {
+    // A value that is not PLAYED/WALKOVER/UNPLAYED_DRAW at all. If the
+    // scoring loop ever grew a branch keyed on `resolution` (e.g. an
+    // exhaustive switch with special cases per value, or a stray `if
+    // (resolution === "WALKOVER") bonus += X`), an unrecognized string would
+    // be the first thing to expose it — either by falling into a default
+    // branch that zeroes something out, or by an added special case simply
+    // not covering it. Today `resolution` is read in exactly one place (the
+    // settled tally), so this must score identically to PLAYED.
+    const matches = [
+      makeMatch("p1", "p2", "HOME_WIN", 45, 40, {
+        status: "REPORTED",
+        resolution: "PLAYED",
+      }),
+      makeMatch("p3", "p4", "HOME_WIN", 45, 40, {
+        status: "REPORTED",
+        resolution: "NOT_A_REAL_RESOLUTION_VALUE",
+      }),
+    ];
+    const standings = computeStandings(matches, makeConfig());
+    const p1 = standings.find((r) => r.playerId === "p1")!;
+    const p3 = standings.find((r) => r.playerId === "p3")!;
+    expect(p3.points).toBe(p1.points);
+    expect(p3.wins).toBe(p1.wins);
+    expect(p3.vpFor).toBe(p1.vpFor);
+    expect(p3.vpAgainst).toBe(p1.vpAgainst);
+    expect(p3.vpDiff).toBe(p1.vpDiff);
   });
 });

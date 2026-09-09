@@ -4,7 +4,7 @@
 
 import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/guards";
-import { computeStandings } from "@/server/standings";
+import { computeStandings, formatPlayedCount } from "@/server/standings";
 import { parseTiebreakers } from "@/lib/schemas";
 import { Eyebrow } from "@/components/Eyebrow";
 import { Card } from "@/components/Card";
@@ -61,6 +61,7 @@ export default async function ClasificacionPage() {
           outcome: true,
           bonusHome: true,
           bonusAway: true,
+          resolution: true,
         },
       },
     },
@@ -80,6 +81,9 @@ export default async function ClasificacionPage() {
           outcome: m.result.outcome as string,
           bonusHome: m.result.bonusHome,
           bonusAway: m.result.bonusAway,
+          // SPEC §4.9 / criterio 27 — feeds only the settled-count tally in
+          // computeStandings, never the points/VP arithmetic (criterio 28).
+          resolution: m.result.resolution as string,
         }
       : null,
   }));
@@ -363,7 +367,7 @@ function StandingsTable({
                 </td>
 
                 {/* Stats with tabular-nums */}
-                <StatCell value={row.played} />
+                <StatCell value={formatPlayedCount(row.played, row.settled)} />
                 <StatCell value={row.wins} />
                 <StatCell value={row.draws} />
                 <StatCell value={row.losses} />
@@ -407,7 +411,7 @@ function StandingsTable({
   );
 }
 
-function StatCell({ value }: { value: number }) {
+function StatCell({ value }: { value: number | string }) {
   return (
     <td
       className="px-3 py-2.5 text-center"
@@ -525,7 +529,7 @@ function StandingCard({
           fontFamily: "var(--font-sans)",
         }}
       >
-        <MobileStat label="PJ" value={row.played} />
+        <MobileStat label="PJ" value={formatPlayedCount(row.played, row.settled)} />
         <MobileStat label="V" value={row.wins} color="var(--moss-500)" />
         <MobileStat label="E" value={row.draws} />
         <MobileStat label="D" value={row.losses} color="var(--ember-500)" />
@@ -566,11 +570,14 @@ function MobileStat({
   color,
 }: {
   label: string;
-  value: number;
+  value: number | string;
   showSign?: boolean;
   color?: string;
 }) {
-  const display = showSign && value > 0 ? `+${value}` : String(value);
+  const display =
+    showSign && typeof value === "number" && value > 0
+      ? `+${value}`
+      : String(value);
   return (
     <div>
       <div

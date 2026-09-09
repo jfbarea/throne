@@ -33,6 +33,15 @@ export interface StandingsMatch {
     /** Resolved bonus points stored at report time. */
     bonusHome: number;
     bonusAway: number;
+    /**
+     * How the match was resolved — `PLAYED` | `WALKOVER` | `UNPLAYED_DRAW`
+     * (SPEC §4.9). Optional so existing callers/tests that predate Hito 7
+     * (`rondas-con-fecha`) keep compiling unchanged; absent is treated as
+     * `PLAYED`, mirroring `Result.resolution`'s DB default (Hito 1). Read
+     * ONLY by the settled-count tally below (criterio 27) — never by the
+     * points/VP/tiebreaker arithmetic (criterio 28).
+     */
+    resolution?: string;
   } | null;
 }
 
@@ -69,6 +78,13 @@ export interface StandingsRow {
   playerId: string;
   /** Number of confirmed league matches played. */
   played: number;
+  /**
+   * Subset of `played` that was settled without being played — `resolution`
+   * `WALKOVER` or `UNPLAYED_DRAW` (SPEC §4.6/§4.9, criterio 27). A purely
+   * informational tally: it never feeds `points`, `vpFor`, `vpAgainst`,
+   * `vpDiff` or the tiebreaker chain (criterio 28) — see AC-28 tests.
+   */
+  settled: number;
   /** Wins. */
   wins: number;
   /** Draws. */
@@ -156,6 +172,7 @@ export function computeStandings(
       statsMap.set(pid, {
         playerId: pid,
         played: 0,
+        settled: 0,
         wins: 0,
         draws: 0,
         losses: 0,
@@ -187,6 +204,15 @@ export function computeStandings(
 
     home.played += 1;
     away.played += 1;
+
+    // Settled-without-play tally (criterio 27) — informational only, reads
+    // `resolution` but never influences points/VP below (criterio 28: a
+    // WALKOVER or UNPLAYED_DRAW Result is scored with EXACTLY the same
+    // arithmetic as a PLAYED one, no branch here changes that).
+    if ((r.resolution ?? "PLAYED") !== "PLAYED") {
+      home.settled += 1;
+      away.settled += 1;
+    }
 
     home.vpFor += r.homeVictoryPoints;
     home.vpAgainst += r.awayVictoryPoints;
@@ -384,4 +410,26 @@ function compareHeadToHead(
   const bDiff = bVpFor - bVpAgainst;
   if (bDiff !== aDiff) return bDiff - aDiff; // descending
   return bVpFor - aVpFor; // descending
+}
+
+// ---------------------------------------------------------------------------
+// formatPlayedCount — SPEC §4.6, criterio 27 (cálculo, no presentación)
+// ---------------------------------------------------------------------------
+
+/**
+ * Spanish text for the "PJ" (partidas jugadas) column of `/clasificacion`,
+ * surfacing settled-without-play matches inline: `formatPlayedCount(11, 2)`
+ * → `"11 (2 saldadas)"` (SPEC §4.6: "PJ 11 (2 saldadas)"). Zero settled
+ * matches renders as a bare number — no "(0 saldadas)", no empty
+ * parenthetical.
+ *
+ * Pure presentation-adjacent helper, kept in `src/server/` so it's
+ * testable in Vitest instead of only eyeballed on the page (SPEC §7.3),
+ * same pattern as `quotaLabel` (rounds.ts, Hito 2) and
+ * `resolveMatchStatusLabel` (round-ui.ts, Hito 6).
+ */
+export function formatPlayedCount(played: number, settled: number): string {
+  if (settled <= 0) return String(played);
+  const word = settled === 1 ? "saldada" : "saldadas";
+  return `${played} (${settled} ${word})`;
 }
