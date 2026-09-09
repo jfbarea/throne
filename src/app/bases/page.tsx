@@ -113,7 +113,7 @@ export default function BasesPage() {
           <Badge variant="brass">Edición 11ª</Badge>
           <Badge variant="neutral">1500 puntos</Badge>
           <Badge variant="neutral">Liguilla · todos contra todos</Badge>
-          <Badge variant="ash">Cierre 31 de julio (tentativo)</Badge>
+          <Badge variant="ash">Rondas mensuales · 2 partidas por ronda</Badge>
         </div>
 
         <Divider ornamental />
@@ -126,13 +126,22 @@ export default function BasesPage() {
               Si sois 4 o menos, ida y vuelta.
             </Rule>
             <Rule>
-              Los emparejamientos se publican al inicio.{" "}
-              <S>No hay jornadas fijas:</S> cada uno acuerda con sus rivales
-              cuándo jugar.
+              Los emparejamientos se publican al inicio, repartidos en{" "}
+              <S>rondas mensuales:</S> cada ronda dura un mes y te toca jugar
+              un número fijo de partidas en ella (2 por defecto — puede
+              cambiar según la liga). Dentro del mes, tú decides con quién
+              juegas primero y qué día quedáis.
             </Rule>
             <Rule>
-              Todas las partidas deben jugarse antes del cierre (31 de julio,
-              ampliable si el grupo lo acuerda).
+              Cada ronda tiene una <S>fecha límite</S> (el último día de su
+              mes). No es un día de quedada obligatorio: es la fecha a partir
+              de la cual el organizador puede dar la ronda por cerrada.
+            </Rule>
+            <Rule>
+              Puedes <S>adelantar</S> una partida de un mes futuro sin haber
+              acabado el actual — pero eso no te libra de las partidas de tu
+              ronda en curso: cuando llegue su cierre, cuentan igual (ver
+              «Incidencias»).
             </Rule>
           </RuleSection>
 
@@ -179,12 +188,31 @@ export default function BasesPage() {
 
           <RuleSection label="05" title="Incidencias">
             <Rule>
-              Quien no responda para cuadrar la partida o no se presente sin
-              causa: derrota técnica (rival 3 pts, 80–0).
+              Si os ponéis de acuerdo en quién gana sin llegar a jugar
+              (alguien no puede presentarse, no responde, etc.):{" "}
+              <S>incomparecencia</S>. Se apunta un 80-0 a favor de quien
+              ganáis entre los dos — cualquiera de los dos lo puede declarar
+              en la app, y el rival puede corregirlo si no está de acuerdo.
             </Rule>
             <Rule>
-              Si a una pareja no le cuadró antes del cierre: empate (1 pt cada
-              uno), salvo que se amplíe la fecha.
+              La incomparecencia <S>no lleva punto de bonus</S>, aunque la
+              liga los tenga activados. Con un margen de 80 puntos, un 80-0
+              real ya se llevaría los dos bonus configurables; si eso también
+              contara en la incomparecencia, saldría más a cuenta no
+              presentarse que jugar una partida reñida. Sin bonus, ganar
+              jugando siempre renta igual o más.
+            </Rule>
+            <Rule>
+              Si no llegáis a un acuerdo antes de que cierre la ronda:{" "}
+              <S>0-0</S>, un punto para cada uno. El cierre de cada ronda lo
+              da el organizador, no es automático — así que hay margen para
+              pactar un resultado con algo de retraso si hace falta.
+            </Rule>
+            <Rule>
+              Adelantar una partida de un mes futuro está permitido y no os
+              exime de las de vuestra ronda en curso: si llega su cierre y
+              siguen sin jugarse, se resuelven igual (incomparecencia o 0-0,
+              como arriba).
             </Rule>
             <Rule>
               Si alguien abandona la liga, el grupo decide qué hacer con sus

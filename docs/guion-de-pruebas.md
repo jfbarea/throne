@@ -27,8 +27,9 @@ La app debe estar corriendo en [http://localhost:3000](http://localhost:3000).
 - Todos los jugadores del seed usan passcode: `1234`
 - Jugador admin del seed: `Comisario Valdris`
 - Otros jugadores de ejemplo: `Inquisidor Marak`, `Capitán Torvayne`, `Magos Drekk`, etc.
+- La liga del seed ya trae **cupo de 2 partidas por ronda** y **mes de arranque marzo de 2026**.
 
-> Como alternativa al recorrido manual, existe el test e2e automatizado: `npm run e2e`. Cubre el mismo flujo en Playwright con una base de datos aislada. El guión manual es útil para probar la interfaz real y detectar problemas de UX.
+> Como alternativa al recorrido manual, existe el test e2e automatizado: `npm run e2e`. Cubre el mismo flujo (y también el cierre de rondas y la incomparecencia) en Playwright con una base de datos aislada. El guión manual es útil para probar la interfaz real y detectar problemas de UX.
 
 ---
 
@@ -41,7 +42,7 @@ La app debe estar corriendo en [http://localhost:3000](http://localhost:3000).
 
 **Resultado esperado:**
 - Eres redirigido al panel de admin (`/admin`).
-- En la barra superior (o menú) aparecen las opciones: Liga, Jugadores, Emparejamientos, Disputas, Playoffs.
+- En el menú de admin aparecen las opciones: Panel, Liga, Jugadores, Emparejamientos, Rondas, Playoffs.
 - No hay error de credenciales.
 
 ---
@@ -54,12 +55,15 @@ La app debe estar corriendo en [http://localhost:3000](http://localhost:3000).
 **Resultado esperado:**
 - Ves el formulario con los datos de la liga del seed: nombre "Liga Warhammer 40K — Capítulo Hierro", temporada "2026 Primavera".
 - Puntos: victoria 3, empate 1, derrota 0.
+- Tarjeta "Rondas mensuales": partidas por ronda (`matchesPerRound`) = 2, mes de arranque = marzo de 2026.
 - Bonus habilitado con umbral 20 VP y mínimo 40 VP.
 - `playoffSize` = 4.
 - Estado de la liga: `SETUP`.
 
 **Acción adicional (opcional):**
 Cambia el nombre de la liga a "Liga de Prueba" y guarda. Comprueba que el cambio persiste al recargar la página. Revierte si quieres mantener el seed original.
+
+> Si el mes de arranque estuviera vacío, no podrías generar emparejamientos en el paso 5 — la app se niega mientras no haya mes de arranque, porque de él se derivan las fechas de cierre de todas las rondas.
 
 ---
 
@@ -91,7 +95,7 @@ Cierra el banner. Recarga la página. Comprueba que el passcode ya no se muestra
 
 ---
 
-## Paso 5 — Generar los emparejamientos
+## Paso 5 — Generar los emparejamientos (y las rondas)
 
 **Acción:**
 1. Ve a `/admin/emparejamientos`.
@@ -99,11 +103,14 @@ Cierra el banner. Recarga la página. Comprueba que el passcode ya no se muestra
 
 **Resultado esperado:**
 - La app genera `C(n,2)` partidas, donde `n` es el número de jugadores activos. Con 13 jugadores (12 del seed + 1 de prueba) serían 78 partidas.
+- Las partidas quedan repartidas entre **rondas mensuales** (cupo 2 por jugador y ronda): con 13 jugadores y cupo 2, salen 6 rondas.
 - La liga pasa de estado `SETUP` a `LEAGUE`.
-- Aparece un mensaje de confirmación con el número de partidas creadas.
-- Todas las partidas nacen sin fecha y en estado `SCHEDULED`.
+- Todas las partidas nacen sin fecha y sin resultado.
 
-> Para un recorrido más rápido, puedes desactivar el jugador de prueba antes de generar (dejando 12 jugadores = 66 partidas). Lo importante es que el número sea `C(n,2)`.
+> Para un recorrido más rápido, puedes desactivar el jugador de prueba antes de generar (dejando 12 jugadores = 66 partidas, también 6 rondas). Lo importante es que el número de partidas sea `C(n,2)`.
+
+**Verificación:**
+Ve a `/admin/rondas`. Deberías ver 6 rondas numeradas, cada una con su fecha de cierre (el último día de marzo, abril, mayo, junio, julio y agosto de 2026, en ese orden) y el estado "Abierta".
 
 ---
 
@@ -114,7 +121,7 @@ Cierra el banner. Recarga la página. Comprueba que el passcode ya no se muestra
 
 **Resultado esperado:**
 - Aparece una sección "Sin fecha" con todas las partidas (aún sin `scheduledAt`).
-- Cada fila muestra los dos jugadores y el estado "Sin resultado".
+- Cada fila muestra los dos jugadores, la ronda a la que pertenece esa partida y el estado "Sin resultado".
 - La sección "Agendadas" está vacía.
 
 ---
@@ -129,7 +136,7 @@ Cierra el banner. Recarga la página. Comprueba que el passcode ya no se muestra
 
 **Resultado esperado:**
 - La partida desaparece de "Sin fecha" y aparece en "Agendadas" con la fecha y lugar indicados.
-- El estado del resultado sigue siendo "Sin resultado" (`SCHEDULED`). La fecha y el resultado son independientes.
+- El estado del resultado sigue siendo "Sin resultado". La fecha, el resultado y la ronda son independientes: fijar la fecha no cambia la ronda de la partida ni al revés.
 
 ---
 
@@ -155,10 +162,10 @@ Cierra el banner. Recarga la página. Comprueba que el passcode ya no se muestra
 1. Ve a `/mis-partidas`.
 
 **Resultado esperado:**
-- Solo ves las partidas en las que participa `Inquisidor Marak` (como local o visitante).
-- No ves partidas de otros jugadores.
-- La partida contra `Capitán Torvayne` aparece con la fecha que fijaste en el paso 7.
-- Aparece el botón **Reportar resultado** en las partidas sin resultado.
+- Solo ves las partidas en las que participa `Inquisidor Marak` (como local o visitante), **agrupadas por ronda**: la ronda con el cierre más próximo aparece primero.
+- Cada bloque de ronda muestra su fecha de cierre y cuántas partidas te faltan para completar el cupo (p.ej. "falta 2 de 2").
+- La partida contra `Capitán Torvayne` aparece con la fecha que fijaste en el paso 7, dentro de su ronda.
+- Aparece el botón **Apuntar resultado** en las partidas sin resultado, y **Incomparecencia** junto a él.
 
 ---
 
@@ -172,96 +179,102 @@ Cierra el banner. Recarga la página. Comprueba que el passcode ya no se muestra
 
 **Resultado esperado:**
 - La partida queda agendada con la fecha indicada.
-- No has necesitado confirmación del rival (`Magos Drekk`).
+- No has necesitado ninguna aceptación del rival (`Magos Drekk`).
 
 ---
 
-## Paso 11 — Reportar un resultado
+## Paso 11 — Apuntar un resultado
 
 **Acción:**
 1. En `/mis-partidas`, localiza la partida `Inquisidor Marak` vs `Capitán Torvayne`.
-2. Pulsa **Reportar resultado**.
-3. Introduce: VP local = 85, VP visitante = 45, outcome = Victoria local.
-4. Confirma.
+2. Pulsa **Apuntar resultado**.
+3. Introduce: VP local = 85, VP visitante = 45.
+4. Comprueba que la app muestra "Victoria de Inquisidor Marak" (se deriva de los VP, no se elige aparte).
+5. Pulsa **Reportar**.
 
 **Resultado esperado:**
-- La partida pasa a estado `REPORTED` (pendiente de confirmar).
-- Aparece un mensaje indicando que el rival debe confirmar.
-- El resultado está visible pero no entra en la clasificación todavía.
+- La partida pasa a mostrar el resultado 85-45 y queda etiquetada como "Apuntada" (o "Jugada", según la vista).
+- **Cuenta en la clasificación de inmediato** — no hay paso de confirmación del rival ni de disputa.
+- Si te equivocaste, cualquiera de los dos participantes (`Inquisidor Marak` o `Capitán Torvayne`) puede pulsar **Editar resultado** y corregirlo.
 
 ---
 
-## Paso 12 — Confirmar el resultado (como el rival)
+## Paso 12 — Declarar una incomparecencia
 
 **Acción:**
-1. Cierra la sesión de `Inquisidor Marak`.
-2. Entra como `Capitán Torvayne` (passcode: `1234`).
-3. Ve a `/mis-partidas`.
-4. Localiza la partida contra `Inquisidor Marak` en estado "Pendiente de confirmar".
-5. Pulsa **Confirmar**.
+1. Sigue como `Inquisidor Marak` en `/mis-partidas`.
+2. Localiza otra partida sin resultado (p.ej. contra `Señor Fantasma Aelyr`) y pulsa **Incomparecencia**.
+3. Elige quién gana (p.ej. `Inquisidor Marak`).
+4. Pulsa **Declarar**.
 
 **Resultado esperado:**
-- La partida pasa a estado `CONFIRMED`.
-- El resultado entra en los standings.
-- No hay opción de que `Capitán Torvayne` "confirme" su propio resultado (porque él no fue quien lo reportó; aquí es el rival quien confirma).
+- La partida queda con un resultado **80-0** a favor del jugador elegido.
+- Se etiqueta como **"Incomparecencia"** en `/mis-partidas` y en `/calendario`.
+- Aunque la liga tenga los bonus activados (umbral 20, mínimo 40 — que un 80-0 real dispararía), esta partida **no lleva ningún punto de bonus**: es la regla que evita que no presentarse rente más que jugar.
+
+**Verificación (opcional, como admin):** en `/admin/jugadores`, entra como `Comisario Valdris` (`ADMIN_PASSCODE`) e intenta declarar otra incomparecencia sobre la partida `Inquisidor Marak` vs `Capitán Torvayne` del paso 11 (que ya tiene un resultado real). Como admin sí puedes sustituirla; si lo intentaras como uno de los dos jugadores, la app lo rechazaría porque esa partida ya se jugó de verdad.
 
 ---
 
-## Paso 13 — Verificar los standings
+## Paso 13 — Cerrar una ronda (admin)
 
 **Acción:**
-1. Ve a `/clasificacion`.
+1. Cierra la sesión de jugador. Entra como admin.
+2. Ve a `/admin/rondas`.
+3. Localiza la **Ronda 1** (la que contiene las partidas de los pasos 11 y 12). Si su fecha de cierre todavía no ha llegado, pulsa **Editar fecha**, pon una fecha de ayer y guarda — así el botón de cerrar se habilita sin tener que esperar al calendario real.
+4. Pulsa **Cerrar ronda 1**.
 
 **Resultado esperado:**
-- `Inquisidor Marak` aparece en la tabla con 1 victoria, **5 puntos** (3 de victoria + 2 de bonus), 85 VP+, 45 VP-.
-- `Capitán Torvayne` aparece con 1 derrota, **1 punto** (0 de derrota + 1 de bonus), 45 VP+, 85 VP-.
-- El resto de jugadores aparecen con 0 partidas jugadas (todos los resultados están en `SCHEDULED`).
-- Con el bonus habilitado (umbral masacre 20 VP, mínimo VP 40): el margen es 85-45=40, que supera el umbral de 20 → `Inquisidor Marak` obtiene **ambos** bonus: masacre (margen ≥ 20) + mínimo VP (85 ≥ 40), sumando 2 puntos de bonus. `Capitán Torvayne` obtiene el bonus de mínimo VP (45 ≥ 40, y este bonus aplica independientemente del resultado), sumando 1 punto de bonus. El bonus de masacre **no** aplica al perdedor.
+- Antes de pulsar, el texto junto al botón indica cuántas partidas de la ronda se van a saldar sin jugar.
+- Tras pulsar, aparece un mensaje de confirmación ("Ronda cerrada. N partidas saldadas 0-0").
+- La Ronda 1 pasa a "Cerrada".
+- Las partidas de la Ronda 1 que **ya tenían** resultado (la del paso 11, jugada; la del paso 12, incomparecencia) quedan **intactas**.
+- El resto de partidas de la Ronda 1, las que seguían sin resultado, reciben ahora un **0-0** real y aparecen etiquetadas como **"Saldada sin jugar"**.
 
 ---
 
-## Paso 14 — Probar una disputa
+## Paso 14 — Verificar las etiquetas y el contador de saldadas
 
 **Acción:**
-1. Entra como `Magos Drekk` (passcode: `1234`).
-2. Ve a `/mis-partidas`.
-3. Localiza la partida contra otro jugador (p.ej. `Señor Fantasma Aelyr`).
-4. Reporta un resultado: VP local = 60, VP visitante = 70, outcome = Victoria visitante.
-5. Cierra sesión. Entra como `Señor Fantasma Aelyr` (passcode: `1234`).
-6. Ve a `/mis-partidas`. Localiza la partida pendiente de confirmar.
-7. Pulsa **Disputar**.
+1. Ve a `/calendario` o `/mis-partidas` y localiza alguna partida de la Ronda 1.
+2. Ve a `/clasificacion`.
 
 **Resultado esperado:**
-- La partida pasa a estado `DISPUTED`.
-- No entra en los standings.
-
-**Resolución (como admin):**
-1. Entra como admin.
-2. Ve a `/admin/disputas`.
-3. Localiza la disputa `Magos Drekk` vs `Señor Fantasma Aelyr`.
-4. Introduce el resultado definitivo (p.ej. los VP reales acordados).
-5. Pulsa **Resolver**.
-
-**Resultado esperado:**
-- La partida pasa a `CONFIRMED`.
-- Queda rastro en el AuditLog (acción `ADMIN_RESOLVE`).
-- El resultado entra en los standings.
+- En `/calendario` y `/mis-partidas` conviven las tres etiquetas: la partida jugada del paso 11 (sin etiqueta especial, "Jugada"/"Apuntada"), la de incomparecencia del paso 12 ("Incomparecencia") y las saldadas al cerrar la ronda ("Saldada sin jugar").
+- En `/clasificacion`, la columna **PJ** de los jugadores con alguna partida saldada muestra el desglose entre paréntesis, p.ej. `1 (1 saldada)` o `2 (1 saldada)`.
+- Los puntos y VP de las partidas saldadas cuentan exactamente igual que los de una jugada de verdad con esos mismos números.
 
 ---
 
-## Paso 15 — Confirmar más partidas para standings completos
+## Paso 15 — Apuntar más resultados para tener standings completos
 
-Para probar los playoffs necesitas al menos `playoffSize` (= 4) jugadores con resultados confirmados. Repite los pasos 11-12 para al menos 3 partidas más entre jugadores distintos, de modo que 4 jugadores tengan al menos un resultado confirmado.
+Repite el paso 11 (apuntar resultado) para al menos 3 partidas más entre jugadores distintos, de modo que 4 jugadores tengan al menos un resultado apuntado — necesario para que `/admin/playoffs` tenga con qué construir la previsualización de seeds.
 
 ---
 
-## Paso 16 — Iniciar los playoffs (admin)
+## Paso 16 — Cerrar el resto de rondas (admin)
+
+Los playoffs solo se pueden iniciar cuando **todas** las rondas están cerradas.
+
+**Acción:**
+Repite el paso 13 (editar la fecha a una fecha pasada si hace falta, y pulsar "Cerrar ronda N") para cada una de las rondas que queden abiertas (rondas 2 a 6, salvo que hayas generado menos).
+
+**Resultado esperado:**
+- Todas las rondas de `/admin/rondas` muestran "Cerrada".
+- Cada ronda que cierres sin tener todas sus partidas resueltas salda las que falten como 0-0, igual que en el paso 13.
+
+---
+
+## Paso 17 — Iniciar los playoffs (admin)
 
 **Acción:**
 1. Entra como admin.
 2. Ve a `/admin/playoffs`.
 
-**Resultado esperado:**
+**Resultado esperado (con alguna ronda todavía abierta):**
+- Aparece un aviso "No se pueden iniciar los playoffs todavía", con la lista de rondas abiertas y su fecha de cierre. El botón de iniciar no aparece.
+
+**Resultado esperado (con todas las rondas cerradas, tras el paso 16):**
 - Ves los standings actuales y la previsualización de los 4 mejores seeds (el `playoffSize` es 4).
 - Se muestra quiénes formarían cada enfrentamiento de primera ronda.
 
@@ -276,42 +289,41 @@ Para probar los playoffs necesitas al menos `playoffSize` (= 4) jugadores con re
 
 ---
 
-## Paso 17 — Ver el bracket
+## Paso 18 — Ver el bracket
 
 **Acción:**
 1. Ve a `/bracket`.
 
 **Resultado esperado:**
-- Se muestra el árbol del bracket con los 4 jugadores classificados.
-- Las etiquetas de ronda se muestran correctamente (semifinales, final con 4 jugadores).
+- Se muestra el árbol del bracket con los 4 jugadores clasificados.
+- Las etiquetas de ronda se muestran correctamente (semifinales, final con 4 jugadores). Estas son las rondas del bracket de playoffs, sin relación con las rondas mensuales de la fase de liga.
 - Los byes, si los hay, aparecen con el seed avanzando automáticamente.
 
 ---
 
-## Paso 18 — Jugar y confirmar una partida de playoff
+## Paso 19 — Jugar y apuntar una partida de playoff
 
 **Acción:**
 1. Entra como el jugador seed 1 o seed 4 (según el emparejamiento del bracket).
 2. Ve a `/mis-partidas`.
-3. Reporta el resultado de la partida de playoff (el outcome debe ser `HOME_WIN` o `AWAY_WIN`; el empate no está permitido en playoffs).
-4. El rival confirma el resultado.
+3. Apunta el resultado de la partida de playoff (el outcome debe ser victoria local o visitante; el empate no está permitido en playoffs).
 
 **Resultado esperado:**
-- La partida pasa a `CONFIRMED`.
+- El resultado cuenta de inmediato, sin paso de confirmación.
 - El ganador avanza automáticamente al siguiente slot del bracket.
 - En `/bracket` puedes ver al ganador en la siguiente ronda.
-- Si se intenta reportar un empate en un match de playoff, la app lo rechaza.
+- Si se intenta apuntar un empate en una partida de playoff, la app lo rechaza.
 
 ---
 
-## Paso 19 — Completar el bracket hasta el campeón
+## Paso 20 — Completar el bracket hasta el campeón
 
-Repite el paso 18 para todas las partidas restantes del bracket (semifinales, final).
+Repite el paso 19 para todas las partidas restantes del bracket (semifinales, final).
 
-**Resultado esperado al confirmar la final:**
+**Resultado esperado al apuntar la final:**
 - La liga pasa a estado `FINISHED`.
 - En `/bracket` aparece un banner con el nombre del campeón.
-- No es posible seguir reportando resultados de playoff.
+- No es posible seguir apuntando resultados de playoff.
 
 ---
 
@@ -320,26 +332,27 @@ Repite el paso 18 para todas las partidas restantes del bracket (semifinales, fi
 | Paso | Acción | Estado resultante |
 |------|--------|------------------|
 | 1 | Login admin | Sesión admin activa |
-| 2-3 | Revisar config y jugadores | Liga en `SETUP`, 12 jugadores |
+| 2-3 | Revisar config y jugadores | Liga en `SETUP`, 12 jugadores, cupo 2, arranque marzo 2026 |
 | 4 | Crear jugador nuevo | 13 jugadores |
-| 5 | Generar emparejamientos | Liga en `LEAGUE`, 78 partidas en `SCHEDULED` |
+| 5 | Generar emparejamientos | Liga en `LEAGUE`, 78 partidas repartidas en 6 rondas |
 | 6-7 | Ver calendario y fijar fecha | 1 partida agendada |
 | 8-10 | Login jugador, mis partidas, fijar fecha | 2 partidas agendadas |
-| 11 | Reportar resultado | 1 partida en `REPORTED` |
-| 12 | Confirmar resultado | 1 partida en `CONFIRMED` |
-| 13 | Ver standings | Standings actualizados |
-| 14 | Disputar y resolver | 1 partida `CONFIRMED` via admin |
-| 15 | Más resultados confirmados | 4+ jugadores con puntos |
-| 16 | Iniciar playoffs | Liga en `PLAYOFFS` |
-| 17 | Ver bracket | Bracket visualizado |
-| 18 | Jugar playoff | 1 ganador avanzado |
-| 19 | Completar bracket | Liga en `FINISHED`, campeón coronado |
+| 11 | Apuntar resultado | 1 partida jugada, cuenta de inmediato |
+| 12 | Declarar incomparecencia | 1 partida 80-0, sin bonus |
+| 13 | Cerrar Ronda 1 | Ronda 1 cerrada, el resto de sus partidas saldadas 0-0 |
+| 14 | Verificar etiquetas y saldadas | Etiquetas correctas, `PJ N (M saldadas)` en clasificación |
+| 15 | Más resultados apuntados | 4+ jugadores con puntos |
+| 16 | Cerrar el resto de rondas | Todas las rondas cerradas |
+| 17 | Iniciar playoffs | Liga en `PLAYOFFS` |
+| 18 | Ver bracket | Bracket visualizado |
+| 19 | Jugar playoff | 1 ganador avanzado |
+| 20 | Completar bracket | Liga en `FINISHED`, campeón coronado |
 
 ---
 
 ## Tests automatizados (referencia)
 
-Como alternativa o complemento al recorrido manual, el test e2e de Playwright cubre el mismo flujo de forma automatizada:
+Como alternativa o complemento al recorrido manual, el test e2e de Playwright cubre el mismo flujo de forma automatizada — incluido el cierre de rondas, la incomparecencia y el arranque de playoffs:
 
 ```bash
 npm run e2e

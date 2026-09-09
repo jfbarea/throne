@@ -141,6 +141,15 @@ La configuración se gestiona desde el panel de admin en `/admin/liga`. Los camp
 | `pointsDraw` | 1 | Puntos de liga por empate |
 | `pointsLoss` | 0 | Puntos de liga por derrota |
 
+### Rondas mensuales
+
+| Campo | Por defecto | Descripción |
+|-------|-------------|-------------|
+| `matchesPerRound` | 2 | Partidas que cada jugador debe jugar por ronda. El número de rondas se **deriva** de esto y del número de jugadores; no se configura directamente |
+| `startMonth` | — (vacío) | Mes de arranque de la liga. De él se deriva la fecha de cierre de cada ronda (el último día de cada mes sucesivo). Sin él, no se pueden generar emparejamientos |
+
+Cambiar `matchesPerRound` con la liga ya en marcha **recalcula el reparto** de las partidas que aún no tienen resultado entre las rondas todavía abiertas; las rondas cerradas y sus resultados no se tocan. El admin puede editar la fecha de cierre de una ronda concreta desde `/admin/rondas` sin que eso reasigne ninguna partida.
+
 ### Bonus (opcionales, pensados para W40k)
 
 | Campo | Por defecto | Descripción |
