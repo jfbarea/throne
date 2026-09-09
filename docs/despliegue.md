@@ -65,21 +65,57 @@ npm run db:migrate:turso
 
 El script (`scripts/migrate-turso.mjs`) usa `@libsql/client` directamente —el mismo
 cliente que el adapter de Prisma— para autenticarse con el token, sin depender de la
-CLI de Turso ni de sus flags. Aplica cada `migration.sql` en orden cronológico.
-**Importante:** aplica *todas* las migraciones versionadas, no solo las nuevas. Las
-migraciones de Prisma no son idempotentes (`CREATE TABLE`, `DROP TABLE`, etc.), así
-que re-ejecutarlo sobre una base que ya las tiene fallará. Úsalo sobre una **base
-Turso recién creada** (vacía) la primera vez; para migraciones posteriores, aplica a
-mano solo el `migration.sql` nuevo, por ejemplo:
+CLI de Turso ni de sus flags.
+
+Lleva su propio registro en una tabla `_throne_migrations` de la base de destino, así
+que **aplica solo lo que falte y se puede re-ejecutar sin miedo**. Las migraciones de
+Prisma no son idempotentes (`CREATE TABLE`, `DROP TABLE`), y sin ese registro la
+segunda ejecución falla en la primera migración ya aplicada — que es justo como una
+base acaba varias migraciones por detrás sin que nadie se entere.
+
+Para ver qué haría sin tocar nada:
 
 ```bash
-node --env-file-if-exists=.env -e "import('@libsql/client').then(async ({createClient})=>{const c=createClient({url:process.env.DATABASE_URL,authToken:process.env.DATABASE_AUTH_TOKEN});await c.executeMultiple(require('fs').readFileSync('prisma/migrations/<nueva>/migration.sql','utf8'));c.close();})"
+npm run db:migrate:turso -- --dry-run
 ```
 
+### Adoptar una base migrada antes de que existiera el registro
+
+Si la base ya tiene tablas pero no tiene `_throne_migrations`, el script **se niega a
+seguir** y te lo dice. Hay que adoptarla primero, indicando la última migración que
+realmente tiene aplicada:
+
+```bash
+npm run db:migrate:turso -- --baseline <nombre-de-la-migración>
+npm run db:migrate:turso
+```
+
+El `--baseline` marca esa migración y todas las anteriores como aplicadas **sin
+ejecutarlas**; la segunda orden aplica el resto. Solo funciona sobre una base cuyo
+registro esté vacío, para que no se pueda usar por error y saltarse migraciones de
+verdad.
+
+> **Antes de migrar producción, haz una copia.** Las migraciones que redefinen tablas
+> en SQLite copian a una tabla nueva y hacen `DROP TABLE` de la vieja, y
+> `executeMultiple` no las envuelve en una transacción: si algo peta a mitad, no hay
+> rollback. `turso db shell <base> .dump > backup.sql`.
+
 > **Nota:** `db:migrate:turso` no sustituye a `prisma migrate dev`. El flujo de
-> trabajo es el mismo de siempre: creates las migraciones en local con
+> trabajo es el mismo de siempre: creas las migraciones en local con
 > `npx prisma migrate dev`, las versionas en git y luego las aplicas al remoto
 > con este script cuando vayas a desplegar.
+
+### Después de migrar a la versión con rondas: revisa el mes de arranque
+
+`20260908154638_add_rounds_and_resolution` añade `League.startMonth` como `NOT NULL
+DEFAULT CURRENT_TIMESTAMP`, así que las ligas que ya existían **no se quedan sin mes de
+arranque: se quedan con el instante en que corriste la migración**. La migración
+siguiente lo hace nullable, pero no borra ese valor.
+
+No es lo que quiere el dominio (una liga en SETUP debería tener `startMonth` a `null`
+hasta que el admin lo fije, `plan/specs/rondas-con-fecha.md` §4.4), y de ahí salen las
+fechas límite de todas las rondas al generar los emparejamientos. Entra en
+**Admin → Liga** y pon el mes de arranque real antes de generar nada.
 
 ---
 
