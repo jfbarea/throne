@@ -86,7 +86,19 @@
       ],
       "notes": "Modelo híbrido de tres capas, no dos: (1) page chrome fijo — Formato entero y la frase 'el ganador se decide por VP' de Puntuación — igual para toda liga, no es League config ni prosa editable; (2) generado desde League (puntuación, bonus, tiebreakers en su orden real vía parseTiebreakers/TIEBREAKER_LABELS de @/lib/schemas, matchesPerRound, playoffSize); (3) prosa libre en rulesMarkdown (Ejércitos/Incidencias/Convivencia). La razón de la capa (1): la migración de C0 (ya aplicada, SQL inmutable) horneó el placeholder de tres secciones en la única liga existente — Formato/Puntuación como prosa habría dejado esa liga con secciones que nunca podrán rellenarse retroactivamente. default-rules.ts reescrito con el texto íntegro de Ejércitos/Incidencias/Convivencia extraído del /bases/page.tsx borrado (80-0, interacción con el bonus, slow play, etc.), listo para toda liga nueva que cree D2 (createLeague/duplicateLeague). rules-content.tsx (mío, bajo src/app/liga/[slug]/bases/) es el módulo compartido: parseRulesSections (parser de markdown tolerante, párrafo=viñeta o '-' explícito), renderInline (**negrita**/*cursiva*), y las funciones puras pointsLine/bonusLine/tiebreakersLine/playoffsLine/matchesPerRoundLabel, que /admin/[slug]/bases/BasesRulesForm.tsx importa tal cual para que la vista previa no pueda desincronizarse de la página pública. HALLAZGO para arquitecto/reviewer: la prosa estática pre-multi-liga sobre desempates ('resultado directo · diferencia de VP · VP a favor · dado') ya estaba desincronizada del orden real que usa computeStandings (SPEC.md §7.3 / schema default: POINTS, VP_DIFF, VP_FOR, HEAD_TO_HEAD, LOSSES, ID_ORDER) desde antes de esta feature — le faltaba LOSSES y ordenaba HEAD_TO_HEAD primero. El bloque generado corrige esto por diseño (spec §4.11 exige leer 'del mismo sitio que usa computeStandings'), así que el criterio 45 se interpreta como continuidad de puntuación/desempates-como-concepto/partidas-por-ronda, no como igualdad literal de esa frase concreta — documentado también en el propio test. No se ha tocado la fila ya migrada por C0 (migración inmutable, aplicada): sigue con el placeholder de tres secciones que trajo esa migración, no con este texto ampliado; ese texto ampliado solo llega a ligas creadas de aquí en adelante."
     },
-    { "id": "E2", "lane": "E", "slug": "bases-publicas-y-ruta-antigua", "status": "PENDING", "criteria": [34, 40, 44] },
+    {
+      "id": "E2",
+      "lane": "E",
+      "slug": "bases-publicas-y-ruta-antigua",
+      "status": "READY_FOR_REVIEW",
+      "criteria": [34, 40, 44],
+      "files_changed": [
+        "src/app/bases/page.tsx",
+        "src/app/bases/LinkConcretoScreen.tsx",
+        "tests/bases-publicas-y-ruta-antigua.test.ts"
+      ],
+      "notes": "/liga/[slug]/bases ya nace pública en E1 (sesión → requireLeagueAccess; sin sesión → resolveLeagueBySlug sin guarda), este hito solo la ejercita explícitamente (test dedicado) y reescribe /bases a secas: ADMIN → /admin sin consultar nada; PLAYER → cookie.playerId → Player.leagueId → League.slug → /liga/<slug>/bases (misma receta que usará A2 para las otras cinco rutas antiguas), con liga archivada → /login (mismo precedente que requireLeagueAccess); sin sesión y exactamente una liga en circulación → redirect directo a sus bases (criterio 44, continuidad §7.1); sin sesión y 0 o ≥2 → LinkConcretoScreen, que no consulta la base de datos en absoluto (nunca puede listar lo que nunca pidió). Nota de test: el test.db real acumula ligas de toda la suite sin archivarlas nunca, así que el test de 'exactamente una liga en circulación' archiva primero todas las preexistentes (updateMany, no deleteMany — League no tiene cascade delete) antes de crear la suya; no rompe otros ficheros porque ninguno más cuenta ligas en circulación de forma global (verificado por grep y por la suite completa en verde, repetida dos veces)."
+    },
 
     { "id": "Z1", "lane": "cierre", "slug": "seed-y-e2e-con-dos-ligas", "status": "PENDING", "criteria": [42] },
     { "id": "Z2", "lane": "cierre", "slug": "auditoria-de-continuidad", "status": "PENDING", "criteria": [43, 46, 47] }
