@@ -316,12 +316,21 @@
       "id": "Z2",
       "lane": "cierre",
       "slug": "auditoria-de-continuidad",
-      "status": "PENDING",
+      "status": "READY_FOR_REVIEW",
       "criteria": [
         43,
         46,
         47
-      ]
+      ],
+      "branch": "feat/multi-liga-z2-continuidad",
+      "commit_sha": "c0b1586",
+      "files_changed": [
+        "tests/e2e/auditoria-continuidad.spec.ts",
+        "tests/auditoria-continuidad-bases.test.ts",
+        "tests/auditoria-migracion-no-destructiva.test.ts",
+        "plan/multi-liga/auditoria-continuidad.md"
+      ],
+      "notes": "Demuestra §7.1 recorriendo el camino real, no la función: (1) tests/e2e/auditoria-continuidad.spec.ts firma una cookie de sesión con signSession sin pasar por /login ni mockear @/lib/session o @/lib/guards, y comprueba con Playwright contra el servidor real que las cinco rutas antiguas resuelven en un único salto HTTP directo a /liga/<slug>/<página> (criterios 43, 46); (2) tests/auditoria-continuidad-bases.test.ts encadena los dos saltos reales de /bases sin sesión con una sola liga en circulación hasta /liga/[slug]/bases (criterio 44 — no se pudo verificar con HTTP real de extremo a extremo sin arriesgar el estado compartido de e2e.db, que siempre siembra dos ligas; motivo detallado en el doc de auditoría); (3) tests/auditoria-migracion-no-destructiva.test.ts aplica con el binario sqlite3 los .sql reales de las 6 migraciones sobre una base poblada con una fila en cada tabla del dominio y diffea todo antes/después (criterio 47), además de contrastar el slug de backfill en SQL puro contra slugify() real y comprobar PRAGMA foreign_key_check. Login y Navegación (las otras dos filas de la tabla §7.1) se verifican por lectura de código + la suite ya existente de C4/B1, sin test nuevo, porque no hay comportamiento de continuidad específico que demostrar ahí. Hallazgo elevado, no arreglado (fuera de alcance del hito): el bloque de desempates de /liga/[slug]/bases corrige un orden que ya estaba mal en el /bases anterior a multi-liga — el contenido de la liga real sí cambia en ese punto concreto, la excepción exacta que §7.1 pide evitar; ya estaba señalado por E1, se repite en el doc de auditoría para que lo decida el arquitecto/reviewer. npm run test: 744 (737 previos + 7). npm run e2e --project=chromium: 51 (40 previos + 11). npm run build y npm run lint en verde; next-env.d.ts revertido tras el build."
     }
   ]
 }
