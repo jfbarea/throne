@@ -147,11 +147,58 @@ export type LeagueConfigInput = z.input<typeof leagueConfigSchema>;
 export type LeagueConfigOutput = z.output<typeof leagueConfigSchema>;
 
 // ---------------------------------------------------------------------------
-// Create-league schema — same as config plus initial status always SETUP
+// Admin's own player name for a brand-new league
+// (multi-liga spec §2.9, §4.9 — D2 crear-duplicar-borrar)
 // ---------------------------------------------------------------------------
 
-export const createLeagueSchema = leagueConfigSchema;
-export type CreateLeagueInput = LeagueConfigInput;
+/**
+ * Validates the display name for the ADMIN `Player` row created alongside a
+ * brand-new league (`/admin/nueva`, `createLeague`). Same length bounds as
+ * `createPlayerSchema.displayName` below — it's still a `Player.displayName`
+ * row, just never subject to the global-uniqueness check that applies to
+ * `role: "PLAYER"` names (spec §2.7's admin exception).
+ */
+export const adminDisplayNameSchema = z
+  .string()
+  .trim()
+  .min(1, "El nombre del admin no puede estar vacío")
+  .max(80, "El nombre del admin no puede superar los 80 caracteres");
+
+/**
+ * `createLeague`'s full input: the same league configuration as
+ * `LeagueConfigInput` plus the admin's own player name for the league being
+ * created (spec §4.9: "El formulario de creación incluye el nombre de
+ * jugador del admin, precargado con el que use en la liga en circulación
+ * más reciente"). `adminDisplayName` is optional here — not because the
+ * product allows skipping it (the `/admin/nueva` form always sends it), but
+ * so `createLeague`'s pre-existing callers (direct test fixtures) keep
+ * compiling and working unchanged: `createLeague` falls back to a generic
+ * admin name when it's missing.
+ */
+export interface CreateLeagueInput extends LeagueConfigInput {
+  adminDisplayName?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Duplicate league — only name + season for the destination; everything
+// else is copied from the origin (multi-liga spec §2.9, §4.8 — D2)
+// ---------------------------------------------------------------------------
+
+export const duplicateLeagueSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "El nombre de la liga no puede estar vacío")
+    .max(120, "El nombre de la liga no puede superar los 120 caracteres"),
+
+  season: z
+    .string()
+    .trim()
+    .min(1, "La temporada no puede estar vacía")
+    .max(80, "La temporada no puede superar los 80 caracteres"),
+});
+
+export type DuplicateLeagueInput = z.infer<typeof duplicateLeagueSchema>;
 
 // ---------------------------------------------------------------------------
 // Factions (src/lib/factions.ts)
