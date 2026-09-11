@@ -19,6 +19,14 @@
 // single league this index belongs to) instead of relying on
 // `/admin/layout.tsx`, which is guard-only now — see that file's comment
 // for why.
+//
+// Multi-liga hito de integración I1: each row also mounts
+// `AdminLeagueActions` (./AdminLeagueActions.tsx), which wires up lane D's
+// four lifecycle action components — archive, unarchive, duplicate,
+// hard-delete (spec §2.8, §2.9, §2.10) — against the contract fixed in C2
+// (src/components/admin/league-actions-contract.ts). Lane B originally left
+// that mount point as a stub returning `null` because it landed before D
+// published the components; this closes that seam.
 import { prisma } from "@/lib/db";
 import { Card } from "@/components/Card";
 import { Badge } from "@/components/Badge";
@@ -26,6 +34,7 @@ import { Eyebrow } from "@/components/Eyebrow";
 import { AppHeader } from "@/components/AppHeader";
 import Link from "next/link";
 import type { LeagueActionTarget } from "@/components/admin/league-actions-contract";
+import { AdminLeagueActions } from "./AdminLeagueActions";
 import { Crown, Plus } from "@phosphor-icons/react/dist/ssr";
 
 const STATUS_LABEL: Record<string, { label: string; variant: "brass" | "moss" | "ash" | "ember" | "neutral" }> = {
@@ -165,44 +174,40 @@ export default async function AdminPage() {
 function LeagueRow({ league }: { league: LeagueActionTarget }) {
   const st = STATUS_LABEL[league.status] ?? { label: league.status, variant: "neutral" as const };
   return (
-    <Card className="flex items-center justify-between gap-4 py-4">
-      <Link href={`/admin/${league.slug}/liga`} className="min-w-0 flex-1 no-underline">
-        <div className="flex items-center gap-2">
-          <Crown size={14} style={{ color: "var(--accent)", flexShrink: 0 }} />
+    <Card className="py-4 space-y-3">
+      <div className="flex items-center justify-between gap-4">
+        <Link href={`/admin/${league.slug}/liga`} className="min-w-0 flex-1 no-underline">
+          <div className="flex items-center gap-2">
+            <Crown size={14} style={{ color: "var(--accent)", flexShrink: 0 }} />
+            <p
+              className="text-[14px] font-semibold truncate"
+              style={{ fontFamily: "var(--font-sans)", color: "var(--fg)" }}
+            >
+              {league.name}
+            </p>
+          </div>
           <p
-            className="text-[14px] font-semibold truncate"
-            style={{ fontFamily: "var(--font-sans)", color: "var(--fg)" }}
+            className="mt-0.5 text-[12px] truncate"
+            style={{ color: "var(--fg-faint)", fontFamily: "var(--font-sans)" }}
           >
-            {league.name}
+            {league.season} · {league.activePlayerCount} jugador
+            {league.activePlayerCount !== 1 ? "es" : ""} activo
+            {league.activePlayerCount !== 1 ? "s" : ""}
           </p>
+        </Link>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Badge variant={st.variant}>{st.label}</Badge>
+          {league.archivedAt !== null && <Badge variant="ash">Archivada</Badge>}
         </div>
-        <p
-          className="mt-0.5 text-[12px] truncate"
-          style={{ color: "var(--fg-faint)", fontFamily: "var(--font-sans)" }}
-        >
-          {league.season} · {league.activePlayerCount} jugador
-          {league.activePlayerCount !== 1 ? "es" : ""} activo
-          {league.activePlayerCount !== 1 ? "s" : ""}
-        </p>
-      </Link>
-      <div className="flex items-center gap-2 flex-shrink-0">
-        <Badge variant={st.variant}>{st.label}</Badge>
-        {league.archivedAt !== null && <Badge variant="ash">Archivada</Badge>}
-        <LeagueRowActions league={league} />
       </div>
+
+      {/* Multi-liga D1/D2 lifecycle actions (spec §2.8, §2.9, §2.10),
+          mounted here per the contract fixed in C2
+          (src/components/admin/league-actions-contract.ts). Each of the
+          four components self-hides when it doesn't apply to this league's
+          current state (archived vs. not, SETUP + zero matches vs. not) —
+          this row never decides eligibility itself. */}
+      <AdminLeagueActions league={league} />
     </Card>
   );
-}
-
-// Extension point for lane D's action components (archive, unarchive,
-// duplicate, hard-delete — spec §2.8, §2.9, §2.10), built against the
-// contract in src/components/admin/league-actions-contract.ts (fixed in
-// C2). Until D lands, this renders nothing: no button, no gap in the
-// layout, no import of a module that doesn't exist yet. Replace the body
-// with the real `<ArchiveLeagueAction league={league} .../>` etc. once
-// those components exist — the row already has every field
-// `LeagueActionTarget` needs, computed once per league above.
-function LeagueRowActions({ league }: { league: LeagueActionTarget }) {
-  void league;
-  return null;
 }
