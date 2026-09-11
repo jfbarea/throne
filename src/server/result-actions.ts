@@ -24,6 +24,7 @@ import { advancePlayoffWinner } from "@/server/playoff-actions";
 import {
   assertLeagueWritable,
   LeagueArchivedError,
+  resolveActingPlayerId,
 } from "@/lib/league-context";
 
 // ---------------------------------------------------------------------------
@@ -180,7 +181,12 @@ export async function reportResult(
   }
 
   const isAdmin = session.role === "ADMIN";
-  const actorId = session.playerId;
+  // Multi-liga spec §2.4, §4.4, §4.9: the admin session carries no fixed
+  // playerId (login-admin signs `playerId: null`), so the actor is derived
+  // per-league — the `Player` with `role = ADMIN` in *this* match's league,
+  // never a global/session-level id. A PLAYER session still resolves to
+  // itself, unchanged.
+  const actorId = await resolveActingPlayerId(match.leagueId, session);
 
   // Authorization: home player, away player, or admin.
   if (
@@ -232,12 +238,16 @@ export async function reportResult(
     }
   );
 
-  // Admin sessions must have a playerId for DB writes.
+  // A write needs a real Player to attribute it to. For a PLAYER session
+  // this can't happen (canReport already required actorId to match a
+  // participant). For ADMIN it means this league has no `role = ADMIN`
+  // Player yet (spec §4.9, criterio 13 guarantees one going forward, but
+  // doesn't retroactively backfill leagues created before lane D).
   if (!actorId) {
     return {
       ok: false,
       error:
-        "La sesión de administrador no tiene un jugador asociado. Usa un jugador con rol ADMIN.",
+        "Esta liga no tiene un jugador con rol ADMIN. No se puede atribuir la acción.",
     };
   }
 
@@ -502,7 +512,8 @@ export async function declareWalkover(
   }
 
   const isAdmin = session.role === "ADMIN";
-  const actorId = session.playerId;
+  // Multi-liga spec §2.4, §4.4, §4.9 — same derivation as reportResult above.
+  const actorId = await resolveActingPlayerId(match.leagueId, session);
 
   // Authorization: home player, away player, or admin (reused as-is).
   if (
@@ -541,12 +552,12 @@ export async function declareWalkover(
     };
   }
 
-  // Admin sessions must have a playerId for DB writes.
+  // A write needs a real Player to attribute it to — see reportResult above.
   if (!actorId) {
     return {
       ok: false,
       error:
-        "La sesión de administrador no tiene un jugador asociado. Usa un jugador con rol ADMIN.",
+        "Esta liga no tiene un jugador con rol ADMIN. No se puede atribuir la acción.",
     };
   }
 

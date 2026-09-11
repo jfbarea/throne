@@ -415,7 +415,11 @@ describe("closeRound: rutas de error adicionales", () => {
     const result = await closeRound(round.id);
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error).toMatch(/jugador asociado/i);
+    // Multi-liga C5 (round-actions.ts): the actor is now derived per-league
+    // via resolveActingPlayerId, not read off session.playerId — this
+    // league genuinely has no role=ADMIN Player at all, which is what the
+    // updated message says.
+    expect(result.error).toMatch(/no tiene un jugador con rol ADMIN/i);
 
     const after = await prisma.round.findUnique({ where: { id: round.id } });
     expect(after?.closedAt).toBeNull();
