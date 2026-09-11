@@ -1,8 +1,17 @@
-// Admin layout — requires ADMIN session (server-side guard).
-// All routes under /admin are protected. SPEC §5.
-
+// Admin layout — requires ADMIN session (server-side guard) for every route
+// under /admin. SPEC §5.
+//
+// Multi-liga B1 (indice-de-ligas-y-pantallas-con-slug): this used to also
+// render the page chrome (AppHeader + main wrapper + footer) — but AppHeader
+// needs the current league's slug to build its nav links (spec §2.3, §4.10),
+// and a layout above a dynamic `[slug]` segment never receives that
+// segment's params, only the segment's own layout/page does. So the chrome
+// moved down to wherever the slug (or its absence) is actually known:
+// `/admin/page.tsx` (the league index — no slug) and
+// `/admin/[slug]/layout.tsx` (every page scoped to one league). This layout
+// is now guard-only, same as every player page already builds its own
+// chrome inline instead of relying on a shared cross-cutting layout.
 import { requireAdmin } from "@/lib/guards";
-import { AppHeader } from "@/components/AppHeader";
 
 export default async function AdminLayout({
   children,
@@ -12,27 +21,5 @@ export default async function AdminLayout({
   // Guard: redirects to /login or /unauthorized if session is absent or not ADMIN.
   await requireAdmin();
 
-  return (
-    <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)", color: "var(--fg)" }}>
-      {/* Top nav */}
-      <AppHeader active="admin" />
-
-      {/* Page content */}
-      <main className="flex-1 px-4 py-6 max-w-4xl mx-auto w-full">
-        {children}
-      </main>
-
-      {/* Footer */}
-      <footer
-        className="px-4 py-3 text-center text-[11px] border-t"
-        style={{
-          color: "var(--fg-faint)",
-          borderColor: "var(--border)",
-          fontFamily: "var(--font-sans)",
-        }}
-      >
-        throne · Panel de administración
-      </footer>
-    </div>
-  );
+  return <>{children}</>;
 }

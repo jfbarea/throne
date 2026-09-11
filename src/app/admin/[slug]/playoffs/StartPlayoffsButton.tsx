@@ -2,6 +2,9 @@
 
 // StartPlayoffsButton — client component that calls the startPlayoffs server action.
 // Hito 9: playoffs-bracket.
+//
+// Multi-liga B1: navigates to `/liga/<slug>/bracket` instead of the old
+// unslugged `/bracket` (spec §2.5 route map).
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -9,7 +12,13 @@ import { startPlayoffs } from "@/server/playoff-actions";
 import { Button } from "@/components/Button";
 import { Trophy } from "@phosphor-icons/react";
 
-export function StartPlayoffsButton({ leagueId }: { leagueId: string }) {
+export function StartPlayoffsButton({
+  leagueId,
+  leagueSlug,
+}: {
+  leagueId: string;
+  leagueSlug: string;
+}) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +30,7 @@ export function StartPlayoffsButton({ leagueId }: { leagueId: string }) {
     try {
       const result = await startPlayoffs(leagueId);
       if (result.ok) {
-        router.push("/bracket");
+        router.push(`/liga/${leagueSlug}/bracket`);
         router.refresh();
       } else {
         setError(result.error);

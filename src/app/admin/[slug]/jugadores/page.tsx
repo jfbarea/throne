@@ -1,17 +1,28 @@
 // Admin > Jugadores — player management page.
-// Server Component: loads league and players from DB.
-// Protected by AdminLayout.
+// Server Component: loads the league (scoped by the URL slug) and its
+// players from DB. Protected by the /admin and /admin/[slug] layouts.
+//
+// Multi-liga B1 (indice-de-ligas-y-pantallas-con-slug): moved from the old
+// single-league /admin/jugadores (`prisma.league.findFirst`). The league
+// always exists here (the `[slug]` layout already resolved and guarded it),
+// so the old "no hay ninguna liga creada" empty state is gone with it.
 
 import { prisma } from "@/lib/db";
 import { Eyebrow } from "@/components/Eyebrow";
-import { Card } from "@/components/Card";
 import { PlayersPageClient } from "./PlayersPageClient";
-import Link from "next/link";
 
-export default async function AdminJugadoresPage() {
-  // In MVP there is a single active league.
-  const league = await prisma.league.findFirst({
-    orderBy: { createdAt: "desc" },
+export default async function AdminJugadoresPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const { slug } = await params;
+  // Never null: the `/admin/[slug]` layout already resolved and guarded this
+  // exact slug (spec §4.1). Queried directly (not via the cache()-wrapped
+  // `resolveLeagueBySlug`) because this page needs the players included,
+  // which that shared helper doesn't select.
+  const league = (await prisma.league.findUnique({
+    where: { slug },
     include: {
       players: {
         orderBy: [{ active: "desc" }, { createdAt: "asc" }],
@@ -24,41 +35,7 @@ export default async function AdminJugadoresPage() {
         },
       },
     },
-  });
-
-  if (!league) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <Eyebrow>Administración · Jugadores</Eyebrow>
-          <h1
-            className="mt-2 text-[28px] font-semibold leading-tight"
-            style={{ fontFamily: "var(--font-display)", color: "var(--fg)" }}
-          >
-            Gestión de jugadores
-          </h1>
-        </div>
-        <Card className="text-center py-10">
-          <p
-            className="text-[15px] font-semibold"
-            style={{ color: "var(--fg-muted)", fontFamily: "var(--font-sans)" }}
-          >
-            No hay ninguna liga creada
-          </p>
-          <p
-            className="mt-1 text-[13px]"
-            style={{ color: "var(--fg-faint)", fontFamily: "var(--font-sans)" }}
-          >
-            Primero{" "}
-            <Link href="/admin/liga" style={{ color: "var(--accent)" }}>
-              crea una liga
-            </Link>{" "}
-            para poder añadir jugadores.
-          </p>
-        </Card>
-      </div>
-    );
-  }
+  }))!;
 
   const players = league.players.map((p) => ({
     ...p,

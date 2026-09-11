@@ -1,6 +1,13 @@
 // Admin > Emparejamientos — generate league pairings.
-// Server Component: loads league, players and current matches from DB.
-// Protected by AdminLayout (requireAdmin called in layout).
+// Server Component: loads the league (scoped by the URL slug), players and
+// current matches from DB. Protected by the /admin and /admin/[slug]
+// layouts.
+//
+// Multi-liga B1 (indice-de-ligas-y-pantallas-con-slug): moved from the old
+// single-league /admin/emparejamientos (`prisma.league.findFirst`). The
+// league always exists here, so the old "no hay ninguna liga creada" empty
+// state is gone with it. Every in-page link that used to point at an
+// unslugged route now carries this league's slug.
 
 import { prisma } from "@/lib/db";
 import { Eyebrow } from "@/components/Eyebrow";
@@ -12,54 +19,22 @@ import { expectedPairingCount, missingPairings } from "@/server/pairings";
 import Link from "next/link";
 import { Users, CalendarBlank } from "@phosphor-icons/react/dist/ssr";
 
-export default async function AdminEmparejamientosPage() {
-  // MVP: single active league.
-  const league = await prisma.league.findFirst({
-    orderBy: { createdAt: "desc" },
+export default async function AdminEmparejamientosPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const { slug } = await params;
+  // Never null: the `/admin/[slug]` layout already resolved and guarded
+  // this exact slug (spec §4.1).
+  const league = (await prisma.league.findUnique({
+    where: { slug },
     include: {
       _count: {
         select: { players: { where: { active: true } } },
       },
     },
-  });
-
-  if (!league) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <Eyebrow>Administración · Emparejamientos</Eyebrow>
-          <h1
-            className="mt-2 text-[28px] font-semibold leading-tight"
-            style={{ fontFamily: "var(--font-display)", color: "var(--fg)" }}
-          >
-            Emparejamientos de liga
-          </h1>
-        </div>
-        <Card className="text-center py-10">
-          <p
-            className="text-[15px] font-semibold"
-            style={{ color: "var(--fg-muted)", fontFamily: "var(--font-sans)" }}
-          >
-            No hay ninguna liga creada
-          </p>
-          <p
-            className="mt-1 text-[13px]"
-            style={{ color: "var(--fg-faint)", fontFamily: "var(--font-sans)" }}
-          >
-            Primero{" "}
-            <Link href="/admin/liga" style={{ color: "var(--accent)" }}>
-              crea una liga
-            </Link>{" "}
-            y{" "}
-            <Link href="/admin/jugadores" style={{ color: "var(--accent)" }}>
-              añade jugadores
-            </Link>
-            .
-          </p>
-        </Card>
-      </div>
-    );
-  }
+  }))!;
 
   const activePlayers = await prisma.player.findMany({
     where: { leagueId: league.id, active: true },
@@ -220,7 +195,7 @@ export default async function AdminEmparejamientosPage() {
             }}
           >
             Se necesitan al menos 2 jugadores activos.{" "}
-            <Link href="/admin/jugadores" style={{ color: "var(--accent)" }}>
+            <Link href={`/admin/${slug}/jugadores`} style={{ color: "var(--accent)" }}>
               Añadir jugadores →
             </Link>
           </p>
@@ -331,7 +306,7 @@ export default async function AdminEmparejamientosPage() {
           <div className="flex items-center justify-between mb-3">
             <Eyebrow>Partidas de liga</Eyebrow>
             <Link
-              href="/calendario"
+              href={`/liga/${slug}/calendario`}
               className="text-[12px] no-underline"
               style={{ color: "var(--accent)", fontFamily: "var(--font-sans)" }}
             >

@@ -1,9 +1,14 @@
 // Admin > Rondas — list of league rounds with their deadline and status.
-// Server Component: loads league and its rounds from DB.
-// Protected by AdminLayout (requireAdmin called there).
+// Server Component: loads the league (scoped by the URL slug) and its
+// rounds from DB. Protected by the /admin and /admin/[slug] layouts.
 //
 // Rondas-con-fecha spec §4.4, §4.7. Hito 3: generar-con-rondas.
 // Hito 4 (cierre-de-ronda) adds the "Cerrar ronda N" button per round.
+//
+// Multi-liga B1 (indice-de-ligas-y-pantallas-con-slug): moved from the old
+// single-league /admin/rondas (`prisma.league.findFirst`). The league
+// always exists here, so the old "no hay ninguna liga creada" empty state
+// is gone with it. In-page links now carry this league's slug.
 
 import { prisma } from "@/lib/db";
 import { Eyebrow } from "@/components/Eyebrow";
@@ -13,45 +18,15 @@ import { EditDeadlineForm } from "./EditDeadlineForm";
 import { CloseRoundButton } from "./CloseRoundButton";
 import Link from "next/link";
 
-export default async function AdminRondasPage() {
-  // MVP: single active league.
-  const league = await prisma.league.findFirst({
-    orderBy: { createdAt: "desc" },
-  });
-
-  if (!league) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <Eyebrow>Administración · Rondas</Eyebrow>
-          <h1
-            className="mt-2 text-[28px] font-semibold leading-tight"
-            style={{ fontFamily: "var(--font-display)", color: "var(--fg)" }}
-          >
-            Rondas de la liga
-          </h1>
-        </div>
-        <Card className="text-center py-10">
-          <p
-            className="text-[15px] font-semibold"
-            style={{ color: "var(--fg-muted)", fontFamily: "var(--font-sans)" }}
-          >
-            No hay ninguna liga creada
-          </p>
-          <p
-            className="mt-1 text-[13px]"
-            style={{ color: "var(--fg-faint)", fontFamily: "var(--font-sans)" }}
-          >
-            Primero{" "}
-            <Link href="/admin/liga" style={{ color: "var(--accent)" }}>
-              crea una liga
-            </Link>
-            .
-          </p>
-        </Card>
-      </div>
-    );
-  }
+export default async function AdminRondasPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const { slug } = await params;
+  // Never null: the `/admin/[slug]` layout already resolved and guarded
+  // this exact slug (spec §4.1).
+  const league = (await prisma.league.findUnique({ where: { slug } }))!;
 
   const rounds = await prisma.round.findMany({
     where: { leagueId: league.id },
@@ -107,11 +82,11 @@ export default async function AdminRondasPage() {
             style={{ color: "var(--fg-faint)", fontFamily: "var(--font-sans)" }}
           >
             Se crean al{" "}
-            <Link href="/admin/emparejamientos" style={{ color: "var(--accent)" }}>
+            <Link href={`/admin/${slug}/emparejamientos`} style={{ color: "var(--accent)" }}>
               generar los emparejamientos
             </Link>
             . Hace falta un mes de arranque configurado en{" "}
-            <Link href="/admin/liga" style={{ color: "var(--accent)" }}>
+            <Link href={`/admin/${slug}/liga`} style={{ color: "var(--accent)" }}>
               la liga
             </Link>
             .
