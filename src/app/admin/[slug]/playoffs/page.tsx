@@ -1,23 +1,32 @@
 // Admin: iniciar playoffs — cerrar fase de liga y construir el bracket.
 // SPEC §7.4, §5. Solo admin.
+//
+// Multi-liga B1 (indice-de-ligas-y-pantallas-con-slug): moved from the old
+// single-league /admin/playoffs, which resolved "the" league with
+// `prisma.league.findFirst({ where: { status: { in: [...] } } })` — the
+// first league anywhere in the database in one of those phases, regardless
+// of which one the admin meant. The league now comes from the URL slug
+// (guaranteed to exist by the `/admin/[slug]` layout); the status filter
+// becomes a simple eligibility check on that specific league instead of a
+// query that picks which league to show.
 
-import { requireAdmin } from "@/lib/guards";
 import { prisma } from "@/lib/db";
 import { computeStandings } from "@/server/standings";
 import { formatOpenRoundsMessage } from "@/server/bracket";
 import Link from "next/link";
 import { StartPlayoffsButton } from "./StartPlayoffsButton";
 
-export default async function AdminPlayoffsPage() {
-  await requireAdmin();
+export default async function AdminPlayoffsPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const { slug } = await params;
+  // Never null: the `/admin/[slug]` layout already resolved and guarded
+  // this exact slug (spec §4.1).
+  const league = (await prisma.league.findUnique({ where: { slug } }))!;
 
-  // Load active league in LEAGUE or PLAYOFFS/FINISHED status.
-  const league = await prisma.league.findFirst({
-    where: { status: { in: ["LEAGUE", "PLAYOFFS", "FINISHED"] } },
-    orderBy: { createdAt: "desc" },
-  });
-
-  if (!league) {
+  if (!["LEAGUE", "PLAYOFFS", "FINISHED"].includes(league.status)) {
     return (
       <div
         className="rounded-[var(--radius-sm)] border p-6"
@@ -28,8 +37,9 @@ export default async function AdminPlayoffsPage() {
         }}
       >
         <p style={{ color: "var(--fg-muted)" }}>
-          No hay ninguna liga activa en fase LEAGUE. Primero genera los
-          emparejamientos y asegúrate de que la liga esté en marcha.
+          {league.name} · {league.season} todavía no está en fase LEAGUE.
+          Primero genera los emparejamientos y asegúrate de que la liga esté
+          en marcha.
         </p>
       </div>
     );
@@ -136,7 +146,7 @@ export default async function AdminPlayoffsPage() {
             Los playoffs ya han sido iniciados (estado: {league.status}).
           </p>
           <Link
-            href="/bracket"
+            href={`/liga/${slug}/bracket`}
             className="mt-2 inline-block text-sm font-semibold no-underline"
             style={{ color: "var(--accent)" }}
           >
@@ -280,7 +290,7 @@ export default async function AdminPlayoffsPage() {
             ))}
           </ul>
           <Link
-            href="/admin/rondas"
+            href={`/admin/${slug}/rondas`}
             className="mt-3 inline-block text-sm font-semibold no-underline"
             style={{ color: "var(--accent)" }}
           >
@@ -325,7 +335,7 @@ export default async function AdminPlayoffsPage() {
             standings actuales y se construirá el cuadro de eliminatoria. Esta
             acción no se puede deshacer.
           </p>
-          <StartPlayoffsButton leagueId={league.id} />
+          <StartPlayoffsButton leagueId={league.id} leagueSlug={slug} />
         </div>
       )}
     </div>

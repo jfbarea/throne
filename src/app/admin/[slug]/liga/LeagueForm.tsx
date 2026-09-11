@@ -1,7 +1,12 @@
 "use client";
 
-// LeagueForm — client component for creating/editing league configuration.
-// Hito 5: admin-liga-jugadores. SPEC §4.1, §7.1, §7.3.
+// LeagueForm — client component for editing an existing league's
+// configuration. Hito 5: admin-liga-jugadores. SPEC §4.1, §7.1, §7.3.
+//
+// Multi-liga B1/B2: this page lives under /admin/[slug]/liga, which — unlike
+// its single-league predecessor /admin/liga — is edit-only (spec §2.9:
+// "/admin/[slug]/liga queda solo para editar"; creation moves to
+// /admin/nueva, lane D). `league` is therefore always provided.
 
 import { useState, useTransition } from "react";
 import { Button } from "@/components/Button";
@@ -14,15 +19,17 @@ import {
   type Tiebreaker,
   type LeagueConfigInput,
 } from "@/lib/schemas";
-import { createLeague, updateLeague } from "@/server/league-actions";
-import { ArrowUp, ArrowDown, Plus, FloppyDisk } from "@phosphor-icons/react";
+import { updateLeague } from "@/server/league/config";
+import { ArrowUp, ArrowDown, FloppyDisk } from "@phosphor-icons/react";
 import type { League } from "@/generated/prisma/client";
 
 interface LeagueFormProps {
-  /** If provided, we are editing an existing league; otherwise creating. */
-  league?: League;
-  /** Called after successful save so the page can show feedback. */
-  onSaved?: (id: string) => void;
+  league: League;
+  /** Called after a successful save with the league's current slug (B2:
+   * unchanged if the rename didn't touch name/season, the recomputed one
+   * otherwise) so the page can navigate there instead of refreshing a
+   * possibly now-stale URL. */
+  onSaved?: (result: { slug: string }) => void;
 }
 
 function parseTiebreakersSafe(raw: string): Tiebreaker[] {
@@ -47,38 +54,35 @@ function toMonthInputValue(date: Date): string {
 }
 
 export function LeagueForm({ league, onSaved }: LeagueFormProps) {
-  const isEditing = !!league;
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [saved, setSaved] = useState(false);
 
   // Form state
-  const [name, setName] = useState(league?.name ?? "");
-  const [season, setSeason] = useState(league?.season ?? "");
-  const [pointsWin, setPointsWin] = useState(String(league?.pointsWin ?? 3));
-  const [pointsDraw, setPointsDraw] = useState(String(league?.pointsDraw ?? 1));
-  const [pointsLoss, setPointsLoss] = useState(String(league?.pointsLoss ?? 0));
-  const [bonusEnabled, setBonusEnabled] = useState(league?.bonusEnabled ?? false);
+  const [name, setName] = useState(league.name);
+  const [season, setSeason] = useState(league.season);
+  const [pointsWin, setPointsWin] = useState(String(league.pointsWin));
+  const [pointsDraw, setPointsDraw] = useState(String(league.pointsDraw));
+  const [pointsLoss, setPointsLoss] = useState(String(league.pointsLoss));
+  const [bonusEnabled, setBonusEnabled] = useState(league.bonusEnabled);
   const [bonusMarginThreshold, setBonusMarginThreshold] = useState(
-    String(league?.bonusMarginThreshold ?? "")
+    String(league.bonusMarginThreshold ?? "")
   );
   const [bonusMinVP, setBonusMinVP] = useState(
-    String(league?.bonusMinVP ?? "")
+    String(league.bonusMinVP ?? "")
   );
-  const [playoffSize, setPlayoffSize] = useState(
-    String(league?.playoffSize ?? 4)
-  );
+  const [playoffSize, setPlayoffSize] = useState(String(league.playoffSize));
   const [tiebreakers, setTiebreakers] = useState<Tiebreaker[]>(
-    league ? parseTiebreakersSafe(league.tiebreakers) : [...TIEBREAKER_VALUES]
+    parseTiebreakersSafe(league.tiebreakers)
   );
   const [matchesPerRound, setMatchesPerRound] = useState(
-    String(league?.matchesPerRound ?? 2)
+    String(league.matchesPerRound)
   );
   // "" means no starting month configured yet (SPEC §4.4, D1 — a league in
   // SETUP may legitimately have none; that is never guessed).
   const [startMonth, setStartMonth] = useState(
-    league?.startMonth ? toMonthInputValue(new Date(league.startMonth)) : ""
+    league.startMonth ? toMonthInputValue(new Date(league.startMonth)) : ""
   );
 
   // Tiebreaker reordering helpers
@@ -127,9 +131,7 @@ export function LeagueForm({ league, onSaved }: LeagueFormProps) {
     const input = buildInput();
 
     startTransition(async () => {
-      const result = isEditing
-        ? await updateLeague(league.id, input)
-        : await createLeague(input);
+      const result = await updateLeague(league.id, input);
 
       if (!result.ok) {
         setError(result.error);
@@ -138,11 +140,7 @@ export function LeagueForm({ league, onSaved }: LeagueFormProps) {
       }
 
       setSaved(true);
-      if (!isEditing && result.ok && result.data) {
-        onSaved?.(result.data.id);
-      } else {
-        onSaved?.(league!.id);
-      }
+      onSaved?.({ slug: result.data.slug });
     });
   }
 
@@ -159,6 +157,7 @@ export function LeagueForm({ league, onSaved }: LeagueFormProps) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             error={fieldErrors.name?.[0]}
+            helper="Cambiar el nombre o la temporada cambia la URL de la liga (spec §2.6): los enlaces con el slug anterior dejan de resolver."
             required
           />
           <Input
@@ -397,7 +396,7 @@ export function LeagueForm({ league, onSaved }: LeagueFormProps) {
             fontFamily: "var(--font-sans)",
           }}
         >
-          {isEditing ? "Configuración guardada correctamente." : "Liga creada correctamente."}
+          Configuración guardada correctamente.
         </div>
       )}
 
@@ -408,13 +407,9 @@ export function LeagueForm({ league, onSaved }: LeagueFormProps) {
         variant="primary"
         fullWidth
         disabled={isPending}
-        icon={isEditing ? <FloppyDisk size={16} /> : <Plus size={16} />}
+        icon={<FloppyDisk size={16} />}
       >
-        {isPending
-          ? "Guardando…"
-          : isEditing
-          ? "Guardar cambios"
-          : "Crear liga"}
+        {isPending ? "Guardando…" : "Guardar cambios"}
       </Button>
     </form>
   );

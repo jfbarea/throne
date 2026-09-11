@@ -16,16 +16,39 @@ import {
   CalendarBlank,
 } from "@phosphor-icons/react";
 
-const ADMIN_LINKS = [
-  { href: "/admin", label: "Panel", Icon: Crown },
-  { href: "/admin/liga", label: "Liga", Icon: Gear },
-  { href: "/admin/jugadores", label: "Jugadores", Icon: Users },
-  { href: "/admin/emparejamientos", label: "Emparejamientos", Icon: Sword },
-  { href: "/admin/rondas", label: "Rondas", Icon: CalendarBlank },
-  { href: "/admin/playoffs", label: "Playoffs", Icon: Trophy },
-];
+// Multi-liga B1 (indice-de-ligas-y-pantallas-con-slug, spec §2.3, §4.10):
+// the five per-league sections live at `/admin/<slug>/...` now, so their
+// href needs the league of the current context — without one (browsing
+// `/admin` itself, or any other admin page with no league resolved yet)
+// there's nowhere to send them, so only "Panel" (the league index, spec
+// §2.3: "no hay 'liga activa' en cookie ni en sesión" — this is the one
+// admin link that's never ambiguous) is offered.
+export function buildAdminLinks(leagueSlug?: string) {
+  const links = [{ href: "/admin", label: "Panel", Icon: Crown }];
+  if (!leagueSlug) return links;
+  return [
+    ...links,
+    { href: `/admin/${leagueSlug}/liga`, label: "Liga", Icon: Gear },
+    { href: `/admin/${leagueSlug}/jugadores`, label: "Jugadores", Icon: Users },
+    {
+      href: `/admin/${leagueSlug}/emparejamientos`,
+      label: "Emparejamientos",
+      Icon: Sword,
+    },
+    { href: `/admin/${leagueSlug}/rondas`, label: "Rondas", Icon: CalendarBlank },
+    { href: `/admin/${leagueSlug}/playoffs`, label: "Playoffs", Icon: Trophy },
+  ];
+}
 
-export function AdminMenu({ active = false }: { active?: boolean }) {
+export function AdminMenu({
+  active = false,
+  leagueSlug,
+}: {
+  active?: boolean;
+  /** The league of the current page's context, if any (see AppHeader). */
+  leagueSlug?: string;
+}) {
+  const ADMIN_LINKS = buildAdminLinks(leagueSlug);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
