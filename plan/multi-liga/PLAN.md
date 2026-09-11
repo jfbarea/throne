@@ -71,6 +71,7 @@ que el reparto está mal o de que falta algo en los cimientos.
 | `src/server/league/config.ts` (`updateLeague`) | **B** |
 | `src/app/api/auth/*`, `src/lib/auth.ts` | **C** |
 | `src/server/result-actions.ts` | **C** |
+| `src/server/round-actions.ts` | **C** — asignado durante la ejecución, ver §Hallazgos 7 |
 | `src/server/league/players.ts` | **C** |
 | `src/components/AppHeaderUser.tsx`, `src/app/mi-perfil` | **C** |
 | `src/server/league/lifecycle.ts` | **D** |
@@ -500,3 +501,20 @@ Los recoge aquí el plan para que ningún lane los redescubra ni los deshaga.
 6. **La pantalla de «liga no encontrada» del admin es mínima** y no lista las
    ligas disponibles todavía. Completarla es exactamente el criterio 21, que
    pertenece a B2.
+7. **`src/server/round-actions.ts` era un hueco del reparto.** `closeRound`,
+   `updateRoundDeadline` y `redistributePending` leen `session.playerId` para el
+   actor de admin y **rechazan la acción si es null**. Con C3 firmando siempre
+   `playerId: null`, un admin deja de poder cerrar rondas: regresión directa de
+   §7.1. No era propiedad de ningún lane; se asigna a **C** como hito C5, porque
+   es el mismo patrón que ya corrigió en `result-actions.ts`.
+   La causa de que pasara desapercibido importa más que el fallo: **los tests
+   existentes mockean `@/lib/guards` y fijan `session.playerId` a mano**, así que
+   ninguno recorre el camino real del login. C5 añade cobertura de ese camino.
+8. **La unicidad global de nombres se consume por
+   `findDisplayNameConflict(displayName, { excludePlayerId? })`**, publicada por
+   C4 en `src/server/league/players.ts`. Consulta pura que no lanza, filtra
+   `role: "PLAYER"` y `league: { archivedAt: null }`, y devuelve
+   `{ leagueName } | null`. Es la que deben usar `duplicateLeague` y
+   `unarchiveLeague` para acumular **todos** los conflictos antes de fallar
+   (§5.4). La clase de error de C **no se exporta**: `players.ts` lleva
+   `"use server"` y Next exige que todo export del módulo sea función async.

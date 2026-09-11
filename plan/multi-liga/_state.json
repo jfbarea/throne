@@ -8,68 +8,280 @@
       "id": "cimientos",
       "name": "Cimientos",
       "branch": "feat/multi-liga",
-      "blocks": ["A", "B", "C", "D", "E"],
+      "blocks": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
       "dependsOn": []
     },
     {
       "id": "A",
       "name": "Rutas de jugador",
       "branch": "feat/multi-liga-a-rutas-jugador",
-      "dependsOn": ["cimientos"]
+      "dependsOn": [
+        "cimientos"
+      ]
     },
     {
       "id": "B",
       "name": "Admin: índice, rutas y renombrado",
       "branch": "feat/multi-liga-b-admin",
-      "dependsOn": ["cimientos"]
+      "dependsOn": [
+        "cimientos"
+      ]
     },
     {
       "id": "C",
       "name": "Identidad, actor y nombres",
       "branch": "feat/multi-liga-c-identidad",
-      "dependsOn": ["cimientos"]
+      "dependsOn": [
+        "cimientos"
+      ]
     },
     {
       "id": "D",
       "name": "Ciclo de vida de la liga",
       "branch": "feat/multi-liga-d-ciclo-vida",
-      "dependsOn": ["cimientos"],
-      "softDependsOn": ["C4"]
+      "dependsOn": [
+        "cimientos"
+      ],
+      "softDependsOn": [
+        "C4"
+      ]
     },
     {
       "id": "E",
       "name": "Bases",
       "branch": "feat/multi-liga-e-bases",
-      "dependsOn": ["cimientos"]
+      "dependsOn": [
+        "cimientos"
+      ]
     },
     {
       "id": "cierre",
       "name": "Cierre",
       "branch": "feat/multi-liga",
-      "dependsOn": ["A", "B", "C", "D", "E"]
+      "dependsOn": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
     }
   ],
   "milestones": [
-    { "id": "C0", "lane": "cimientos", "slug": "modelo-liga-slug-archivado", "status": "DONE", "criteria": [19, 20, 41, 47], "files_changed": ["prisma/schema.prisma", "prisma/migrations/20260911140227_add_league_slug_archived_rules/migration.sql", "src/server/slug.ts", "src/server/league/default-rules.ts", "tests/slug.test.ts"], "notes": "League gana slug/archivedAt/rulesMarkdown. Migración escrita a mano (RedefineTables) con backfill de slug por SQL (aproximación de slugify) y rulesMarkdown con la plantilla de default-rules.ts; verificada contra copia de dev.db (13 players, 78 matches, 6 rounds, 2 results, 7 audit logs intactos; slug no vacío, archivedAt null, rulesMarkdown byte-a-byte igual a la plantilla). slug tiene @default(cuid()) como red de seguridad para fixtures existentes que crean League sin pasar slug — nadie en el código de producción depende de él, createLeague/duplicateLeague (lane D) siempre lo calculan explícitamente. No se toca createLeague/updateLeague en este hito." },
-    { "id": "C1", "lane": "cimientos", "slug": "contexto-de-liga-y-modulos", "status": "DONE", "criteria": [], "files_changed": ["src/lib/league-context.ts", "tests/league-context.test.ts", "src/server/league-actions.ts", "src/server/league/action-result.ts", "src/server/league/config.ts", "src/server/league/players.ts", "src/server/league/lifecycle.ts", "src/server/league/rules.ts", "src/server/match-actions.ts", "src/server/round-actions.ts", "src/server/playoff-actions.ts", "src/server/result-actions.ts", "tests/emparejamientos.test.ts"], "notes": "src/lib/league-context.ts publica resolveLeagueBySlug, requireLeagueAccess(slug, session, samePagePath?), assertLeagueWritable y resolveActingPlayerId, con 17 tests (propia/ajena/archivada/inexistente, incluida la distinción entre 'liga ajena' → redirección silenciosa a /liga/<own-slug>[/samePagePath] y 'propia liga archivada' → /login, spec §4.2/§5.3). requireLeagueAccess admite un samePagePath opcional para que lane A pueda preservar la página exacta (criterio 5) sin tocar este fichero. Para admin+slug inexistente lanza LeagueNotFoundForAdminError (no redirige: hace falta pintar la pantalla de §5.1 con la lista de ligas, que es trabajo de B2) — el layout de C2 la captura con un mensaje mínimo de momento. league-actions.ts partido en league/{config,players,lifecycle,rules}.ts (rules.ts vacío, para lane E) y reexportado íntegro desde league-actions.ts; diff verificado contra HEAD~1: solo movimiento + los bloques de guarda añadidos. assertLeagueWritable cableado en las 16 acciones de #5.6 (updateLeague, createPlayer, updatePlayer, setPlayerActive, resetPlayerPasscode, deletePlayer, resetLeague, generateLeagueMatches, addMissingLeagueMatches, setMatchSchedule, updateRoundDeadline, closeRound, redistributePending, startPlayoffs, advancePlayoffWinner como comprobación defensiva con tx ya que reportResult la cubre transitivamente, y reportResult) más declareWalkover añadido por consistencia aunque la spec no lo nombra explícitamente (ver informe del builder). Hoy no rechaza nada (ninguna liga está archivada): cero cambio de comportamiento, confirmado con la suite completa en verde." },
-    { "id": "C2", "lane": "cimientos", "slug": "andamiaje-de-rutas", "status": "DONE", "criteria": [], "files_changed": ["src/app/liga/[slug]/layout.tsx", "src/app/admin/[slug]/layout.tsx", "src/components/LeagueIndicator.tsx", "src/components/LeagueNotFoundScreen.tsx", "src/components/admin/league-actions-contract.ts", "src/lib/league-context.ts", "tests/route-scaffolding.test.ts"], "notes": "Los dos layouts existen sin páginas reales dentro (build pasa, ninguna ruta /liga/[slug] o /admin/[slug] aparece en el manifest de next build). /admin/[slug]/layout.tsx anida bajo /admin/layout.tsx (ya admin-gated) y solo añade la guarda de liga; /liga/[slug]/layout.tsx NO exige sesión de forma incondicional (a diferencia de /admin/layout.tsx) porque /liga/[slug]/bases (lane E) tiene que seguir siendo pública — sin sesión resuelve la liga como lectura pública sin redirigir, y deja que cada página protegida futura llame a requireAuth/requireLeagueAccess por su cuenta, como ya hacen hoy las páginas sin slug. Decisión de diseño para permitir el criterio 5 (preservar 'la misma página' en el redirect) sin que ese lane tenga que tocar el layout: requireLeagueAccess (C1) admite ahora un tercer parámetro opcional samePagePath. resolveLeagueBySlug se envolvió en React.cache() para deduplicar la consulta entre el layout y la página que la vuelva a pedir dentro de la misma request — verificado por inspección de código y con un test dentro del propio layout (una sola llamada a prisma.league.findUnique); el dedup cross-layout-page en sí no es comprobable con Vitest fuera del render real de Next (cache() no tiene alcance de petición fuera de ese contexto), documentado en el test. Contrato de componentes de acción del índice de admin en src/components/admin/league-actions-contract.ts (solo tipos, sin implementación), para que D los construya y B los monte sin que admin/page.tsx tenga más de un dueño. Pantalla de 'liga no encontrada' para admin es deliberadamente mínima (sin la lista de ligas disponibles que pide la spec §5.1): eso es explícitamente el criterio 21 de B2. 8 tests nuevos; suite completa (565), build y lint en verde." },
-
-    { "id": "A1", "lane": "A", "slug": "vistas-de-jugador-con-slug", "status": "PENDING", "criteria": [1, 2, 3, 4] },
-    { "id": "A2", "lane": "A", "slug": "redirecciones-de-rutas-antiguas", "status": "PENDING", "criteria": [5, 6, 7, 46] },
-
-    { "id": "B1", "lane": "B", "slug": "indice-de-ligas-y-pantallas-con-slug", "status": "PENDING", "criteria": [8, 9] },
-    { "id": "B2", "lane": "B", "slug": "renombrado-y-liga-no-encontrada", "status": "PENDING", "criteria": [21] },
-
-    { "id": "C3", "lane": "C", "slug": "sesion-de-admin-sin-playerid", "status": "PENDING", "criteria": [10, 11, 12] },
-    { "id": "C4", "lane": "C", "slug": "nombres-unicos-y-login", "status": "PENDING", "criteria": [14, 15, 16, 17, 18] },
-
-    { "id": "D1", "lane": "D", "slug": "archivado-de-ligas", "status": "PENDING", "criteria": [22, 23, 24, 25] },
-    { "id": "D2", "lane": "D", "slug": "crear-duplicar-borrar", "status": "PENDING", "criteria": [13, 26, 27, 28, 29, 30, 31, 32] },
-
-    { "id": "E1", "lane": "E", "slug": "bases-por-liga", "status": "PENDING", "criteria": [33, 35, 36, 37, 38, 39, 45] },
-    { "id": "E2", "lane": "E", "slug": "bases-publicas-y-ruta-antigua", "status": "PENDING", "criteria": [34, 40, 44] },
-
-    { "id": "Z1", "lane": "cierre", "slug": "seed-y-e2e-con-dos-ligas", "status": "PENDING", "criteria": [42] },
-    { "id": "Z2", "lane": "cierre", "slug": "auditoria-de-continuidad", "status": "PENDING", "criteria": [43, 46, 47] }
+    {
+      "id": "C0",
+      "lane": "cimientos",
+      "slug": "modelo-liga-slug-archivado",
+      "status": "DONE",
+      "criteria": [
+        19,
+        20,
+        41,
+        47
+      ],
+      "files_changed": [
+        "prisma/schema.prisma",
+        "prisma/migrations/20260911140227_add_league_slug_archived_rules/migration.sql",
+        "src/server/slug.ts",
+        "src/server/league/default-rules.ts",
+        "tests/slug.test.ts"
+      ],
+      "notes": "League gana slug/archivedAt/rulesMarkdown. Migración escrita a mano (RedefineTables) con backfill de slug por SQL (aproximación de slugify) y rulesMarkdown con la plantilla de default-rules.ts; verificada contra copia de dev.db (13 players, 78 matches, 6 rounds, 2 results, 7 audit logs intactos; slug no vacío, archivedAt null, rulesMarkdown byte-a-byte igual a la plantilla). slug tiene @default(cuid()) como red de seguridad para fixtures existentes que crean League sin pasar slug — nadie en el código de producción depende de él, createLeague/duplicateLeague (lane D) siempre lo calculan explícitamente. No se toca createLeague/updateLeague en este hito."
+    },
+    {
+      "id": "C1",
+      "lane": "cimientos",
+      "slug": "contexto-de-liga-y-modulos",
+      "status": "DONE",
+      "criteria": [],
+      "files_changed": [
+        "src/lib/league-context.ts",
+        "tests/league-context.test.ts",
+        "src/server/league-actions.ts",
+        "src/server/league/action-result.ts",
+        "src/server/league/config.ts",
+        "src/server/league/players.ts",
+        "src/server/league/lifecycle.ts",
+        "src/server/league/rules.ts",
+        "src/server/match-actions.ts",
+        "src/server/round-actions.ts",
+        "src/server/playoff-actions.ts",
+        "src/server/result-actions.ts",
+        "tests/emparejamientos.test.ts"
+      ],
+      "notes": "src/lib/league-context.ts publica resolveLeagueBySlug, requireLeagueAccess(slug, session, samePagePath?), assertLeagueWritable y resolveActingPlayerId, con 17 tests (propia/ajena/archivada/inexistente, incluida la distinción entre 'liga ajena' → redirección silenciosa a /liga/<own-slug>[/samePagePath] y 'propia liga archivada' → /login, spec §4.2/§5.3). requireLeagueAccess admite un samePagePath opcional para que lane A pueda preservar la página exacta (criterio 5) sin tocar este fichero. Para admin+slug inexistente lanza LeagueNotFoundForAdminError (no redirige: hace falta pintar la pantalla de §5.1 con la lista de ligas, que es trabajo de B2) — el layout de C2 la captura con un mensaje mínimo de momento. league-actions.ts partido en league/{config,players,lifecycle,rules}.ts (rules.ts vacío, para lane E) y reexportado íntegro desde league-actions.ts; diff verificado contra HEAD~1: solo movimiento + los bloques de guarda añadidos. assertLeagueWritable cableado en las 16 acciones de #5.6 (updateLeague, createPlayer, updatePlayer, setPlayerActive, resetPlayerPasscode, deletePlayer, resetLeague, generateLeagueMatches, addMissingLeagueMatches, setMatchSchedule, updateRoundDeadline, closeRound, redistributePending, startPlayoffs, advancePlayoffWinner como comprobación defensiva con tx ya que reportResult la cubre transitivamente, y reportResult) más declareWalkover añadido por consistencia aunque la spec no lo nombra explícitamente (ver informe del builder). Hoy no rechaza nada (ninguna liga está archivada): cero cambio de comportamiento, confirmado con la suite completa en verde."
+    },
+    {
+      "id": "C2",
+      "lane": "cimientos",
+      "slug": "andamiaje-de-rutas",
+      "status": "DONE",
+      "criteria": [],
+      "files_changed": [
+        "src/app/liga/[slug]/layout.tsx",
+        "src/app/admin/[slug]/layout.tsx",
+        "src/components/LeagueIndicator.tsx",
+        "src/components/LeagueNotFoundScreen.tsx",
+        "src/components/admin/league-actions-contract.ts",
+        "src/lib/league-context.ts",
+        "tests/route-scaffolding.test.ts"
+      ],
+      "notes": "Los dos layouts existen sin páginas reales dentro (build pasa, ninguna ruta /liga/[slug] o /admin/[slug] aparece en el manifest de next build). /admin/[slug]/layout.tsx anida bajo /admin/layout.tsx (ya admin-gated) y solo añade la guarda de liga; /liga/[slug]/layout.tsx NO exige sesión de forma incondicional (a diferencia de /admin/layout.tsx) porque /liga/[slug]/bases (lane E) tiene que seguir siendo pública — sin sesión resuelve la liga como lectura pública sin redirigir, y deja que cada página protegida futura llame a requireAuth/requireLeagueAccess por su cuenta, como ya hacen hoy las páginas sin slug. Decisión de diseño para permitir el criterio 5 (preservar 'la misma página' en el redirect) sin que ese lane tenga que tocar el layout: requireLeagueAccess (C1) admite ahora un tercer parámetro opcional samePagePath. resolveLeagueBySlug se envolvió en React.cache() para deduplicar la consulta entre el layout y la página que la vuelva a pedir dentro de la misma request — verificado por inspección de código y con un test dentro del propio layout (una sola llamada a prisma.league.findUnique); el dedup cross-layout-page en sí no es comprobable con Vitest fuera del render real de Next (cache() no tiene alcance de petición fuera de ese contexto), documentado en el test. Contrato de componentes de acción del índice de admin en src/components/admin/league-actions-contract.ts (solo tipos, sin implementación), para que D los construya y B los monte sin que admin/page.tsx tenga más de un dueño. Pantalla de 'liga no encontrada' para admin es deliberadamente mínima (sin la lista de ligas disponibles que pide la spec §5.1): eso es explícitamente el criterio 21 de B2. 8 tests nuevos; suite completa (565), build y lint en verde."
+    },
+    {
+      "id": "A1",
+      "lane": "A",
+      "slug": "vistas-de-jugador-con-slug",
+      "status": "DONE",
+      "criteria": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "id": "A2",
+      "lane": "A",
+      "slug": "redirecciones-de-rutas-antiguas",
+      "status": "DONE",
+      "criteria": [
+        5,
+        6,
+        7,
+        46
+      ]
+    },
+    {
+      "id": "B1",
+      "lane": "B",
+      "slug": "indice-de-ligas-y-pantallas-con-slug",
+      "status": "PENDING",
+      "criteria": [
+        8,
+        9
+      ]
+    },
+    {
+      "id": "B2",
+      "lane": "B",
+      "slug": "renombrado-y-liga-no-encontrada",
+      "status": "PENDING",
+      "criteria": [
+        21
+      ]
+    },
+    {
+      "id": "C3",
+      "lane": "C",
+      "slug": "sesion-de-admin-sin-playerid",
+      "status": "PENDING",
+      "criteria": [
+        10,
+        11,
+        12
+      ]
+    },
+    {
+      "id": "C4",
+      "lane": "C",
+      "slug": "nombres-unicos-y-login",
+      "status": "PENDING",
+      "criteria": [
+        14,
+        15,
+        16,
+        17,
+        18
+      ]
+    },
+    {
+      "id": "C5",
+      "lane": "C",
+      "slug": "actor-de-admin-en-round-actions",
+      "status": "PENDING",
+      "criteria": [],
+      "notes": "Asignado durante la ejecución. round-actions.ts rechazaba la acción con playerId null: regresión de §7.1. Incluye cobertura del camino real del login, que ningún test existente recorría."
+    },
+    {
+      "id": "D1",
+      "lane": "D",
+      "slug": "archivado-de-ligas",
+      "status": "PENDING",
+      "criteria": [
+        22,
+        23,
+        24,
+        25
+      ]
+    },
+    {
+      "id": "D2",
+      "lane": "D",
+      "slug": "crear-duplicar-borrar",
+      "status": "PENDING",
+      "criteria": [
+        13,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32
+      ]
+    },
+    {
+      "id": "E1",
+      "lane": "E",
+      "slug": "bases-por-liga",
+      "status": "PENDING",
+      "criteria": [
+        33,
+        35,
+        36,
+        37,
+        38,
+        39,
+        45
+      ]
+    },
+    {
+      "id": "E2",
+      "lane": "E",
+      "slug": "bases-publicas-y-ruta-antigua",
+      "status": "PENDING",
+      "criteria": [
+        34,
+        40,
+        44
+      ]
+    },
+    {
+      "id": "Z1",
+      "lane": "cierre",
+      "slug": "seed-y-e2e-con-dos-ligas",
+      "status": "PENDING",
+      "criteria": [
+        42
+      ]
+    },
+    {
+      "id": "Z2",
+      "lane": "cierre",
+      "slug": "auditoria-de-continuidad",
+      "status": "PENDING",
+      "criteria": [
+        43,
+        46,
+        47
+      ]
+    }
   ]
 }
