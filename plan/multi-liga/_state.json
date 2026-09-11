@@ -1,5 +1,5 @@
 {
-  "status": "BUILDING",
+  "status": "HUMAN_REVIEW",
   "spec": "plan/specs/multi-liga.md",
   "branch": "feat/multi-liga",
   "parallel": true,
@@ -316,7 +316,7 @@
       "id": "Z2",
       "lane": "cierre",
       "slug": "auditoria-de-continuidad",
-      "status": "READY_FOR_REVIEW",
+      "status": "DONE",
       "criteria": [
         43,
         46,
