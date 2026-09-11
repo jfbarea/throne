@@ -241,7 +241,7 @@
       "id": "E1",
       "lane": "E",
       "slug": "bases-por-liga",
-      "status": "PENDING",
+      "status": "DONE",
       "criteria": [
         33,
         35,
@@ -256,7 +256,7 @@
       "id": "E2",
       "lane": "E",
       "slug": "bases-publicas-y-ruta-antigua",
-      "status": "PENDING",
+      "status": "DONE",
       "criteria": [
         34,
         40,
