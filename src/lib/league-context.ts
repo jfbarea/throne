@@ -7,6 +7,7 @@
 // the redirect itself (never returns in that branch) — callers don't
 // duplicate the branching.
 
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import type { League } from "@/generated/prisma/client";
@@ -16,10 +17,25 @@ import type { SessionPayload } from "@/lib/session";
 // resolveLeagueBySlug
 // ---------------------------------------------------------------------------
 
-/** Look up a league by its URL slug. Returns null if no league has it. */
-export async function resolveLeagueBySlug(slug: string): Promise<League | null> {
-  return prisma.league.findUnique({ where: { slug } });
-}
+/**
+ * Look up a league by its URL slug. Returns null if no league has it.
+ *
+ * Wrapped in React's `cache()` (multi-liga C2, andamiaje-de-rutas, criterio
+ * "los layouts no consultan la base más de una vez por petición"): the
+ * `/liga/[slug]` and `/admin/[slug]` layouts call this to resolve and guard
+ * the league, and the page rendered inside them will need the same league
+ * again — Next.js has no way to pass the layout's already-resolved value
+ * down as a prop to `children` (it's a pre-rendered element by the time the
+ * layout receives it), so both call this same function independently.
+ * `cache()` deduplicates same-argument calls within a single request/render
+ * pass, turning that into one actual `prisma.league.findUnique` regardless
+ * of how many places in the tree ask for the same slug.
+ */
+export const resolveLeagueBySlug = cache(
+  async (slug: string): Promise<League | null> => {
+    return prisma.league.findUnique({ where: { slug } });
+  }
+);
 
 // ---------------------------------------------------------------------------
 // requireLeagueAccess
