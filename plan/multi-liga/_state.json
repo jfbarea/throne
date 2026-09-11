@@ -1,0 +1,75 @@
+{
+  "status": "BUILDING",
+  "spec": "plan/specs/multi-liga.md",
+  "branch": "feat/multi-liga",
+  "parallel": true,
+  "lanes": [
+    {
+      "id": "cimientos",
+      "name": "Cimientos",
+      "branch": "feat/multi-liga",
+      "blocks": ["A", "B", "C", "D", "E"],
+      "dependsOn": []
+    },
+    {
+      "id": "A",
+      "name": "Rutas de jugador",
+      "branch": "feat/multi-liga-a-rutas-jugador",
+      "dependsOn": ["cimientos"]
+    },
+    {
+      "id": "B",
+      "name": "Admin: índice, rutas y renombrado",
+      "branch": "feat/multi-liga-b-admin",
+      "dependsOn": ["cimientos"]
+    },
+    {
+      "id": "C",
+      "name": "Identidad, actor y nombres",
+      "branch": "feat/multi-liga-c-identidad",
+      "dependsOn": ["cimientos"]
+    },
+    {
+      "id": "D",
+      "name": "Ciclo de vida de la liga",
+      "branch": "feat/multi-liga-d-ciclo-vida",
+      "dependsOn": ["cimientos"],
+      "softDependsOn": ["C4"]
+    },
+    {
+      "id": "E",
+      "name": "Bases",
+      "branch": "feat/multi-liga-e-bases",
+      "dependsOn": ["cimientos"]
+    },
+    {
+      "id": "cierre",
+      "name": "Cierre",
+      "branch": "feat/multi-liga",
+      "dependsOn": ["A", "B", "C", "D", "E"]
+    }
+  ],
+  "milestones": [
+    { "id": "C0", "lane": "cimientos", "slug": "modelo-liga-slug-archivado", "status": "PENDING", "criteria": [19, 20, 41, 47] },
+    { "id": "C1", "lane": "cimientos", "slug": "contexto-de-liga-y-modulos", "status": "PENDING", "criteria": [] },
+    { "id": "C2", "lane": "cimientos", "slug": "andamiaje-de-rutas", "status": "PENDING", "criteria": [] },
+
+    { "id": "A1", "lane": "A", "slug": "vistas-de-jugador-con-slug", "status": "PENDING", "criteria": [1, 2, 3, 4] },
+    { "id": "A2", "lane": "A", "slug": "redirecciones-de-rutas-antiguas", "status": "PENDING", "criteria": [5, 6, 7, 46] },
+
+    { "id": "B1", "lane": "B", "slug": "indice-de-ligas-y-pantallas-con-slug", "status": "PENDING", "criteria": [8, 9] },
+    { "id": "B2", "lane": "B", "slug": "renombrado-y-liga-no-encontrada", "status": "PENDING", "criteria": [21] },
+
+    { "id": "C3", "lane": "C", "slug": "sesion-de-admin-sin-playerid", "status": "PENDING", "criteria": [10, 11, 12] },
+    { "id": "C4", "lane": "C", "slug": "nombres-unicos-y-login", "status": "PENDING", "criteria": [14, 15, 16, 17, 18] },
+
+    { "id": "D1", "lane": "D", "slug": "archivado-de-ligas", "status": "PENDING", "criteria": [22, 23, 24, 25] },
+    { "id": "D2", "lane": "D", "slug": "crear-duplicar-borrar", "status": "PENDING", "criteria": [13, 26, 27, 28, 29, 30, 31, 32] },
+
+    { "id": "E1", "lane": "E", "slug": "bases-por-liga", "status": "PENDING", "criteria": [33, 35, 36, 37, 38, 39, 45] },
+    { "id": "E2", "lane": "E", "slug": "bases-publicas-y-ruta-antigua", "status": "PENDING", "criteria": [34, 40, 44] },
+
+    { "id": "Z1", "lane": "cierre", "slug": "seed-y-e2e-con-dos-ligas", "status": "PENDING", "criteria": [42] },
+    { "id": "Z2", "lane": "cierre", "slug": "auditoria-de-continuidad", "status": "PENDING", "criteria": [43, 46, 47] }
+  ]
+}
