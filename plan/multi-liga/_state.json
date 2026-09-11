@@ -50,7 +50,7 @@
     }
   ],
   "milestones": [
-    { "id": "C0", "lane": "cimientos", "slug": "modelo-liga-slug-archivado", "status": "PENDING", "criteria": [19, 20, 41, 47] },
+    { "id": "C0", "lane": "cimientos", "slug": "modelo-liga-slug-archivado", "status": "DONE", "criteria": [19, 20, 41, 47], "files_changed": ["prisma/schema.prisma", "prisma/migrations/20260911140227_add_league_slug_archived_rules/migration.sql", "src/server/slug.ts", "src/server/league/default-rules.ts", "tests/slug.test.ts"], "notes": "League gana slug/archivedAt/rulesMarkdown. Migración escrita a mano (RedefineTables) con backfill de slug por SQL (aproximación de slugify) y rulesMarkdown con la plantilla de default-rules.ts; verificada contra copia de dev.db (13 players, 78 matches, 6 rounds, 2 results, 7 audit logs intactos; slug no vacío, archivedAt null, rulesMarkdown byte-a-byte igual a la plantilla). slug tiene @default(cuid()) como red de seguridad para fixtures existentes que crean League sin pasar slug — nadie en el código de producción depende de él, createLeague/duplicateLeague (lane D) siempre lo calculan explícitamente. No se toca createLeague/updateLeague en este hito." },
     { "id": "C1", "lane": "cimientos", "slug": "contexto-de-liga-y-modulos", "status": "PENDING", "criteria": [] },
     { "id": "C2", "lane": "cimientos", "slug": "andamiaje-de-rutas", "status": "PENDING", "criteria": [] },
 
