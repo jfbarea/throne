@@ -1,9 +1,21 @@
 // Standings page — clasificación con desempates. SPEC §7.3, §8.
 // Accessible to admin and all players. Mobile-first, dark mode, editorial feel.
 // font-variant-numeric: tabular-nums for stat columns (Hito 3 reviewer suggestion).
-
+//
+// multi-liga A1 (vistas-de-jugador-con-slug): the league is no longer "the
+// most recent one" (the old "most recently created league" lookup) — it comes from the URL slug,
+// resolved and access-checked by `requireLeagueAccess` (src/lib/league-
+// context.ts, C1). The `/liga/[slug]/layout.tsx` (C2) already performed this
+// same check before this page's function is ever invoked (a PLAYER on a
+// foreign/nonexistent slug never reaches here — it's redirected at the
+// layout); this call re-derives the league object (its underlying query is
+// `React.cache()`-deduped against the layout's own, spec §4.1) and, as
+// defense in depth, is what lets a PLAYER's silent redirect land on this
+// exact page (`samePagePath`, spec criterio 5) if it were ever reached
+// directly instead of through the layout.
 import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/guards";
+import { requireLeagueAccess } from "@/lib/league-context";
 import { computeStandings, formatPlayedCount } from "@/server/standings";
 import { parseTiebreakers } from "@/lib/schemas";
 import { Eyebrow } from "@/components/Eyebrow";
@@ -19,21 +31,14 @@ import {
 // Page
 // ---------------------------------------------------------------------------
 
-export default async function ClasificacionPage() {
+export default async function ClasificacionPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
   const session = await requireAuth();
-
-  // MVP: single active league.
-  const league = await prisma.league.findFirst({
-    orderBy: { createdAt: "desc" },
-  });
-
-  if (!league) {
-    return (
-      <PageShell>
-        <EmptyState message="No hay ninguna liga configurada todavía." />
-      </PageShell>
-    );
-  }
+  const { slug } = await params;
+  const league = await requireLeagueAccess(slug, session, "clasificacion");
 
   // Fetch all active players for this league (so players with 0 matches appear).
   const players = await prisma.player.findMany({

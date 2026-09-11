@@ -1,25 +1,35 @@
 // Bracket de playoffs — vista de árbol de eliminatoria.
 // SPEC §8, §7.4. Visible a admin y jugadores (requireAuth).
 // Mobile-first, dark mode, primitivos Hito 3.
+//
+// multi-liga A1 (vistas-de-jugador-con-slug): league resolved from the URL
+// slug via `requireLeagueAccess` (spec §4.1), not the old "most recently
+// created league" lookup.
+// The old query additionally filtered by `status: { in: ["PLAYOFFS",
+// "FINISHED"] } }` to find "the" active/finished league among many — that
+// filter now applies to the league the slug already resolved to (its
+// existence and access were already checked), so "no league found" becomes
+// "this league's playoffs haven't started yet".
 
 import { requireAuth } from "@/lib/guards";
+import { requireLeagueAccess } from "@/lib/league-context";
 import { prisma } from "@/lib/db";
 import { getBracket } from "@/server/playoff-actions";
 import { AppHeader } from "@/components/AppHeader";
 import { Trophy, Sword } from "@phosphor-icons/react/dist/ssr";
 import Link from "next/link";
 
-export default async function BracketPage() {
+export default async function BracketPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
   const session = await requireAuth();
   const isAdmin = session.role === "ADMIN";
+  const { slug } = await params;
+  const league = await requireLeagueAccess(slug, session, "bracket");
 
-  // Find the active/finished league.
-  const league = await prisma.league.findFirst({
-    where: { status: { in: ["PLAYOFFS", "FINISHED"] } },
-    orderBy: { createdAt: "desc" },
-  });
-
-  if (!league) {
+  if (!["PLAYOFFS", "FINISHED"].includes(league.status)) {
     return (
       <div
         className="min-h-screen flex flex-col"

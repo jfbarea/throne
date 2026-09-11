@@ -8,9 +8,16 @@
 // rounds at the end (`sortRoundBlocks`, `roundQuota`/`quotaLabel` — the
 // ordering and the cupo calculation are pure functions in src/server/, per
 // spec §7.3).
+//
+// multi-liga A1 (vistas-de-jugador-con-slug): league resolved from the URL
+// slug via `requireLeagueAccess` (spec §4.1), not the old "most recently
+// created league" lookup.
+// See clasificacion/page.tsx for why this call is safe/necessary alongside
+// the layout's own guard.
 
 import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/guards";
+import { requireLeagueAccess } from "@/lib/league-context";
 import { roundQuota, quotaLabel, type RoundMatchInput } from "@/server/rounds";
 import { sortRoundBlocks } from "@/server/round-ui";
 import { Eyebrow } from "@/components/Eyebrow";
@@ -19,39 +26,16 @@ import { MatchCard } from "./MatchCard";
 import { AppHeader } from "@/components/AppHeader";
 import Link from "next/link";
 
-export default async function MisPartidasPage() {
+export default async function MisPartidasPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
   const session = await requireAuth();
   const isAdmin = session.role === "ADMIN";
   const currentPlayerId = session.playerId ?? "";
-
-  // MVP: single active league.
-  const league = await prisma.league.findFirst({
-    orderBy: { createdAt: "desc" },
-  });
-
-  if (!league) {
-    return (
-      <div
-        className="min-h-screen flex flex-col"
-        style={{ background: "var(--bg)", color: "var(--fg)" }}
-      >
-        <AppHeader active="mis-partidas" />
-        <main className="flex-1 px-4 py-6 max-w-2xl mx-auto w-full">
-          <Card className="text-center py-10">
-            <p
-              className="text-[15px] font-semibold"
-              style={{
-                color: "var(--fg-muted)",
-                fontFamily: "var(--font-sans)",
-              }}
-            >
-              No hay ninguna liga configurada todavía
-            </p>
-          </Card>
-        </main>
-      </div>
-    );
-  }
+  const { slug } = await params;
+  const league = await requireLeagueAccess(slug, session, "mis-partidas");
 
   // Build the where clause: admin sees all, player sees their own.
   const where = isAdmin

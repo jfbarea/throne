@@ -8,9 +8,16 @@
 // Data fetching lives in src/server/round-overview.ts so the "no N+1" query
 // shape (criterio 12) is testable in isolation, with an instrumented Prisma
 // client, instead of only by inspecting this page.
+//
+// multi-liga A1 (vistas-de-jugador-con-slug): league resolved from the URL
+// slug via `requireLeagueAccess` (spec §4.1), not the old "most recently
+// created league" lookup.
+// See clasificacion/page.tsx for why this call is safe/necessary alongside
+// the layout's own guard.
 
 import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/guards";
+import { requireLeagueAccess } from "@/lib/league-context";
 import { getRoundsOverview } from "@/server/round-overview";
 import { Eyebrow } from "@/components/Eyebrow";
 import { Card } from "@/components/Card";
@@ -26,21 +33,14 @@ function formatDeadline(deadline: Date): string {
   });
 }
 
-export default async function RondasPage() {
-  await requireAuth();
-
-  // MVP: single active league.
-  const league = await prisma.league.findFirst({
-    orderBy: { createdAt: "desc" },
-  });
-
-  if (!league) {
-    return (
-      <PageShell>
-        <EmptyState message="No hay ninguna liga configurada todavía." />
-      </PageShell>
-    );
-  }
+export default async function RondasPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const session = await requireAuth();
+  const { slug } = await params;
+  const league = await requireLeagueAccess(slug, session, "rondas");
 
   const rounds = await getRoundsOverview(prisma, league.id);
 
