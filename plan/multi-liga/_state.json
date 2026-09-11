@@ -99,6 +99,22 @@
       ],
       "notes": "/liga/[slug]/bases ya nace pública en E1 (sesión → requireLeagueAccess; sin sesión → resolveLeagueBySlug sin guarda), este hito solo la ejercita explícitamente (test dedicado) y reescribe /bases a secas: ADMIN → /admin sin consultar nada; PLAYER → cookie.playerId → Player.leagueId → League.slug → /liga/<slug>/bases (misma receta que usará A2 para las otras cinco rutas antiguas), con liga archivada → /login (mismo precedente que requireLeagueAccess); sin sesión y exactamente una liga en circulación → redirect directo a sus bases (criterio 44, continuidad §7.1); sin sesión y 0 o ≥2 → LinkConcretoScreen, que no consulta la base de datos en absoluto (nunca puede listar lo que nunca pidió). Nota de test: el test.db real acumula ligas de toda la suite sin archivarlas nunca, así que el test de 'exactamente una liga en circulación' archiva primero todas las preexistentes (updateMany, no deleteMany — League no tiene cascade delete) antes de crear la suya; no rompe otros ficheros porque ninguno más cuenta ligas en circulación de forma global (verificado por grep y por la suite completa en verde, repetida dos veces)."
     },
+    {
+      "id": "E3",
+      "lane": "E",
+      "slug": "plantilla-completa-en-la-migracion",
+      "status": "READY_FOR_REVIEW",
+      "criteria": [45],
+      "files_changed": [
+        "prisma/migrations/20260911140227_add_league_slug_archived_rules/migration.sql",
+        "src/server/league/default-rules.ts",
+        "src/app/liga/[slug]/bases/rules-content.tsx",
+        "src/app/admin/[slug]/bases/BasesRulesForm.tsx",
+        "tests/default-rules-migration-parity.test.ts",
+        "tests/bases-por-liga.test.ts"
+      ],
+      "notes": "Corrige una premisa equivocada de E1: la migración de C0 no está desplegada en ningún sitio (dev.db del repo va por 20260908160808_make_start_month_nullable, anterior a multi-liga; feat/multi-liga nunca se ha mergeado a main), así que SÍ se puede reescribir. E1 había dejado 'Formato' entero y la frase fija de 'Puntuación' como page chrome en rules-content.tsx razonando que la fila ya migrada nunca podría rellenarse retroactivamente — eso le quitaba al admin el derecho a editar esas dos secciones de sus propias bases, que es justo lo que concede la spec §2.11. Revertido: 'Formato' y 'Puntuación' (la frase, no las cifras) vuelven a DEFAULT_RULES_MARKDOWN como prosa editable, y el backfill de rulesMarkdown en migration.sql se reescribe para hornear la plantilla completa (idéntica byte a byte, no la de tres secciones de C0). El bloque generado no se toca: sigue leyendo League en el momento de la petición (pointsLine/bonusLine/tiebreakersLine/matchesPerRoundLine/playoffsLine, todas puras), ahora bajo su propio título 'Configuración de esta liga (generado)' — distinto de 'Puntuación' a propósito, para que nunca lean como la misma sección duplicada, y sigue siendo lo único que se muestra cuando rulesMarkdown está vacío (criterio 38: RulesProse devuelve null con sections=[], el bloque generado no depende de encontrar ninguna cabecera concreta en la prosa). tests/default-rules-migration-parity.test.ts extrae el literal SQL entre los marcadores RULES_MARKDOWN_TEMPLATE_BEGIN/END y lo compara byte a byte con DEFAULT_RULES_MARKDOWN — falla la suite si alguien toca una plantilla sin la otra (criterio 4 del encargo); un segundo test confirma que la plantilla TS no contiene ninguna comilla simple sin escapar, que rompería el literal SQL. Criterio 45 revalidado con la plantilla completa: tests/bases-por-liga.test.ts ajustado (con rulesMarkdown vacío ya no aparece 'Puntuación' ni 'Formato', solo 'Configuración de esta liga'; con la plantilla completa siguen apareciendo las cinco secciones y los mismos valores de puntuación/partidas por ronda). No se ha tocado el hallazgo de los desempates de E1 (confirmado correcto por el arquitecto): el texto viejo ya mentía respecto a computeStandings antes de esta feature, y §4.11 exige leer el bloque generado del mismo sitio que usa computeStandings."
+    },
 
     { "id": "Z1", "lane": "cierre", "slug": "seed-y-e2e-con-dos-ligas", "status": "PENDING", "criteria": [42] },
     { "id": "Z2", "lane": "cierre", "slug": "auditoria-de-continuidad", "status": "PENDING", "criteria": [43, 46, 47] }

@@ -1,24 +1,32 @@
 // Shared rendering primitives for the bases page (multi-liga spec §2.11,
-// §4.11, lane E: bases-por-liga). Ported from the pre-multi-liga
-// src/app/bases/page.tsx (259 lines of hardcoded JSX), split into the
-// three-way model the spec asks for:
+// §4.11, lane E: bases-por-liga / E3 plantilla-completa-en-la-migracion).
+// Ported from the pre-multi-liga src/app/bases/page.tsx (259 lines of
+// hardcoded JSX), split into the two-way model the spec actually asks for:
 //
-//  - `FormatoSection` — fixed page chrome. Same copy for every league: how
-//    the league phase works (round-robin, monthly rounds, deadlines,
-//    catching up) is product behaviour, not League config. The one thing it
-//    used to hardcode (2 partidas por ronda) is now a live number, pulled
-//    from `matchesPerRoundLabel` instead of typed into this JSX.
-//  - `PuntuacionSection` — hybrid. One fixed sentence ("el ganador se decide
-//    por VP") plus every number a League actually configures: scoring,
-//    bonus, the real tiebreaker order (read via `parseTiebreakers`, the same
-//    parser `computeStandings` uses — no separate copy to drift) and the
-//    playoff cutoff. Nothing here is ever typed by the admin.
-//  - `RulesProse` — renders `League.rulesMarkdown` (Ejércitos, Incidencias,
-//    Convivencia by default, but genuinely free-form: the admin can add,
-//    rename or remove sections) with the original page's look: numbered
-//    eyebrow + ✦ bullets.
+//  - `GeneratedConfigSection` — generated, never typed by the admin. Every
+//    number a League actually configures: scoring, bonus, the real
+//    tiebreaker order (read via `parseTiebreakers`, the same parser
+//    `computeStandings` uses — no separate copy to drift), matches per round
+//    and the playoff cutoff. Always rendered, regardless of what
+//    `rulesMarkdown` says — including when it's empty (spec §5.8.3,
+//    criterio 38): this is what keeps the bases from lying about scoring
+//    even if the admin clears every word of prose.
+//  - `RulesProse` — renders `League.rulesMarkdown` with the original page's
+//    look: numbered eyebrow + ✦ bullets. Genuinely free-form (Formato,
+//    Puntuación, Ejércitos, Incidencias, Convivencia by default — see
+//    src/server/league/default-rules.ts — but the admin can add, rename,
+//    reorder or remove sections).
 //
-// `/liga/[slug]/bases/page.tsx` composes all three into the public page;
+// E1 originally kept "Formato" and part of "Puntuación" as fixed JSX here,
+// on the premise that C0's migration (prisma/migrations/*_add_league_slug_
+// archived_rules) was already applied and immutable, so the one pre-existing
+// league could never get a fuller `rulesMarkdown` retroactively. That
+// premise was wrong — the migration isn't deployed anywhere yet — so E3
+// moved that prose into the template both the migration and
+// src/server/league/default-rules.ts bake in, and it's admin-editable like
+// everything else in rulesMarkdown, per spec §2.11.
+//
+// `/liga/[slug]/bases/page.tsx` composes both into the public page;
 // `/admin/[slug]/bases/BasesRulesForm.tsx` reuses `RulesProse` (and the pure
 // `parseRulesSections`) for the live preview, so the preview can never drift
 // from what the public page actually renders.
@@ -97,10 +105,10 @@ export interface RulesSectionData {
  *  - `## Heading` starts a new section.
  *  - A line starting with `-` or `*` is its own bullet.
  *  - Any other run of non-blank lines (no bullet marker), up to the next
- *    blank line, is one bullet too — the same style the C0/E1 default
- *    template and the pre-multi-liga page both use (one paragraph = one
- *    bullet), so an admin who never learns the `-` syntax still gets a
- *    correctly rendered page.
+ *    blank line, is one bullet too — the same style the default template
+ *    and the pre-multi-liga page both use (one paragraph = one bullet), so
+ *    an admin who never learns the `-` syntax still gets a correctly
+ *    rendered page.
  *  - Empty input (§5.8.3, criterio 38) returns `[]`.
  */
 export function parseRulesSections(markdown: string): RulesSectionData[] {
@@ -173,15 +181,15 @@ export function renderInline(text: string): React.ReactNode {
 }
 
 /**
- * Render parsed prose sections with numbered eyebrows, continuing the
- * numbering after the two fixed sections that precede them on the real page
- * (Formato "01", Puntuación "02" — see `FormatoSection`/`PuntuacionSection`
- * below), so the whole page reads as one continuous 01..0N sequence
- * regardless of how many sections the admin's markdown actually has.
+ * Render parsed prose sections with numbered eyebrows, starting at `startAt`
+ * (defaults to 1: the generated config block that precedes this on the real
+ * page, `GeneratedConfigSection`, is deliberately NOT part of this sequence
+ * — it isn't sourced from `rulesMarkdown`, and it must keep rendering even
+ * when `rulesMarkdown` is empty, spec §5.8.3/criterio 38).
  */
 export function RulesProse({
   sections,
-  startAt = 3,
+  startAt = 1,
 }: {
   sections: RulesSectionData[];
   startAt?: number;
@@ -207,48 +215,7 @@ export function RulesProse({
 }
 
 // ---------------------------------------------------------------------------
-// Fixed section: Formato (page chrome, not League config, not admin prose)
-// ---------------------------------------------------------------------------
-
-/**
- * `matchesPerRoundLabel` is the only value this section owes to League
- * config — passed in rather than read here so this stays a plain
- * presentational component with no data-fetching of its own.
- */
-export function FormatoSection({
-  matchesPerRoundLabel,
-}: {
-  matchesPerRoundLabel: string;
-}) {
-  return (
-    <RuleSection label="01" title="Formato">
-      <Rule>
-        Liguilla a una vuelta: todos contra todos, una partida por rival. Si
-        sois 4 o menos, ida y vuelta.
-      </Rule>
-      <Rule>
-        Los emparejamientos se publican al inicio, repartidos en{" "}
-        <S>rondas mensuales:</S> cada ronda dura un mes y te toca jugar{" "}
-        {matchesPerRoundLabel} en ella (el número exacto lo fija la
-        configuración de esta liga, arriba). Dentro del mes, tú decides con
-        quién juegas primero y qué día quedáis.
-      </Rule>
-      <Rule>
-        Cada ronda tiene una <S>fecha límite</S> (el último día de su mes). No
-        es un día de quedada obligatorio: es la fecha a partir de la cual el
-        organizador puede dar la ronda por cerrada.
-      </Rule>
-      <Rule>
-        Puedes <S>adelantar</S> una partida de un mes futuro sin haber acabado
-        el actual — pero eso no te libra de las partidas de tu ronda en curso:
-        cuando llegue su cierre, cuentan igual (ver «Incidencias»).
-      </Rule>
-    </RuleSection>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Fixed + generated section: Puntuación
+// Generated block — never typed by the admin, read straight from League
 // ---------------------------------------------------------------------------
 
 export interface GeneratedRulesLeague {
@@ -263,9 +230,14 @@ export interface GeneratedRulesLeague {
   tiebreakers: string; // JSON-encoded, as stored on League.
 }
 
-/** "2 partidas por ronda" / "1 partida por ronda" — used by the masthead badge and Formato. */
+/** "2 partidas por ronda" / "1 partida por ronda" — used by the masthead badge. */
 export function matchesPerRoundLabel(matchesPerRound: number): string {
   return `${matchesPerRound} partida${matchesPerRound === 1 ? "" : "s"} por ronda`;
+}
+
+/** "Cada jugador juega 2 partidas por ronda mensual." Pure (criterio 36). */
+export function matchesPerRoundLine(matchesPerRound: number): string {
+  return `Cada jugador juega ${matchesPerRoundLabel(matchesPerRound)} mensual.`;
 }
 
 /** "Victoria 3 · Empate 1 · Derrota 0." — pure, so criterio 35 is unit-testable without rendering. */
@@ -308,22 +280,27 @@ export function playoffsLine(playoffSize: number): string {
   return `Clasifican a playoffs los ${playoffSize} mejores de la tabla.`;
 }
 
-export function PuntuacionSection({
+/**
+ * The generated block, always present regardless of `rulesMarkdown` (spec
+ * §4.11, §5.8.3/criterio 38). Deliberately not one of the numbered
+ * `rulesMarkdown` sections (see `RulesProse`'s docstring) and titled
+ * distinctly from the admin-editable "Puntuación" prose section (spec
+ * §2.11's default template, src/server/league/default-rules.ts) so the two
+ * never read as duplicates of each other.
+ */
+export function GeneratedConfigSection({
   league,
 }: {
   league: GeneratedRulesLeague;
 }) {
   return (
-    <RuleSection label="02" title="Puntuación">
-      <Rule>
-        El ganador se decide por <em>Victory Points</em>; se anotan los VP de
-        ambos jugadores.
-      </Rule>
+    <RuleSection title="Configuración de esta liga (generado)">
       <Rule>
         <S>{pointsLine(league)}</S>
       </Rule>
       <Rule>{bonusLine(league)}</Rule>
       <Rule>{tiebreakersLine(league.tiebreakers)}</Rule>
+      <Rule>{matchesPerRoundLine(league.matchesPerRound)}</Rule>
       <Rule>{playoffsLine(league.playoffSize)}</Rule>
     </RuleSection>
   );
@@ -342,11 +319,8 @@ export function BasesBody({
 }) {
   return (
     <div className="space-y-6">
-      <FormatoSection
-        matchesPerRoundLabel={matchesPerRoundLabel(league.matchesPerRound)}
-      />
-      <PuntuacionSection league={league} />
-      <RulesProse sections={sections} startAt={3} />
+      <GeneratedConfigSection league={league} />
+      <RulesProse sections={sections} startAt={1} />
     </div>
   );
 }

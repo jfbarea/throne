@@ -142,8 +142,14 @@ describe("/liga/[slug]/bases — E1", () => {
     const league = await createTestLeague({ rulesMarkdown: "" });
     const rendered = await renderBases(league.slug);
 
-    expect(rendered).toContain("Puntuación");
+    // "Puntuación" itself is now prose (E3, plantilla-completa-en-la-
+    // migracion): with rulesMarkdown empty there is no prose section at
+    // all, only the always-present generated block — titled distinctly so
+    // it never reads as a duplicate of the admin-editable "Puntuación"
+    // section.
+    expect(rendered).toContain("Configuración de esta liga");
     expect(rendered).toContain("Victoria 3");
+    expect(rendered).not.toContain("Formato");
   });
 
   it("still renders the bases of an archived league (spec 39)", async () => {

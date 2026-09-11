@@ -93,9 +93,10 @@ export function BasesRulesForm({
           style={{ fontFamily: "var(--font-sans)" }}
         >
           Cada `## Título` empieza una sección nueva; cada línea o párrafo
-          dentro es una viñeta. `**negrita**` y `*cursiva*` se respetan. La
-          puntuación, el bonus, los desempates y el formato no se editan aquí:
-          salen de la configuración de la liga.
+          dentro es una viñeta. `**negrita**` y `*cursiva*` se respetan. Los
+          números exactos de puntuación, bonus, desempates, partidas por ronda y
+          playoffs no se editan aquí: salen siempre de la configuración de la
+          liga y se muestran en el bloque generado, no en este texto.
         </span>
       </div>
 
