@@ -19,7 +19,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const dbMock = vi.hoisted(() => {
   // Mutable state each test configures before invoking the action.
   const state = {
-    league: null as null | { id: string; status: string },
+    league: null as null | { id: string; status: string; archivedAt: Date | null },
     players: [] as { id: string; displayName: string }[],
     existingMatches: [] as {
       playerHomeId: string;
@@ -539,7 +539,7 @@ describe("addMissingLeagueMatches (orchestration)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    dbMock.state.league = { id: "league-1", status: "LEAGUE" };
+    dbMock.state.league = { id: "league-1", status: "LEAGUE", archivedAt: null };
     dbMock.state.players = makePlayers(3); // player-001, player-002, player-003
     dbMock.state.existingMatches = [];
   });
@@ -612,7 +612,7 @@ describe("addMissingLeagueMatches (orchestration)", () => {
   });
 
   it("transitions SETUP→LEAGUE when it creates matches", async () => {
-    dbMock.state.league = { id: "league-1", status: "SETUP" };
+    dbMock.state.league = { id: "league-1", status: "SETUP", archivedAt: null };
     dbMock.state.existingMatches = [];
 
     const { addMissingLeagueMatches } = await import("@/server/match-actions");
@@ -626,7 +626,7 @@ describe("addMissingLeagueMatches (orchestration)", () => {
   });
 
   it("does NOT transition SETUP→LEAGUE when nothing is missing", async () => {
-    dbMock.state.league = { id: "league-1", status: "SETUP" };
+    dbMock.state.league = { id: "league-1", status: "SETUP", archivedAt: null };
     dbMock.state.existingMatches = [
       { playerHomeId: "player-001", playerAwayId: "player-002" },
       { playerHomeId: "player-001", playerAwayId: "player-003" },

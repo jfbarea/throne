@@ -10,6 +10,10 @@ import { requireAdmin, requireAuth } from "@/lib/guards";
 import { missingPairings } from "@/server/pairings";
 import { roundRobinRounds, deriveDeadlines } from "@/server/rounds";
 import { redistributePending } from "@/server/round-actions";
+import {
+  assertLeagueWritable,
+  LeagueArchivedError,
+} from "@/lib/league-context";
 import { z } from "zod";
 
 // Re-export the ActionResult type consistent with league-actions.
@@ -76,6 +80,17 @@ export async function generateLeagueMatches(
 
   if (!league) {
     return { ok: false, error: "Liga no encontrada" };
+  }
+
+  // Multi-liga spec §5.6, criterio 23: no (re)generating pairings on an
+  // archived league.
+  try {
+    assertLeagueWritable(league);
+  } catch (err) {
+    if (err instanceof LeagueArchivedError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
   }
 
   // Rounds guard: nothing to derive deadlines from without a starting month.
@@ -259,6 +274,17 @@ export async function addMissingLeagueMatches(
     return { ok: false, error: "Liga no encontrada" };
   }
 
+  // Multi-liga spec §5.6, criterio 23: no adding pairings on an archived
+  // league.
+  try {
+    assertLeagueWritable(league);
+  } catch (err) {
+    if (err instanceof LeagueArchivedError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
+  }
+
   // Load active players.
   const players = await prisma.player.findMany({
     where: { leagueId, active: true },
@@ -379,11 +405,23 @@ export async function setMatchSchedule(
       playerHomeId: true,
       playerAwayId: true,
       phase: true,
+      league: { select: { archivedAt: true } },
     },
   });
 
   if (!match) {
     return { ok: false, error: "Partida no encontrada" };
+  }
+
+  // Multi-liga spec §5.6, criterio 23: no editing the schedule of a match in
+  // an archived league.
+  try {
+    assertLeagueWritable(match.league);
+  } catch (err) {
+    if (err instanceof LeagueArchivedError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
   }
 
   // Authorization: must be home, away, or admin.

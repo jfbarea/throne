@@ -15,6 +15,10 @@ import {
   type PreassignedPair,
 } from "@/server/rounds";
 import type { Pairing } from "@/server/pairings";
+import {
+  assertLeagueWritable,
+  LeagueArchivedError,
+} from "@/lib/league-context";
 import { z } from "zod";
 
 export type ActionResult<T = void> =
@@ -96,9 +100,23 @@ export async function updateRoundDeadline(
     return { ok: false, error: message };
   }
 
-  const round = await prisma.round.findUnique({ where: { id: roundId } });
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: { league: { select: { archivedAt: true } } },
+  });
   if (!round) {
     return { ok: false, error: "Ronda no encontrada" };
+  }
+
+  // Multi-liga spec §5.6, criterio 23: no editing a round's deadline on an
+  // archived league.
+  try {
+    assertLeagueWritable(round.league);
+  } catch (err) {
+    if (err instanceof LeagueArchivedError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
   }
 
   const newDeadline = parsed.data.deadline;
@@ -184,9 +202,23 @@ export async function closeRound(
 ): Promise<ActionResult<{ settledCount: number }>> {
   const session = await requireAdmin();
 
-  const round = await prisma.round.findUnique({ where: { id: roundId } });
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: { league: { select: { archivedAt: true } } },
+  });
   if (!round) {
     return { ok: false, error: "Ronda no encontrada" };
+  }
+
+  // Multi-liga spec §5.6, criterio 23: no closing a round on an archived
+  // league.
+  try {
+    assertLeagueWritable(round.league);
+  } catch (err) {
+    if (err instanceof LeagueArchivedError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
   }
 
   if (round.closedAt !== null) {
@@ -613,6 +645,17 @@ export async function redistributePending(
   const league = await prisma.league.findUnique({ where: { id: leagueId } });
   if (!league) {
     return { ok: false, error: "Liga no encontrada" };
+  }
+
+  // Multi-liga spec §5.6, criterio 23: no redistributing pending matches on
+  // an archived league.
+  try {
+    assertLeagueWritable(league);
+  } catch (err) {
+    if (err instanceof LeagueArchivedError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
   }
 
   const rounds = await prisma.round.findMany({

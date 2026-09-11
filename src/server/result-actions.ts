@@ -21,6 +21,10 @@ import {
   WALKOVER_VICTORY_POINTS,
 } from "@/server/result-logic";
 import { advancePlayoffWinner } from "@/server/playoff-actions";
+import {
+  assertLeagueWritable,
+  LeagueArchivedError,
+} from "@/lib/league-context";
 
 // ---------------------------------------------------------------------------
 // ActionResult type (shared with match-actions)
@@ -161,6 +165,18 @@ export async function reportResult(
 
   if (!match) {
     return { ok: false, error: "Partida no encontrada" };
+  }
+
+  // Multi-liga spec §5.6, criterio 23: no reporting results on an archived
+  // league — applies to admin too (§4.2: admin gets read-only access to an
+  // archived league).
+  try {
+    assertLeagueWritable(match.league);
+  } catch (err) {
+    if (err instanceof LeagueArchivedError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
   }
 
   const isAdmin = session.role === "ADMIN";
@@ -448,11 +464,27 @@ export async function declareWalkover(
   // whose round is still open.
   const match = await prisma.match.findUnique({
     where: { id: matchId },
-    include: { round: true },
+    include: { round: true, league: { select: { archivedAt: true } } },
   });
 
   if (!match) {
     return { ok: false, error: "Partida no encontrada" };
+  }
+
+  // Multi-liga spec §5.6, criterio 23. `declareWalkover` isn't literally
+  // named in spec §5.6's list (only `reportResult`/`confirmResult` is), but
+  // it's the same write surface — Result + Match, same file, same guard
+  // pattern reused deliberately per its own docstring — so leaving it
+  // unguarded would make criterio 23 ("TODA acción de escritura... falla")
+  // false in practice. Added proactively; see the builder's report for this
+  // hito.
+  try {
+    assertLeagueWritable(match.league);
+  } catch (err) {
+    if (err instanceof LeagueArchivedError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
   }
 
   if (match.phase !== "LEAGUE") {
