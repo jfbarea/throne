@@ -286,10 +286,21 @@
       "id": "Z1",
       "lane": "cierre",
       "slug": "seed-y-e2e-con-dos-ligas",
-      "status": "PENDING",
+      "status": "READY_FOR_REVIEW",
       "criteria": [
         42
-      ]
+      ],
+      "commit_sha": "aa20596",
+      "files_changed": [
+        "prisma/seed.ts",
+        "tests/e2e/seed-e2e.ts",
+        "tests/e2e/seed-data.ts",
+        "tests/e2e/full-journey.spec.ts",
+        "tests/e2e/rondas.spec.ts",
+        "tests/e2e/guia.spec.ts",
+        "tests/e2e/multi-liga.spec.ts"
+      ],
+      "notes": "prisma/seed.ts y tests/e2e/seed-e2e.ts siembran dos ligas de rosters disjuntos con el admin (misma displayName, distinta fila) presente en ambas, slug/rulesMarkdown propios por liga vía slugify/uniqueSlug (nunca el @default(cuid()) del esquema). tests/e2e/seed-data.ts nuevo: los datos puros del seed e2e se separaron de seed-e2e.ts (que importa el cliente Prisma generado) porque el loader de *.spec.ts de Playwright revienta si un spec importa esa cadena de imports ('ReferenceError: exports is not defined') — los specs importan seed-data.ts, nunca seed-e2e.ts. full-journey/rondas/guia.spec.ts migrados a /liga/<slug>/... y /admin/<slug>/..., con dos aserciones corregidas que asumían el comportamiento previo a multi-liga: el dropdown de admin con las 5 secciones de liga solo aparece en una página con leagueSlug en contexto (una /admin/<slug>/... página, no /liga/<slug>/clasificacion, que no lo pasa — ver hallazgo más abajo); y el admin en /rondas ahora acaba en /admin (spec §2.3, §4.3), ya no se queda en /rondas. multi-liga.spec.ts nuevo: recorrido de admin que entra a ambas ligas sin cerrar sesión (índice, jugadores ida-vuelta-ida, clasificación, bases públicas) más un check de aislamiento del lado jugador. 723 tests unitarios y 80/80 e2e (chromium + mobile-chrome) verdes, ejecutados con navegador real (Playwright headless instalado en el entorno). Build y lint limpios. Dos hallazgos de bugs reales en src/** reportados al arquitecto, no arreglados aquí (fuera de la propiedad de fichero de Z1): (1) las cinco páginas de jugador bajo /liga/[slug]/{clasificacion,calendario,rondas,bracket,mis-partidas} nunca pasan leagueSlug a <AppHeader>, así que sus enlaces de navegación caen siempre a la ruta antigua sin slug — funciona para un jugador (redirige a su propia liga) pero saca a un admin que navega esas páginas de vuelta al índice /admin en vez de mantenerlo en la liga que estaba viendo (contradice spec §2.3/§4.10). (2) src/app/liga/[slug]/layout.tsx llama a requireLeagueAccess(slug, session) SIN el tercer argumento samePagePath, y como el layout se resuelve antes que la página en el árbol de Next.js, su redirect (al slug propio sin página) interrumpe el render antes de que la página vuelva a llamar a requireLeagueAccess con la página correcta — un jugador de A pidiendo /liga/<slug-B>/clasificacion acaba en /liga/<slug-A>/mis-partidas, no en /liga/<slug-A>/clasificacion como pide el criterio 5 literalmente (sigue sin fuga de datos ni error, pero no es la misma página). tests/redirecciones-de-rutas-antiguas.test.ts no lo detecta porque llama a requireLeagueAccess directamente, sin pasar por el layout real."
     },
     {
       "id": "Z2",
