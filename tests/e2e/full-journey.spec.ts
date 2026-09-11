@@ -54,10 +54,19 @@
  */
 
 import { test, expect, type Page } from "@playwright/test";
+import {
+  E2E_ADMIN_PASSCODE as ADMIN_PASSCODE,
+  E2E_PLAYER_PASSCODE as PLAYER_PASSCODE,
+  LEAGUE_A_SLUG,
+} from "./seed-data";
 
-// Constantes del entorno e2e (deben coincidir con global-setup.ts y playwright.config.ts)
-const ADMIN_PASSCODE = "admin-e2e-passcode-secret";
-const PLAYER_PASSCODE = "player-e2e-123";
+// Multi-liga Z1 (seed-y-e2e-con-dos-ligas): this recorrido runs entirely
+// inside League A (`LEAGUE_A_SLUG`, seeded by tests/e2e/seed-e2e.ts) — every
+// route below moved from its old unslugged form to `/liga/<slug>/...` /
+// `/admin/<slug>/...` (spec §2.5, §2.6). League B only exists for
+// tests/e2e/multi-liga.spec.ts's cross-league recorrido; nothing here reads
+// or writes it, which is itself part of criterio 3/4 of the spec
+// (creating/seeding a second league must not alter League A's own views).
 const PLAYER1_NAME = "Jugador Alfa";
 const PLAYER2_NAME = "Jugador Beta";
 const PLAYER3_NAME = "Jugador Gamma";
@@ -94,8 +103,12 @@ async function loginPlayer(page: Page, name: string, passcode: string) {
   await page.getByLabel("Tu nombre").fill(name);
   await page.getByLabel("Código de acceso").fill(passcode);
   await page.getByRole("button", { name: "Entrar" }).click();
-  // Players land on their own matches (src/app/page.tsx).
-  await expect(page).toHaveURL(/\/mis-partidas$/);
+  // Players land on their own matches (src/app/page.tsx pushes the legacy
+  // "/mis-partidas", which multi-liga A2 redirects to
+  // "/liga/<su-slug>/mis-partidas" — spec §4.3, criterio 7).
+  await expect(page).toHaveURL(
+    new RegExp(`/liga/${LEAGUE_A_SLUG}/mis-partidas$`)
+  );
 }
 
 /** Creates one player from the admin/jugadores form and dismisses the
@@ -142,19 +155,22 @@ test.describe("Recorrido completo", () => {
     await expect(page.locator("text=throne").first()).toBeVisible();
   });
 
-  test("2. Admin ve el panel y navega a configuración de liga", async ({ page }) => {
+  test("2. Admin ve el índice de ligas y navega a configuración de liga", async ({ page }) => {
     await loginAdmin(page);
 
-    // Navigate to admin panel
+    // Navigate to admin panel — multi-liga B1: /admin is now the league
+    // index (spec §2.3, §4.5), not a single league's config panel.
     await page.goto("/admin");
     // h1 = "throne" in admin page
     await expect(page.locator("h1")).toContainText("throne");
 
-    // Should show the league config card
-    await expect(page.getByText("Configurar liga")).toBeVisible();
+    // Both seeded leagues show up, in circulación.
+    await expect(page.getByText("Liga E2E Warhammer")).toBeVisible();
+    await expect(page.getByText("Liga E2E Segundo Grupo")).toBeVisible();
 
-    // Navigate to liga config
-    await page.goto("/admin/liga");
+    // Navigate to League A's config — multi-liga B1: /admin/liga moved to
+    // /admin/<slug>/liga (spec §2.5).
+    await page.goto(`/admin/${LEAGUE_A_SLUG}/liga`);
     // Should show league form with the e2e league name
     await expect(page.locator("body")).toContainText("Liga E2E Warhammer");
 
@@ -168,7 +184,7 @@ test.describe("Recorrido completo", () => {
     page,
   }) => {
     await loginAdmin(page);
-    await page.goto("/admin/jugadores");
+    await page.goto(`/admin/${LEAGUE_A_SLUG}/jugadores`);
 
     // Idempotent across the two Playwright projects that share e2e.db (see
     // file docstring): skip creating them again if a previous project run
@@ -192,7 +208,7 @@ test.describe("Recorrido completo", () => {
   test("4. Admin genera emparejamientos (repartidos en rondas mensuales)", async ({ page }) => {
     await loginAdmin(page);
 
-    await page.goto("/admin/emparejamientos");
+    await page.goto(`/admin/${LEAGUE_A_SLUG}/emparejamientos`);
 
     // Should show generate button (may be disabled if already generated from a prev run)
     const generateBtn = page.getByRole("button", { name: /generar emparejamientos/i });
@@ -205,7 +221,7 @@ test.describe("Recorrido completo", () => {
     }
 
     // After generating (or if already generated), navigate to calendario to verify matches exist
-    await page.goto("/calendario");
+    await page.goto(`/liga/${LEAGUE_A_SLUG}/calendario`);
     // There should be matches (any of these sections should be visible)
     await expect(page.locator("body")).toContainText(/Sin fecha|Agendadas|partida/i);
 
@@ -215,7 +231,7 @@ test.describe("Recorrido completo", () => {
     // seed's startMonth), all with deadlines safely in the past by the time
     // this test runs, so every round can be closed later in this same suite
     // without editing any deadline by hand.
-    await page.goto("/admin/rondas");
+    await page.goto(`/admin/${LEAGUE_A_SLUG}/rondas`);
     await expect(page.locator("body")).toContainText("Ronda 1");
     await expect(page.locator("body")).toContainText("Ronda 6");
   });
@@ -223,7 +239,7 @@ test.describe("Recorrido completo", () => {
   test("5. Admin fija fecha de una partida", async ({ page }) => {
     await loginAdmin(page);
 
-    await page.goto("/calendario");
+    await page.goto(`/liga/${LEAGUE_A_SLUG}/calendario`);
 
     // The edit button has a Pencil icon and title "Fijar / editar fecha"
     // On desktop it also shows "Fecha" text; use the title attribute to find it
@@ -250,7 +266,7 @@ test.describe("Recorrido completo", () => {
   test("6. Jugador puede ver sus partidas, agrupadas por ronda", async ({ page }) => {
     await loginPlayer(page, PLAYER1_NAME, PLAYER_PASSCODE);
 
-    await page.goto("/mis-partidas");
+    await page.goto(`/liga/${LEAGUE_A_SLUG}/mis-partidas`);
 
     // The heading shows "Mis partidas"
     await expect(page.locator("body")).toContainText("Mis partidas");
@@ -270,7 +286,7 @@ test.describe("Recorrido completo", () => {
     // Hito 15: apuntar el resultado es suficiente, sin confirmación del rival.
     await loginPlayer(page, PLAYER1_NAME, PLAYER_PASSCODE);
 
-    await page.goto("/mis-partidas");
+    await page.goto(`/liga/${LEAGUE_A_SLUG}/mis-partidas`);
 
     // Find the first "Apuntar resultado" button (new label, Hito 15)
     const reportBtn = page.getByRole("button", { name: /apuntar resultado/i }).first();
@@ -339,7 +355,7 @@ test.describe("Recorrido completo", () => {
     // Hito 15: both participants can edit the result. No confirmation step needed.
     await loginPlayer(page, PLAYER2_NAME, PLAYER_PASSCODE);
 
-    await page.goto("/mis-partidas");
+    await page.goto(`/liga/${LEAGUE_A_SLUG}/mis-partidas`);
 
     // Beta should see an "Editar resultado" button for the match already reported by Alfa.
     // If the match shows "Editar resultado" button, Beta can edit (both participants allowed).
@@ -375,7 +391,7 @@ test.describe("Recorrido completo", () => {
     // declaraba una incomparecencia — solo la cubrían los tests unitarios.
     await loginPlayer(page, PLAYER3_NAME, PLAYER_PASSCODE);
 
-    await page.goto("/mis-partidas");
+    await page.goto(`/liga/${LEAGUE_A_SLUG}/mis-partidas`);
 
     const round1Heading = page.getByText(/^Ronda 1 ·/).first();
     const hasRound1 = await round1Heading.isVisible({ timeout: 5_000 }).catch(() => false);
@@ -430,7 +446,7 @@ test.describe("Recorrido completo", () => {
 
   test("10. Admin cierra la Ronda 1 — lo que quede sin resultado se salda 0-0", async ({ page }) => {
     await loginAdmin(page);
-    await page.goto("/admin/rondas");
+    await page.goto(`/admin/${LEAGUE_A_SLUG}/rondas`);
 
     const closeBtn = page.getByRole("button", { name: "Cerrar ronda 1" });
     const canClose = await closeBtn.isVisible({ timeout: 5_000 }).catch(() => false);
@@ -456,19 +472,19 @@ test.describe("Recorrido completo", () => {
     // calendario y mis-partidas. /calendario muestra TODAS las partidas de
     // la liga (no solo las de Alfa), así que ve también la incomparecencia
     // de Gamma y las saldadas del cierre de la Ronda 1.
-    await page.goto("/calendario");
+    await page.goto(`/liga/${LEAGUE_A_SLUG}/calendario`);
     await expect(page.locator("body")).toContainText(/Incomparecencia/i);
     await expect(page.locator("body")).toContainText(/Saldada sin jugar/i);
 
     // Rondas-con-fecha Hito 7: la columna PJ de /clasificacion distingue las
     // saldadas, "PJ N (M saldadas)" / "(M saldada)".
-    await page.goto("/clasificacion");
+    await page.goto(`/liga/${LEAGUE_A_SLUG}/clasificacion`);
     await expect(page.locator("body")).toContainText(/\(\d+ saldadas?\)/);
   });
 
   test("12. Admin cierra el resto de las rondas", async ({ page }) => {
     await loginAdmin(page);
-    await page.goto("/admin/rondas");
+    await page.goto(`/admin/${LEAGUE_A_SLUG}/rondas`);
 
     for (const index of [2, 3, 4, 5, 6]) {
       const closeBtn = page.getByRole("button", { name: `Cerrar ronda ${index}` });
@@ -486,7 +502,7 @@ test.describe("Recorrido completo", () => {
   test("13. Admin configura playoffSize y accede al panel de playoffs", async ({ page }) => {
     await loginAdmin(page);
 
-    await page.goto("/admin/liga");
+    await page.goto(`/admin/${LEAGUE_A_SLUG}/liga`);
 
     // Find the playoffSize input — label is "Jugadores que clasifican a playoffs"
     const playoffField = page.getByLabel(/jugadores que clasifican a playoffs/i);
@@ -503,7 +519,7 @@ test.describe("Recorrido completo", () => {
     await page.waitForLoadState("networkidle");
 
     // Navigate to admin/playoffs
-    await page.goto("/admin/playoffs");
+    await page.goto(`/admin/${LEAGUE_A_SLUG}/playoffs`);
     await expect(page.locator("body")).toContainText("playoffs");
   });
 
@@ -516,7 +532,7 @@ test.describe("Recorrido completo", () => {
     // verdad, así que este test ya no se salta.
     await loginAdmin(page);
 
-    await page.goto("/admin/playoffs");
+    await page.goto(`/admin/${LEAGUE_A_SLUG}/playoffs`);
 
     const alreadyStarted = await page
       .getByText(/ya han sido iniciados/i)
@@ -537,7 +553,7 @@ test.describe("Recorrido completo", () => {
     }
 
     // Navigate to bracket
-    await page.goto("/bracket");
+    await page.goto(`/liga/${LEAGUE_A_SLUG}/bracket`);
     // "Bracket de playoffs" heading (case-insensitive)
     await expect(page.locator("body")).toContainText(/bracket|playoffs/i);
   });
@@ -545,7 +561,7 @@ test.describe("Recorrido completo", () => {
   test("15. Bracket visible para jugadores (o estado vacío)", async ({ page }) => {
     await loginPlayer(page, PLAYER1_NAME, PLAYER_PASSCODE);
 
-    await page.goto("/bracket");
+    await page.goto(`/liga/${LEAGUE_A_SLUG}/bracket`);
 
     // Either shows bracket or "Playoffs no iniciados"
     const bodyText = await page.locator("body").textContent();
@@ -582,7 +598,7 @@ test.describe("Mobile viewport — sin scroll horizontal roto", () => {
   test("mis-partidas no tiene overflow horizontal tras login", async ({ page }) => {
     // Fresh login as PLAYER1 so the page always renders the expected player's matches.
     await loginPlayer(page, PLAYER1_NAME, PLAYER_PASSCODE);
-    await page.goto("/mis-partidas");
+    await page.goto(`/liga/${LEAGUE_A_SLUG}/mis-partidas`);
     // Wait for the page content to fully settle before measuring layout.
     await expect(page.locator("body")).toContainText(/mis partidas|Mis partidas|Pendientes|Apuntadas/i);
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
@@ -591,7 +607,7 @@ test.describe("Mobile viewport — sin scroll horizontal roto", () => {
 
   test("clasificacion no tiene overflow horizontal", async ({ page }) => {
     await loginPlayer(page, PLAYER1_NAME, PLAYER_PASSCODE);
-    await page.goto("/clasificacion");
+    await page.goto(`/liga/${LEAGUE_A_SLUG}/clasificacion`);
     // Mobile: shows card layout (hidden table), no horizontal scroll
     await expect(page.locator("body")).toBeVisible();
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
@@ -600,7 +616,7 @@ test.describe("Mobile viewport — sin scroll horizontal roto", () => {
 
   test("calendario no tiene overflow horizontal", async ({ page }) => {
     await loginAdmin(page);
-    await page.goto("/calendario");
+    await page.goto(`/liga/${LEAGUE_A_SLUG}/calendario`);
     await expect(page.locator("body")).toBeVisible();
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
     expect(bodyWidth).toBeLessThanOrEqual(391);
@@ -615,7 +631,7 @@ test.describe("Mobile viewport — sin scroll horizontal roto", () => {
     // del recorrido ya tiene 12 jugadores activos (paso 3), no los 6 del
     // seed mínimo.
     await loginPlayer(page, PLAYER1_NAME, PLAYER_PASSCODE);
-    await page.goto("/rondas");
+    await page.goto(`/liga/${LEAGUE_A_SLUG}/rondas`);
     await expect(page.locator("body")).toContainText(/Rondas|Calendario de la liga/i);
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
     expect(bodyWidth).toBeLessThanOrEqual(391);
@@ -623,7 +639,7 @@ test.describe("Mobile viewport — sin scroll horizontal roto", () => {
 
   test("bracket no tiene overflow horizontal (o muestra estado vacío)", async ({ page }) => {
     await loginPlayer(page, PLAYER1_NAME, PLAYER_PASSCODE);
-    await page.goto("/bracket");
+    await page.goto(`/liga/${LEAGUE_A_SLUG}/bracket`);
     await expect(page.locator("body")).toBeVisible();
     // The overflow-x-auto container is internal; page body should not overflow
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
@@ -699,7 +715,13 @@ test.describe("Desplegables del header", () => {
     page,
   }) => {
     await loginAdmin(page);
-    await page.goto("/clasificacion");
+    // Multi-liga B1: AdminMenu only offers the five per-league sections
+    // (Liga, Jugadores, Emparejamientos, Rondas, Playoffs) when it knows
+    // which league is in context (`buildAdminLinks`, src/components/AdminMenu.tsx)
+    // — an `/admin/<slug>/...` page threads that slug through
+    // (`/admin/[slug]/layout.tsx`); `/admin` (bare) or a `/liga/<slug>/...`
+    // page would only render "Panel".
+    await page.goto(`/admin/${LEAGUE_A_SLUG}/liga`);
 
     // The panel is conditionally rendered, so nothing exists while closed.
     await expect(page.getByRole("menu")).toHaveCount(0);
@@ -729,14 +751,16 @@ test.describe("Desplegables del header", () => {
     }
 
     await page.getByRole("menuitem", { name: "Rondas" }).click();
-    await expect(page).toHaveURL(/\/admin\/rondas$/);
+    await expect(page).toHaveURL(
+      new RegExp(`/admin/${LEAGUE_A_SLUG}/rondas$`)
+    );
   });
 
   test("el menú de usuario se despliega y se pinta (mismo recorte que rompió el de Admin)", async ({
     page,
   }) => {
     await loginPlayer(page, PLAYER1_NAME, PLAYER_PASSCODE);
-    await page.goto("/clasificacion");
+    await page.goto(`/liga/${LEAGUE_A_SLUG}/clasificacion`);
 
     await expect(page.getByRole("menu")).toHaveCount(0);
 
@@ -755,10 +779,16 @@ test.describe("Desplegables del header", () => {
 test.describe("Estados vacíos", () => {
   test("admin/disputas ya no existe — debe redirigir o dar 404 (ruta eliminada en Hito 15)", async ({ page }) => {
     // Hito 15: the /admin/disputas route has been removed entirely.
+    // Multi-liga C2/B1: `/admin/[slug]` now catches this path with
+    // "disputas" as the slug, which doesn't resolve to any League —
+    // `/admin/[slug]/layout.tsx` renders `LeagueNotFoundScreen` (spec §5.1)
+    // instead of a bare 404. Still a 200 with none of the removed
+    // disputas UI, which is all this test actually checks for.
     await loginAdmin(page);
     const response = await page.goto("/admin/disputas");
-    // Next.js returns 404 for non-existent routes; or it may redirect to admin.
-    // Either is acceptable — what's NOT acceptable is serving the old disputas UI.
+    // Next.js returns 404 for non-existent routes; or it may redirect to admin,
+    // or (today) show the "liga no encontrada" screen. Any of those is
+    // acceptable — what's NOT acceptable is serving the old disputas UI.
     const status = response?.status() ?? 0;
     const bodyText = await page.locator("body").textContent();
     // The page should either be a 404 or NOT contain "Disputas" as a section heading
@@ -773,7 +803,7 @@ test.describe("Estados vacíos", () => {
 
   test("clasificacion muestra standings o estado vacío (nunca página rota)", async ({ page }) => {
     await loginPlayer(page, PLAYER1_NAME, PLAYER_PASSCODE);
-    await page.goto("/clasificacion");
+    await page.goto(`/liga/${LEAGUE_A_SLUG}/clasificacion`);
 
     const bodyText = await page.locator("body").textContent();
     // Either shows standings with player names or empty state message
