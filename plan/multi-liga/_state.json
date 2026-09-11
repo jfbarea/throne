@@ -181,7 +181,7 @@
       "id": "C3",
       "lane": "C",
       "slug": "sesion-de-admin-sin-playerid",
-      "status": "PENDING",
+      "status": "DONE",
       "criteria": [
         10,
         11,
@@ -192,7 +192,7 @@
       "id": "C4",
       "lane": "C",
       "slug": "nombres-unicos-y-login",
-      "status": "PENDING",
+      "status": "DONE",
       "criteria": [
         14,
         15,
@@ -205,7 +205,7 @@
       "id": "C5",
       "lane": "C",
       "slug": "actor-de-admin-en-round-actions",
-      "status": "PENDING",
+      "status": "DONE",
       "criteria": [],
       "notes": "Asignado durante la ejecución. round-actions.ts rechazaba la acción con playerId null: regresión de §7.1. Incluye cobertura del camino real del login, que ningún test existente recorría."
     },
