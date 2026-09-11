@@ -12,8 +12,8 @@
 // multi-liga A1 (vistas-de-jugador-con-slug): league resolved from the URL
 // slug via `requireLeagueAccess` (spec §4.1), not the old "most recently
 // created league" lookup.
-// See clasificacion/page.tsx for why this call is safe/necessary alongside
-// the layout's own guard.
+// I2 fix (spec criterio 5): this call, not the layout, is what redirects a
+// mismatched PLAYER — see clasificacion/page.tsx for the full explanation.
 
 import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/guards";
@@ -45,7 +45,7 @@ export default async function RondasPage({
   const rounds = await getRoundsOverview(prisma, league.id);
 
   return (
-    <PageShell league={league.name}>
+    <PageShell league={league.name} leagueSlug={league.slug}>
       {rounds.length === 0 ? (
         <EmptyState message="Todavía no hay rondas generadas. Se crean al generar los emparejamientos de la liga." />
       ) : (
@@ -127,9 +127,11 @@ export default async function RondasPage({
 
 function PageShell({
   league,
+  leagueSlug,
   children,
 }: {
   league?: string;
+  leagueSlug?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -137,7 +139,7 @@ function PageShell({
       className="min-h-screen flex flex-col"
       style={{ background: "var(--bg)", color: "var(--fg)" }}
     >
-      <AppHeader active="rondas" />
+      <AppHeader active="rondas" leagueSlug={leagueSlug} />
 
       <main className="flex-1 px-4 py-6 max-w-2xl mx-auto w-full space-y-6">
         <div>

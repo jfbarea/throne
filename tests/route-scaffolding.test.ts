@@ -4,10 +4,27 @@
 // add pages later) against the real test database, per the hito's own
 // acceptance criteria:
 //   1. A page under /liga/[slug]/ receives the already-resolved league.
-//   2. A slug that doesn't resolve never reaches the page body.
+//   2. A slug that doesn't resolve never reaches the page body (ADMIN only —
+//      see the I2 note below for why a PLAYER's case changed).
 //   3. The layouts don't hit the database more than once per request.
 //   4. (npm run build passing with empty page folders is verified manually,
 //      not here — see the builder's report for this hito.)
+//
+// I2 (auditoria-de-cierre) correction: `/liga/[slug]/layout.tsx` no longer
+// enforces access for a PLAYER session at all — it used to call
+// `requireLeagueAccess(slug, session)` (no `samePagePath`) and redirect from
+// here on a foreign/nonexistent slug, which pre-empted every page's own
+// `requireLeagueAccess(slug, session, "<page>")` call (a parent Server
+// Component's redirect always wins the render race) and broke spec criterio
+// 5: a PLAYER of A requesting `/liga/<slug-B>/clasificacion` landed on
+// `/liga/<slug-A>` (this layout has no way to know it was "clasificacion"),
+// not `/liga/<slug-A>/clasificacion`. The layout now only resolves the
+// league for `LeagueIndicator`'s display when the session is a PLAYER (or
+// there's no session), same as the public-read branch, and leaves ALL
+// PLAYER access enforcement to the page below — see
+// tests/layout-y-pagina-en-serie.test.ts for the real layout+page walk that
+// this file's own mock (an opaque string, never a real nested page
+// component) couldn't have caught.
 
 import { describe, it, expect, vi } from "vitest";
 import { prisma } from "@/lib/db";
@@ -42,16 +59,6 @@ async function createTestPlayer(leagueId: string) {
   });
 }
 
-/** Extract the redirect target from a thrown next/navigation redirect error,
- * same helper as tests/league-context.test.ts. */
-function redirectUrl(err: unknown): string {
-  const digest = (err as { digest?: string }).digest;
-  if (!digest || !digest.startsWith("NEXT_REDIRECT")) {
-    throw new Error(`Not a redirect error: ${String(err)}`);
-  }
-  return digest.split(";")[2];
-}
-
 const PAGE_BODY = "PAGE_BODY_MARKER";
 
 describe("liga/[slug] layout", () => {
@@ -77,7 +84,13 @@ describe("liga/[slug] layout", () => {
     expect(JSON.stringify(element)).toContain(league.name);
   });
 
-  it("never reaches the page body for a PLAYER on a foreign/nonexistent slug — redirects instead", async () => {
+  it("I2 fix: does NOT redirect a PLAYER on a foreign/nonexistent slug — defers to the page's own guard", async () => {
+    // Pre-I2 this called requireLeagueAccess(slug, session) here (no
+    // samePagePath) and redirected to the bare `/liga/<own.slug>` — which
+    // pre-empted every page's own, more precise
+    // requireLeagueAccess(slug, session, "<page>") call (spec criterio 5).
+    // The layout must now let the page body through unconditionally for a
+    // PLAYER session, foreign/nonexistent slug included.
     vi.resetModules();
     const own = await createTestLeague();
     const player = await createTestPlayer(own.id);
@@ -87,16 +100,12 @@ describe("liga/[slug] layout", () => {
     }));
 
     const { default: LigaLayout } = await import("@/app/liga/[slug]/layout");
+    const element = await LigaLayout({
+      children: PAGE_BODY as unknown as React.ReactNode,
+      params: Promise.resolve({ slug: `nonexistent-${uid("slug")}` }),
+    });
 
-    try {
-      await LigaLayout({
-        children: PAGE_BODY as unknown as React.ReactNode,
-        params: Promise.resolve({ slug: `nonexistent-${uid("slug")}` }),
-      });
-      expect.unreachable("expected a redirect, the page body must never render");
-    } catch (err) {
-      expect(redirectUrl(err)).toBe(`/liga/${own.slug}`);
-    }
+    expect(JSON.stringify(element)).toContain(PAGE_BODY);
   });
 
   it("renders a fallback (not the page body) for an ADMIN on a nonexistent slug", async () => {
