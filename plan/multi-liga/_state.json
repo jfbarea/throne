@@ -66,7 +66,26 @@
     { "id": "D1", "lane": "D", "slug": "archivado-de-ligas", "status": "PENDING", "criteria": [22, 23, 24, 25] },
     { "id": "D2", "lane": "D", "slug": "crear-duplicar-borrar", "status": "PENDING", "criteria": [13, 26, 27, 28, 29, 30, 31, 32] },
 
-    { "id": "E1", "lane": "E", "slug": "bases-por-liga", "status": "PENDING", "criteria": [33, 35, 36, 37, 38, 39, 45] },
+    {
+      "id": "E1",
+      "lane": "E",
+      "slug": "bases-por-liga",
+      "status": "READY_FOR_REVIEW",
+      "criteria": [33, 35, 36, 37, 38, 39, 45],
+      "files_changed": [
+        "src/server/league/default-rules.ts",
+        "src/server/league/rules.ts",
+        "src/app/liga/[slug]/bases/rules-content.tsx",
+        "src/app/liga/[slug]/bases/BasesNotFound.tsx",
+        "src/app/liga/[slug]/bases/page.tsx",
+        "src/app/admin/[slug]/bases/page.tsx",
+        "src/app/admin/[slug]/bases/BasesRulesForm.tsx",
+        "tests/bases-rules-content.test.ts",
+        "tests/bases-por-liga.test.ts",
+        "tests/bases-rules-actions.test.ts"
+      ],
+      "notes": "Modelo híbrido de tres capas, no dos: (1) page chrome fijo — Formato entero y la frase 'el ganador se decide por VP' de Puntuación — igual para toda liga, no es League config ni prosa editable; (2) generado desde League (puntuación, bonus, tiebreakers en su orden real vía parseTiebreakers/TIEBREAKER_LABELS de @/lib/schemas, matchesPerRound, playoffSize); (3) prosa libre en rulesMarkdown (Ejércitos/Incidencias/Convivencia). La razón de la capa (1): la migración de C0 (ya aplicada, SQL inmutable) horneó el placeholder de tres secciones en la única liga existente — Formato/Puntuación como prosa habría dejado esa liga con secciones que nunca podrán rellenarse retroactivamente. default-rules.ts reescrito con el texto íntegro de Ejércitos/Incidencias/Convivencia extraído del /bases/page.tsx borrado (80-0, interacción con el bonus, slow play, etc.), listo para toda liga nueva que cree D2 (createLeague/duplicateLeague). rules-content.tsx (mío, bajo src/app/liga/[slug]/bases/) es el módulo compartido: parseRulesSections (parser de markdown tolerante, párrafo=viñeta o '-' explícito), renderInline (**negrita**/*cursiva*), y las funciones puras pointsLine/bonusLine/tiebreakersLine/playoffsLine/matchesPerRoundLabel, que /admin/[slug]/bases/BasesRulesForm.tsx importa tal cual para que la vista previa no pueda desincronizarse de la página pública. HALLAZGO para arquitecto/reviewer: la prosa estática pre-multi-liga sobre desempates ('resultado directo · diferencia de VP · VP a favor · dado') ya estaba desincronizada del orden real que usa computeStandings (SPEC.md §7.3 / schema default: POINTS, VP_DIFF, VP_FOR, HEAD_TO_HEAD, LOSSES, ID_ORDER) desde antes de esta feature — le faltaba LOSSES y ordenaba HEAD_TO_HEAD primero. El bloque generado corrige esto por diseño (spec §4.11 exige leer 'del mismo sitio que usa computeStandings'), así que el criterio 45 se interpreta como continuidad de puntuación/desempates-como-concepto/partidas-por-ronda, no como igualdad literal de esa frase concreta — documentado también en el propio test. No se ha tocado la fila ya migrada por C0 (migración inmutable, aplicada): sigue con el placeholder de tres secciones que trajo esa migración, no con este texto ampliado; ese texto ampliado solo llega a ligas creadas de aquí en adelante."
+    },
     { "id": "E2", "lane": "E", "slug": "bases-publicas-y-ruta-antigua", "status": "PENDING", "criteria": [34, 40, 44] },
 
     { "id": "Z1", "lane": "cierre", "slug": "seed-y-e2e-con-dos-ligas", "status": "PENDING", "criteria": [42] },
