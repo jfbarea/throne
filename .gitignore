@@ -49,3 +49,6 @@ playwright-report/
 test-results/
 tsconfig.tsbuildinfo
 docs/documentacion.html
+
+# Git worktrees de los agentes (temporales, nunca versionar)
+.claude/worktrees/
