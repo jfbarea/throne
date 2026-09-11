@@ -162,7 +162,7 @@
       "id": "B1",
       "lane": "B",
       "slug": "indice-de-ligas-y-pantallas-con-slug",
-      "status": "PENDING",
+      "status": "DONE",
       "criteria": [
         8,
         9
@@ -172,7 +172,7 @@
       "id": "B2",
       "lane": "B",
       "slug": "renombrado-y-liga-no-encontrada",
-      "status": "PENDING",
+      "status": "DONE",
       "criteria": [
         21
       ]
