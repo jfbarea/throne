@@ -19,6 +19,7 @@ import {
   assertLeagueWritable,
   LeagueArchivedError,
 } from "@/lib/league-context";
+import { slugify, uniqueSlug } from "@/server/slug";
 import type { ActionResult } from "./action-result";
 
 // ---------------------------------------------------------------------------
@@ -28,11 +29,18 @@ import type { ActionResult } from "./action-result";
 /**
  * Update the configuration of an existing league.
  * Cross-validates playoffSize against active player count.
+ *
+ * Returns the league's current slug (multi-liga B2,
+ * renombrado-y-liga-no-encontrada): unchanged if the rename didn't touch
+ * `name`/`season`, the freshly recomputed one otherwise. Callers on a
+ * `/admin/[slug]/liga` page use it to navigate to the new URL instead of
+ * refreshing the one they're already on, which would otherwise stop
+ * resolving right after a successful save (spec §2.6, §5.1).
  */
 export async function updateLeague(
   leagueId: string,
   input: LeagueConfigInput
-): Promise<ActionResult> {
+): Promise<ActionResult<{ slug: string }>> {
   await requireAdmin();
 
   const parsed = leagueConfigSchema.safeParse(input);
@@ -68,10 +76,20 @@ export async function updateLeague(
   // settings save. `archivedAt` is fetched in the same query (multi-liga
   // spec §5.6, criterio 23): a league that doesn't exist yet skips the
   // guard exactly like it always skipped the matchesPerRound check below —
-  // no new "not found" branch is introduced here.
+  // no new "not found" branch is introduced here. `name`/`season`/`slug` are
+  // fetched too (multi-liga B2, renombrado-y-liga-no-encontrada, spec §2.6,
+  // §4.6, criterio 21): the slug is only ever recomputed when the rename
+  // actually changes one of the two fields it's derived from, not on every
+  // save (same "only on real change" convention as matchesPerRound above).
   const previousLeague = await prisma.league.findUnique({
     where: { id: leagueId },
-    select: { matchesPerRound: true, archivedAt: true },
+    select: {
+      matchesPerRound: true,
+      archivedAt: true,
+      name: true,
+      season: true,
+      slug: true,
+    },
   });
 
   if (previousLeague) {
@@ -85,11 +103,36 @@ export async function updateLeague(
     }
   }
 
-  await prisma.league.update({
+  // Recompute the slug only when the rename actually changes name or season
+  // (spec §2.6: "se regenera cada vez que el admin cambia el nombre o la
+  // temporada"). No history is kept — the previous slug simply stops
+  // resolving (spec §5.1, closed by `LeagueNotFoundScreen`, B2). Collisions
+  // with every OTHER league (this league's own current slug is excluded, or
+  // renaming to the exact same name/season combo would spuriously gain a
+  // "-2" suffix from colliding with itself) are desambiguated the same way
+  // `createLeague` will (lane D, `uniqueSlug`, spec §4.6, §5.5, criterio 20).
+  let newSlug: string | undefined;
+  if (
+    previousLeague !== null &&
+    (previousLeague.name !== d.name || previousLeague.season !== d.season)
+  ) {
+    const base = slugify(d.name, d.season);
+    const otherSlugs = await prisma.league.findMany({
+      where: { id: { not: leagueId } },
+      select: { slug: true },
+    });
+    newSlug = uniqueSlug(
+      base,
+      otherSlugs.map((l) => l.slug)
+    );
+  }
+
+  const updated = await prisma.league.update({
     where: { id: leagueId },
     data: {
       name: d.name,
       season: d.season,
+      ...(newSlug !== undefined ? { slug: newSlug } : {}),
       pointsWin: d.pointsWin,
       pointsDraw: d.pointsDraw,
       pointsLoss: d.pointsLoss,
@@ -105,6 +148,7 @@ export async function updateLeague(
       matchesPerRound: d.matchesPerRound,
       startMonth: d.startMonth ?? null,
     },
+    select: { slug: true },
   });
 
   // Rondas-con-fecha §5.5 (Hito 8, criterios 34-35): a real change to
@@ -127,10 +171,10 @@ export async function updateLeague(
   }
 
   revalidatePath("/admin");
-  revalidatePath("/admin/liga");
-  revalidatePath("/admin/rondas");
-  revalidatePath("/mis-partidas");
-  revalidatePath("/rondas");
-  revalidatePath("/calendario");
-  return { ok: true, data: undefined };
+  revalidatePath(`/admin/${updated.slug}/liga`);
+  revalidatePath(`/admin/${updated.slug}/rondas`);
+  revalidatePath(`/liga/${updated.slug}/mis-partidas`);
+  revalidatePath(`/liga/${updated.slug}/rondas`);
+  revalidatePath(`/liga/${updated.slug}/calendario`);
+  return { ok: true, data: { slug: updated.slug } };
 }
