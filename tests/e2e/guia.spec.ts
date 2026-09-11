@@ -8,12 +8,21 @@
  * sesión, tiene que ser encontrable desde los dos sitios donde vive el enlace:
  * el header (con sesión) y el formulario de login (sin ella) — si solo
  * viviera en el header, quien no tiene sesión nunca la encontraría.
+ *
+ * Multi-liga Z1: /guia no lleva liga (spec §3, §4.10 — documenta el
+ * producto, no las reglas de una liga concreta) y su enlace en el header se
+ * construye siempre como "/guia" tal cual (`AppHeader`'s `GUIA_LINK`,
+ * src/components/AppHeader.tsx), da igual la liga del contexto — así que
+ * este fichero no necesita ningún slug propio.
  */
 
 import { test, expect } from "@playwright/test";
+import {
+  E2E_ADMIN_PASSCODE as ADMIN_PASSCODE,
+  E2E_PLAYER_PASSCODE as PLAYER_PASSCODE,
+  LEAGUE_A_SLUG,
+} from "./seed-data";
 
-const ADMIN_PASSCODE = "admin-e2e-passcode-secret";
-const PLAYER_PASSCODE = "player-e2e-123";
 const PLAYER1_NAME = "Jugador Alfa";
 
 test.describe("AC-1: /guia responde sin sesión", () => {
@@ -50,7 +59,9 @@ test.describe("AC-2: /guia está enlazada desde el header y desde /login", () =>
     await page.getByLabel("Tu nombre").fill(PLAYER1_NAME);
     await page.getByLabel("Código de acceso").fill(PLAYER_PASSCODE);
     await page.getByRole("button", { name: "Entrar" }).click();
-    await expect(page).toHaveURL(/\/mis-partidas$/);
+    await expect(page).toHaveURL(
+      new RegExp(`/liga/${LEAGUE_A_SLUG}/mis-partidas$`)
+    );
 
     const guideLink = page.locator('header nav a[href="/guia"]');
     await expect(guideLink).toBeVisible();
