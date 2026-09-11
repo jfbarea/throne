@@ -6,6 +6,13 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: "node",
+    // Individual `.tsx` specs opt into jsdom with a `// @vitest-environment
+    // jsdom` directive comment (multi-liga hito de integración I1:
+    // verifying the admin lifecycle action components actually mount and
+    // respond to clicks needs a DOM, which the plain `.ts` unit/domain
+    // tests never have). Everything else stays on "node" — no reason to
+    // pay jsdom's cost for the rest of the suite.
+    //
     // Prepares file:./test.db (migrations) once before the suite runs, so
     // tests that write to the real DB (rondas-con-fecha, H1) find it ready.
     globalSetup: ["./tests/db-global-setup.ts"],
