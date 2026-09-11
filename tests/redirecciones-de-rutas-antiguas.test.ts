@@ -12,13 +12,16 @@
 //      o no hay sesión.
 //
 // Criterios 1-2 (the slugged route `/liga/<slug>/clasificacion` itself,
-// reached with a foreign or nonexistent slug) exercise the same guard
-// (`requireLeagueAccess`, src/lib/league-context.ts) already covered end to
-// end by tests/league-context.test.ts and tests/route-scaffolding.test.ts
-// (C1/C2, frozen) — this file adds the same check from lane A's own page
-// (criterio 1/2's exact wording, "acaba en la suya, sin mensaje") instead of
-// duplicating C1's suite, and focuses the rest on what's actually new in
-// this hito: the five *legacy* (unslugged) routes.
+// reached with a foreign or nonexistent slug) exercise `requireLeagueAccess`
+// (src/lib/league-context.ts) directly, the same way tests/league-context.test.ts
+// does — useful to pin the contract's exact redirect target, but NOT proof
+// that the real, nested `layout.tsx` + `page.tsx` combination actually
+// reaches it: I2 (auditoria-de-cierre) found that it didn't, because the
+// layout used to perform its OWN, less precise redirect first and win the
+// render race, so the page's call (identical to what's asserted below) was
+// never actually reached in production. See
+// tests/layout-y-pagina-en-serie.test.ts for the walk that exercises the
+// real layout and the real page together and would have caught that.
 
 import { describe, it, expect, vi } from "vitest";
 import { prisma } from "@/lib/db";

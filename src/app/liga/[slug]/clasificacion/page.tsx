@@ -3,16 +3,22 @@
 // font-variant-numeric: tabular-nums for stat columns (Hito 3 reviewer suggestion).
 //
 // multi-liga A1 (vistas-de-jugador-con-slug): the league is no longer "the
-// most recent one" (the old "most recently created league" lookup) — it comes from the URL slug,
-// resolved and access-checked by `requireLeagueAccess` (src/lib/league-
-// context.ts, C1). The `/liga/[slug]/layout.tsx` (C2) already performed this
-// same check before this page's function is ever invoked (a PLAYER on a
-// foreign/nonexistent slug never reaches here — it's redirected at the
-// layout); this call re-derives the league object (its underlying query is
-// `React.cache()`-deduped against the layout's own, spec §4.1) and, as
-// defense in depth, is what lets a PLAYER's silent redirect land on this
-// exact page (`samePagePath`, spec criterio 5) if it were ever reached
-// directly instead of through the layout.
+// most recent one" (the old "most recently created league" lookup) — it
+// comes from the URL slug, resolved and access-checked right here by
+// `requireLeagueAccess(slug, session, "clasificacion")` (src/lib/league-
+// context.ts, C1).
+//
+// I2 fix (bug 1, spec criterio 5): this call — not the layout — is what
+// performs the redirect for a PLAYER on a foreign/nonexistent slug.
+// `/liga/[slug]/layout.tsx` (C2) used to also call `requireLeagueAccess`
+// (without `samePagePath`) and redirect from there first, which won the
+// render race (a parent Server Component's redirect always pre-empts a
+// nested one) and sent a mismatched PLAYER to the bare `/liga/<own.slug>`
+// instead of this exact page. The layout no longer enforces PLAYER access at
+// all — it only resolves the league for its `LeagueIndicator` display — so
+// this is the only call that can redirect, and the only one that knows
+// "clasificacion" is the page to land back on. Its underlying league lookup
+// is still `React.cache()`-deduped against the layout's own, spec §4.1.
 import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/guards";
 import { requireLeagueAccess } from "@/lib/league-context";
@@ -123,7 +129,7 @@ export default async function ClasificacionPage({
   const totalMatches = rawMatches.length;
 
   return (
-    <PageShell>
+    <PageShell leagueSlug={league.slug}>
       {/* Header section */}
       <div className="mb-6">
         <Eyebrow>
@@ -672,13 +678,19 @@ function EmptyState({ message }: { message: string }) {
 // Page shell with navigation
 // ---------------------------------------------------------------------------
 
-function PageShell({ children }: { children: React.ReactNode }) {
+function PageShell({
+  children,
+  leagueSlug,
+}: {
+  children: React.ReactNode;
+  leagueSlug?: string;
+}) {
   return (
     <div
       className="min-h-screen flex flex-col"
       style={{ background: "var(--bg)", color: "var(--fg)" }}
     >
-      <AppHeader active="clasificacion" />
+      <AppHeader active="clasificacion" leagueSlug={leagueSlug} />
 
       <main className="flex-1 px-4 py-6 max-w-4xl mx-auto w-full">
         {children}

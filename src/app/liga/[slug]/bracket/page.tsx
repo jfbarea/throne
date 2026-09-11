@@ -10,6 +10,9 @@
 // filter now applies to the league the slug already resolved to (its
 // existence and access were already checked), so "no league found" becomes
 // "this league's playoffs haven't started yet".
+//
+// I2 fix (spec criterio 5): this call, not the layout, is what redirects a
+// mismatched PLAYER — see clasificacion/page.tsx for the full explanation.
 
 import { requireAuth } from "@/lib/guards";
 import { requireLeagueAccess } from "@/lib/league-context";
@@ -35,7 +38,7 @@ export default async function BracketPage({
         className="min-h-screen flex flex-col"
         style={{ background: "var(--bg)", color: "var(--fg)" }}
       >
-        <AppHeader active="bracket" />
+        <AppHeader active="bracket" leagueSlug={league.slug} />
         <main className="flex-1 flex flex-col items-center justify-center px-4">
           <div
             className="text-center max-w-sm p-8 rounded-[var(--radius-sm)] border"
@@ -137,7 +140,7 @@ export default async function BracketPage({
       style={{ background: "var(--bg)", color: "var(--fg)" }}
     >
       {/* Header */}
-      <AppHeader active="bracket" />
+      <AppHeader active="bracket" leagueSlug={league.slug} />
 
       <main className="px-4 py-6 max-w-5xl mx-auto w-full">
         {/* Title */}

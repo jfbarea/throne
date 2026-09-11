@@ -12,8 +12,8 @@
 // multi-liga A1 (vistas-de-jugador-con-slug): league resolved from the URL
 // slug via `requireLeagueAccess` (spec §4.1), not the old "most recently
 // created league" lookup.
-// See clasificacion/page.tsx for why this call is safe/necessary alongside
-// the layout's own guard.
+// I2 fix (spec criterio 5): this call, not the layout, is what redirects a
+// mismatched PLAYER — see clasificacion/page.tsx for the full explanation.
 
 import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/guards";
@@ -225,7 +225,7 @@ export default async function MisPartidasPage({
       className="min-h-screen flex flex-col"
       style={{ background: "var(--bg)", color: "var(--fg)" }}
     >
-      <AppHeader active="mis-partidas" />
+      <AppHeader active="mis-partidas" leagueSlug={league.slug} />
 
       <main className="flex-1 px-4 py-6 max-w-2xl mx-auto w-full space-y-8">
         {/* Header */}
