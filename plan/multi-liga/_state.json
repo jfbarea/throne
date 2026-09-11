@@ -275,7 +275,7 @@
       "id": "I1",
       "lane": "integracion",
       "slug": "montar-acciones-en-el-indice",
-      "status": "PENDING",
+      "status": "DONE",
       "criteria": [
         22,
         28
