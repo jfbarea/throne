@@ -264,6 +264,14 @@
       ]
     },
     {
+      "id": "E3",
+      "lane": "E",
+      "slug": "plantilla-completa-en-la-migracion",
+      "status": "DONE",
+      "criteria": [],
+      "notes": "Corrección de E1. La migración no estaba desplegada, así que era reescribible: se hornean las 5 secciones completas y Formato/Puntuación vuelven a ser prosa editable. Test de paridad SQL↔TS."
+    },
+    {
       "id": "Z1",
       "lane": "cierre",
       "slug": "seed-y-e2e-con-dos-ligas",
