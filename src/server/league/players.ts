@@ -21,6 +21,7 @@ import { WALKOVER_VICTORY_POINTS } from "@/server/result-logic";
 import {
   assertLeagueWritable,
   LeagueArchivedError,
+  resolveActingPlayerId,
 } from "@/lib/league-context";
 import type { ActionResult } from "./action-result";
 
@@ -225,14 +226,18 @@ export async function setPlayerActive(
   const isDeactivating = !active && player.active;
 
   if (isDeactivating) {
-    if (!session.playerId) {
+    // Multi-liga spec §2.4, §4.4, §4.9: the admin session carries no fixed
+    // playerId, so the walkover-settlement actor is derived per-league (the
+    // `Player` with `role = ADMIN` of THIS player's league), not read off
+    // the session directly — same derivation as result-actions.ts.
+    const actorId = await resolveActingPlayerId(player.leagueId, session);
+    if (!actorId) {
       return {
         ok: false,
         error:
-          "La sesión de administrador no tiene un jugador asociado. Usa un jugador con rol ADMIN.",
+          "Esta liga no tiene un jugador con rol ADMIN. No se puede atribuir la acción.",
       };
     }
-    const actorId = session.playerId;
 
     await prisma.$transaction(async (tx) => {
       const pendingMatches = await tx.match.findMany({
