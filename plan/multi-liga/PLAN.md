@@ -60,8 +60,10 @@ que el reparto está mal o de que falta algo en los cimientos.
 | `src/server/slug.ts` | C0 |
 | `src/lib/league-context.ts` | C1 (cimientos) |
 | `src/server/league/*.ts` (módulos nuevos) | C1 crea, luego un lane por módulo |
-| `src/app/liga/[slug]/layout.tsx` y validación de params | C2 (cimientos) |
-| `src/app/admin/[slug]/layout.tsx` y validación de params | C2 |
+| `src/app/liga/[slug]/layout.tsx` | C2 lo crea; **tras C2 pasa a A** |
+| `src/app/admin/[slug]/layout.tsx` | C2 lo crea; **tras C2 pasa a B** |
+| `src/lib/league-context.ts` | C1 lo crea; **tras C2 queda congelado**: si un lane necesita cambiar una firma, para y se habla |
+| `src/components/LeagueIndicator.tsx`, `LeagueNotFoundScreen.tsx` | C2 los crea; **tras C2 pasan a B** |
 | `src/app/liga/[slug]/{clasificacion,calendario,rondas,bracket,mis-partidas}` | **A** |
 | Rutas antiguas de jugador (redirecciones) | **A** |
 | `src/app/admin/page.tsx`, `src/app/admin/[slug]/{liga,jugadores,emparejamientos,rondas,playoffs}` | **B** |
@@ -468,3 +470,33 @@ Ningún criterio de la spec queda sin hito.
 3. **Los componentes de acción del índice de admin los aporta D y los monta B**,
    con el contrato fijado en C2. Es la forma de que `admin/page.tsx` tenga un
    solo dueño.
+
+## Hallazgos de los cimientos, ya implementados
+
+Los recoge aquí el plan para que ningún lane los redescubra ni los deshaga.
+
+1. **`League.slug` lleva `@default(cuid())`** como red de seguridad, no como
+   fuente de slugs reales. Existe porque una decena de ficheros de test crean
+   `League` sin pasar slug y la constraint `NOT NULL UNIQUE` los rompería.
+   `createLeague` y `duplicateLeague` (lane D) **siempre** calculan y pasan el
+   slug explícitamente: en el camino de producción ese default es código muerto.
+   Ningún lane debe apoyarse en él.
+2. **`confirmResult` no existe en el código.** §5.6 de la spec lo enumera entre
+   las acciones de escritura, pero el flujo de confirmación del rival quedó
+   superseded por el Hito 15 de `rondas-con-fecha` (`result-actions.ts`: "No hay
+   confirmación del rival"). C1 guardó `reportResult`, y añadió además
+   `declareWalkover`, que la spec no nombra pero comparte fichero y patrón con
+   `reportResult`: sin ella, el criterio 23 quedaría en falso. La spec queda
+   desactualizada en ese punto; es un error de la lista, no de la regla.
+3. **`requireLeagueAccess` admite un tercer parámetro `samePagePath`**, añadido
+   en C1 para que el lane A pueda preservar la página exacta en la redirección
+   silenciosa (criterio 5) sin tocar los layouts.
+4. **`/liga/[slug]/layout.tsx` no exige sesión de forma incondicional**, a
+   diferencia de `/admin/[slug]`. Es deliberado: `/liga/[slug]/bases` (lane E)
+   tiene que seguir siendo pública. Cada página protegida bajo ese layout llama
+   a `requireAuth` por su cuenta, igual que hacen hoy las páginas sin slug.
+5. **`resolveLeagueBySlug` va envuelta en `React.cache()`** para deduplicar la
+   consulta entre layout y página dentro de la misma petición.
+6. **La pantalla de «liga no encontrada» del admin es mínima** y no lista las
+   ligas disponibles todavía. Completarla es exactamente el criterio 21, que
+   pertenece a B2.
