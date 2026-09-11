@@ -283,10 +283,20 @@
       "notes": "Costura sin dueño del reparto en lanes: B dejó el punto de extensión LeagueRowActions devolviendo null y D construyó los cuatro componentes, pero nadie montó unos en otro. Archivar, desarchivar, duplicar y borrar eran inalcanzables desde la UI pese a que las acciones de servidor funcionan y están testeadas. Incluye la pantalla de passcodes tras duplicar (criterio 28), que D dejó para B y B no llegó a construir."
     },
     {
+      "id": "I2",
+      "lane": "integracion",
+      "slug": "criterio-5-y-contexto-en-header",
+      "status": "DONE",
+      "criteria": [
+        5
+      ],
+      "notes": "El layout de /liga/[slug] redirigía sin samePagePath y ganaba la carrera a la página: el criterio 5 no se cumplía pese a estar dado por cerrado. Tercera aparición del mismo hueco: el test verificaba la función, no el camino. Cubierto con un test layout↔página en serie, más un guard test que impide introducir límites de streaming bajo esa ruta."
+    },
+    {
       "id": "Z1",
       "lane": "cierre",
       "slug": "seed-y-e2e-con-dos-ligas",
-      "status": "READY_FOR_REVIEW",
+      "status": "DONE",
       "criteria": [
         42
       ],
