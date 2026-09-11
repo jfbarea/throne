@@ -18,6 +18,7 @@ import type { Pairing } from "@/server/pairings";
 import {
   assertLeagueWritable,
   LeagueArchivedError,
+  resolveActingPlayerId,
 } from "@/lib/league-context";
 import { z } from "zod";
 
@@ -121,6 +122,12 @@ export async function updateRoundDeadline(
 
   const newDeadline = parsed.data.deadline;
 
+  // Multi-liga spec §2.4, §4.4, §4.9: the admin session carries no fixed
+  // playerId (login-admin signs `playerId: null`), so the actor is derived
+  // per-league — the `Player` with `role = ADMIN` of THIS round's league —
+  // same derivation as result-actions.ts and league/players.ts.
+  const actorId = await resolveActingPlayerId(round.leagueId, session);
+
   await prisma.$transaction(async (tx) => {
     await tx.round.update({
       where: { id: roundId },
@@ -129,10 +136,10 @@ export async function updateRoundDeadline(
 
     // Best-effort audit trail (requires an admin player in the session,
     // same convention as resetLeague — src/server/league-actions.ts).
-    if (session.playerId) {
+    if (actorId) {
       await tx.auditLog.create({
         data: {
-          actorId: session.playerId,
+          actorId,
           action: "UPDATE_ROUND_DEADLINE",
           entityType: "Round",
           entityId: roundId,
@@ -233,16 +240,18 @@ export async function closeRound(
     };
   }
 
-  // Admin sessions must have a playerId for DB writes (same convention as
-  // reportResult — src/server/result-actions.ts).
-  if (!session.playerId) {
+  // Multi-liga spec §2.4, §4.4, §4.9: the admin session carries no fixed
+  // playerId, so the actor is derived per-league — the `Player` with
+  // `role = ADMIN` of THIS round's league, never a session-level id — same
+  // derivation as result-actions.ts and league/players.ts.
+  const actorId = await resolveActingPlayerId(round.leagueId, session);
+  if (!actorId) {
     return {
       ok: false,
       error:
-        "La sesión de administrador no tiene un jugador asociado. Usa un jugador con rol ADMIN.",
+        "Esta liga no tiene un jugador con rol ADMIN. No se puede atribuir la acción.",
     };
   }
-  const actorId = session.playerId;
 
   let settledCount: number;
   try {
@@ -721,16 +730,16 @@ export async function redistributePending(
   }
   const { plan } = planned;
 
-  // Admin sessions must have a playerId for DB writes (same convention as
-  // closeRound).
-  if (!session.playerId) {
+  // Multi-liga spec §2.4, §4.4, §4.9: same per-league derivation as
+  // closeRound above — this action already receives `leagueId` directly.
+  const actorId = await resolveActingPlayerId(leagueId, session);
+  if (!actorId) {
     return {
       ok: false,
       error:
-        "La sesión de administrador no tiene un jugador asociado. Usa un jugador con rol ADMIN.",
+        "Esta liga no tiene un jugador con rol ADMIN. No se puede atribuir la acción.",
     };
   }
-  const actorId = session.playerId;
 
   // Snapshot used only to map round index -> id for existing rounds, and to
   // drive the trailing-cleanup scan below. Ids are immutable, so this stays

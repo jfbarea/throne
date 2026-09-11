@@ -40,11 +40,13 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 vi.mock("@/lib/guards", () => ({
   // The action only awaits these for their side effect (throw/redirect on
-  // unauthorized). `requireAdmin` now needs a real `playerId` too:
+  // unauthorized). `requireAdmin`'s `playerId` here is otherwise unused:
   // `redistributePending` (Hito 8, src/server/round-actions.ts) — called by
-  // `addMissingLeagueMatches` after it creates matches — reads
-  // `session.playerId` to attribute its `AuditLog` entry, same convention as
-  // every other admin write action in this codebase.
+  // `addMissingLeagueMatches` after it creates matches — derives its
+  // `AuditLog` actor via `resolveActingPlayerId(leagueId, session)`
+  // (multi-liga C3/C5), which for an ADMIN session queries
+  // `prisma.player.findFirst({ role: "ADMIN" })` — mocked below — instead of
+  // reading `session.playerId` directly.
   requireAdmin: vi.fn(async () => ({
     role: "ADMIN",
     playerId: "test-admin-001",
@@ -79,6 +81,15 @@ vi.mock("@/lib/db", () => {
       },
       player: {
         findMany: vi.fn(async () => dbMock.state.players),
+        // redistributePending (called by addMissingLeagueMatches) derives
+        // its actor via resolveActingPlayerId(leagueId, session)
+        // (multi-liga C3/C5, src/lib/league-context.ts) instead of reading
+        // session.playerId directly — for an ADMIN session that's a
+        // `prisma.player.findFirst({ leagueId, role: "ADMIN" })` lookup.
+        // Matches the mocked requireAdmin's `playerId` above; no test here
+        // asserts on the actual actorId value, only that the write doesn't
+        // reject for lack of one.
+        findFirst: vi.fn(async () => ({ id: "test-admin-001" })),
       },
       // `addMissingLeagueMatches` itself never reads this top-level
       // `match.findMany` — its own read of existing pairs goes entirely
