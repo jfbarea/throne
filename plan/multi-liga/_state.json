@@ -213,7 +213,7 @@
       "id": "D1",
       "lane": "D",
       "slug": "archivado-de-ligas",
-      "status": "PENDING",
+      "status": "DONE",
       "criteria": [
         22,
         23,
@@ -225,7 +225,7 @@
       "id": "D2",
       "lane": "D",
       "slug": "crear-duplicar-borrar",
-      "status": "PENDING",
+      "status": "DONE",
       "criteria": [
         13,
         26,
@@ -270,6 +270,17 @@
       "status": "DONE",
       "criteria": [],
       "notes": "Corrección de E1. La migración no estaba desplegada, así que era reescribible: se hornean las 5 secciones completas y Formato/Puntuación vuelven a ser prosa editable. Test de paridad SQL↔TS."
+    },
+    {
+      "id": "I1",
+      "lane": "integracion",
+      "slug": "montar-acciones-en-el-indice",
+      "status": "PENDING",
+      "criteria": [
+        22,
+        28
+      ],
+      "notes": "Costura sin dueño del reparto en lanes: B dejó el punto de extensión LeagueRowActions devolviendo null y D construyó los cuatro componentes, pero nadie montó unos en otro. Archivar, desarchivar, duplicar y borrar eran inalcanzables desde la UI pese a que las acciones de servidor funcionan y están testeadas. Incluye la pantalla de passcodes tras duplicar (criterio 28), que D dejó para B y B no llegó a construir."
     },
     {
       "id": "Z1",
