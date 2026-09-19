@@ -15,6 +15,11 @@ import {
   type PreassignedPair,
 } from "@/server/rounds";
 import type { Pairing } from "@/server/pairings";
+import {
+  assertLeagueWritable,
+  LeagueArchivedError,
+  resolveActingPlayerId,
+} from "@/lib/league-context";
 import { z } from "zod";
 
 export type ActionResult<T = void> =
@@ -96,12 +101,32 @@ export async function updateRoundDeadline(
     return { ok: false, error: message };
   }
 
-  const round = await prisma.round.findUnique({ where: { id: roundId } });
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: { league: { select: { archivedAt: true } } },
+  });
   if (!round) {
     return { ok: false, error: "Ronda no encontrada" };
   }
 
+  // Multi-liga spec §5.6, criterio 23: no editing a round's deadline on an
+  // archived league.
+  try {
+    assertLeagueWritable(round.league);
+  } catch (err) {
+    if (err instanceof LeagueArchivedError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
+  }
+
   const newDeadline = parsed.data.deadline;
+
+  // Multi-liga spec §2.4, §4.4, §4.9: the admin session carries no fixed
+  // playerId (login-admin signs `playerId: null`), so the actor is derived
+  // per-league — the `Player` with `role = ADMIN` of THIS round's league —
+  // same derivation as result-actions.ts and league/players.ts.
+  const actorId = await resolveActingPlayerId(round.leagueId, session);
 
   await prisma.$transaction(async (tx) => {
     await tx.round.update({
@@ -111,10 +136,10 @@ export async function updateRoundDeadline(
 
     // Best-effort audit trail (requires an admin player in the session,
     // same convention as resetLeague — src/server/league-actions.ts).
-    if (session.playerId) {
+    if (actorId) {
       await tx.auditLog.create({
         data: {
-          actorId: session.playerId,
+          actorId,
           action: "UPDATE_ROUND_DEADLINE",
           entityType: "Round",
           entityId: roundId,
@@ -184,9 +209,23 @@ export async function closeRound(
 ): Promise<ActionResult<{ settledCount: number }>> {
   const session = await requireAdmin();
 
-  const round = await prisma.round.findUnique({ where: { id: roundId } });
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: { league: { select: { archivedAt: true } } },
+  });
   if (!round) {
     return { ok: false, error: "Ronda no encontrada" };
+  }
+
+  // Multi-liga spec §5.6, criterio 23: no closing a round on an archived
+  // league.
+  try {
+    assertLeagueWritable(round.league);
+  } catch (err) {
+    if (err instanceof LeagueArchivedError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
   }
 
   if (round.closedAt !== null) {
@@ -201,16 +240,18 @@ export async function closeRound(
     };
   }
 
-  // Admin sessions must have a playerId for DB writes (same convention as
-  // reportResult — src/server/result-actions.ts).
-  if (!session.playerId) {
+  // Multi-liga spec §2.4, §4.4, §4.9: the admin session carries no fixed
+  // playerId, so the actor is derived per-league — the `Player` with
+  // `role = ADMIN` of THIS round's league, never a session-level id — same
+  // derivation as result-actions.ts and league/players.ts.
+  const actorId = await resolveActingPlayerId(round.leagueId, session);
+  if (!actorId) {
     return {
       ok: false,
       error:
-        "La sesión de administrador no tiene un jugador asociado. Usa un jugador con rol ADMIN.",
+        "Esta liga no tiene un jugador con rol ADMIN. No se puede atribuir la acción.",
     };
   }
-  const actorId = session.playerId;
 
   let settledCount: number;
   try {
@@ -615,6 +656,17 @@ export async function redistributePending(
     return { ok: false, error: "Liga no encontrada" };
   }
 
+  // Multi-liga spec §5.6, criterio 23: no redistributing pending matches on
+  // an archived league.
+  try {
+    assertLeagueWritable(league);
+  } catch (err) {
+    if (err instanceof LeagueArchivedError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
+  }
+
   const rounds = await prisma.round.findMany({
     where: { leagueId },
     select: { id: true, index: true, closedAt: true, deadline: true },
@@ -678,16 +730,16 @@ export async function redistributePending(
   }
   const { plan } = planned;
 
-  // Admin sessions must have a playerId for DB writes (same convention as
-  // closeRound).
-  if (!session.playerId) {
+  // Multi-liga spec §2.4, §4.4, §4.9: same per-league derivation as
+  // closeRound above — this action already receives `leagueId` directly.
+  const actorId = await resolveActingPlayerId(leagueId, session);
+  if (!actorId) {
     return {
       ok: false,
       error:
-        "La sesión de administrador no tiene un jugador asociado. Usa un jugador con rol ADMIN.",
+        "Esta liga no tiene un jugador con rol ADMIN. No se puede atribuir la acción.",
     };
   }
-  const actorId = session.playerId;
 
   // Snapshot used only to map round index -> id for existing rounds, and to
   // drive the trailing-cleanup scan below. Ids are immutable, so this stays

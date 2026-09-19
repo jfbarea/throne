@@ -18,6 +18,11 @@ const eslintConfig = defineConfig([
     "coverage/**",
     // Generated Prisma client.
     "src/generated/**",
+    // Git worktrees de agentes: copias completas del repo, con sus propios
+    // node_modules y su propio .next. Sin esta línea, `npm run lint` recorre
+    // cada copia y devuelve decenas de miles de problemas que no son del
+    // proyecto (medidos: 50.708, todos de aquí). Gitignorado también.
+    ".claude/worktrees/**",
   ]),
 ]);
 

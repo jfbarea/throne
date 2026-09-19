@@ -16,6 +16,10 @@ import {
   resolvePlayoffWinner,
   type OpenRoundInfo,
 } from "@/server/bracket";
+import {
+  assertLeagueWritable,
+  LeagueArchivedError,
+} from "@/lib/league-context";
 
 // ---------------------------------------------------------------------------
 // ActionResult type (consistent with other action modules)
@@ -85,6 +89,17 @@ export async function startPlayoffs(
 
   if (!league) {
     return { ok: false, error: "Liga no encontrada" };
+  }
+
+  // Multi-liga spec §5.6, criterio 23: no starting playoffs on an archived
+  // league.
+  try {
+    assertLeagueWritable(league);
+  } catch (err) {
+    if (err instanceof LeagueArchivedError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
   }
 
   if (league.status !== "LEAGUE") {
@@ -386,6 +401,14 @@ export async function startPlayoffs(
  * This function MUST be called inside a Prisma transaction (receives `tx`).
  * It is not a Server Action itself — it's called from reportResult.
  *
+ * Multi-liga spec §5.6, criterio 23: `reportResult` already calls
+ * `assertLeagueWritable` before opening the transaction this function runs
+ * in, so an archived league never reaches here through that path. This
+ * re-checks with `tx` anyway, as a defensive assertion for the "16 acciones"
+ * list (spec §5.6 names this function explicitly) and for any future direct
+ * caller that skips `reportResult`'s own guard — it should never actually
+ * fire today.
+ *
  * @param tx         Prisma transaction client.
  * @param matchId    The just-reported playoff match id.
  * @param outcome    The reported outcome.
@@ -399,6 +422,14 @@ export async function advancePlayoffWinner(
   playerHomeId: string,
   playerAwayId: string | null
 ): Promise<void> {
+  const league = await tx.league.findUnique({
+    where: { id: leagueId },
+    select: { archivedAt: true },
+  });
+  if (league) {
+    assertLeagueWritable(league);
+  }
+
   // Determine winner.
   const winnerId = resolvePlayoffWinner(outcome, playerHomeId, playerAwayId);
 

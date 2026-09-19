@@ -5,6 +5,7 @@
 // Reached from the user menu in the appbar, not from the main nav: it is a
 // per-account setting, not a league section.
 
+import { redirect } from "next/navigation";
 import { requireAuth } from "@/lib/guards";
 import { prisma } from "@/lib/db";
 import { parseFactions } from "@/lib/factions";
@@ -15,7 +16,16 @@ import { FactionForm } from "./FactionForm";
 export default async function MiPerfilPage() {
   const session = await requireAuth();
 
-  // An ADMIN session authenticated with ADMIN_PASSCODE has no Player row.
+  // The admin session carries no fixed playerId (multi-liga spec §2.4, §4.4):
+  // it has a distinct Player row — and a distinct faction — per league, so
+  // there's no single "mi perfil" to show. Send it to the league index
+  // instead of rendering the "sin jugador asociado" placeholder this page
+  // used to show for admins pre-multi-liga (spec §5.8): the admin edits its
+  // faction per league from /admin/[slug]/jugadores now.
+  if (session.role === "ADMIN") {
+    redirect("/admin");
+  }
+
   const player = session.playerId
     ? await prisma.player.findUnique({
         where: { id: session.playerId },
@@ -48,6 +58,9 @@ export default async function MiPerfilPage() {
         </div>
 
         {!player ? (
+          // The ADMIN branch redirects above; this now only covers a PLAYER
+          // session whose Player row is gone (e.g. its league was deleted,
+          // spec §5.2) — a dangling cookie, not the admin case.
           <Card className="py-10 text-center">
             <p
               className="text-[15px] font-semibold"
@@ -56,7 +69,7 @@ export default async function MiPerfilPage() {
                 fontFamily: "var(--font-sans)",
               }}
             >
-              Esta sesión de administrador no está ligada a ningún jugador
+              No se encontró tu perfil
             </p>
             <p
               className="mt-1 text-[13px]"
@@ -65,8 +78,7 @@ export default async function MiPerfilPage() {
                 fontFamily: "var(--font-sans)",
               }}
             >
-              Entra con tu nombre de jugador y tu código para editar tus
-              facciones.
+              Vuelve a entrar con tu nombre de jugador y tu código.
             </p>
           </Card>
         ) : (

@@ -2,10 +2,11 @@
 
 // Client component: form to set/edit/clear scheduledAt and location for a match.
 // Used inline wherever a participant (or the admin) can agree on a date:
-// the calendar row (src/app/calendario/MatchRow.tsx) and the match card in
-// "Mis partidas" (src/app/mis-partidas/MatchCard.tsx). It lives in
-// src/components/ rather than next to either page precisely because both need
-// it — the authorization is the server's job either way (`setMatchSchedule`).
+// the calendar row (src/app/liga/[slug]/calendario/MatchRow.tsx) and the
+// match card in "Mis partidas" (src/app/liga/[slug]/mis-partidas/MatchCard.tsx,
+// multi-liga A1). It lives in src/components/ rather than next to either
+// page precisely because both need it — the authorization is the server's
+// job either way (`setMatchSchedule`).
 
 import { useState, useTransition } from "react";
 import { Button } from "./Button";

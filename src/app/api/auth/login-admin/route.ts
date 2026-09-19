@@ -5,7 +5,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyAdminPasscode } from "@/lib/auth";
 import { setSessionCookie } from "@/lib/session";
-import { prisma } from "@/lib/db";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   let body: { passcode?: string };
@@ -28,16 +27,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Look up the admin player record (there must be a Player with role=ADMIN).
-  // If none exists, the session still works but playerId will be null.
-  const adminPlayer = await prisma.player.findFirst({
-    where: { role: "ADMIN", active: true },
-    select: { id: true },
-  });
-
+  // The admin session carries no fixed playerId (multi-liga spec §2.4, §4.4):
+  // the admin has a distinct Player row with role=ADMIN in every league, so
+  // there's no single "the" admin player to resolve here. The acting player
+  // for a given write action is derived per-league instead, via
+  // resolveActingPlayerId(leagueId, session) (src/lib/league-context.ts).
   const response = NextResponse.json({ ok: true });
   await setSessionCookie(response, {
-    playerId: adminPlayer?.id ?? null,
+    playerId: null,
     role: "ADMIN",
   });
 

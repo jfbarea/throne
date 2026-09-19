@@ -1,0 +1,566 @@
+// Server-side domain actions for player management.
+// Split out of src/server/league-actions.ts (multi-liga C1,
+// contexto-de-liga-y-modulos) — pure move, no logic change. league-actions.ts
+// re-exports this module so no existing import breaks.
+// Hito 5: admin-liga-jugadores. SPEC §4.1, §4.2, §5.
+
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { prisma } from "@/lib/db";
+import {
+  createPlayerSchema,
+  updatePlayerSchema,
+  type CreatePlayerInput,
+  type UpdatePlayerInput,
+} from "@/lib/schemas";
+import { generateHashedPasscode } from "@/lib/passcode";
+import { requireAdmin } from "@/lib/guards";
+import { redistributePending } from "@/server/round-actions";
+import { WALKOVER_VICTORY_POINTS } from "@/server/result-logic";
+import {
+  assertLeagueWritable,
+  LeagueArchivedError,
+  resolveActingPlayerId,
+} from "@/lib/league-context";
+import type { ActionResult } from "./action-result";
+
+// ---------------------------------------------------------------------------
+// displayName uniqueness — the single point every write path must consume
+// (multi-liga C4, nombres-unicos-y-login; spec §2.7, §5.4, §9 riesgos)
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when a `displayName` collides with a `role = PLAYER` row in a
+ * non-archived league (see `findDisplayNameConflict`). Carries the
+ * conflicting league's name so callers can surface "en uso en <liga>" in the
+ * `displayName` field error without a second query.
+ *
+ * Deliberately NOT exported: this file has `"use server"` (it's a Server
+ * Actions module), and every export of such a file must be an async
+ * function — Next.js's build rejects a class export here (it did, until
+ * this was un-exported: silent-looking downstream errors like "Export
+ * updatePlayer doesn't exist"). `findDisplayNameConflict` below is the
+ * actual single point external callers (lane D's `duplicateLeague`/
+ * `unarchiveLeague`, tests) should use — it's a plain query, no exception
+ * needed, and it's what a caller checking a whole roster for conflicts
+ * (spec §5.4: "lista **todos** los nombres en conflicto") wants anyway.
+ * `assertDisplayNameAvailable` is exported (it's an async function, so it's
+ * allowed) as the fail-fast convenience `createPlayer`/`updatePlayer` use
+ * below; a caller can still assert on its rejection message even without
+ * importing this class.
+ */
+class DisplayNameTakenError extends Error {
+  constructor(
+    public readonly displayName: string,
+    public readonly conflictingLeagueName: string
+  ) {
+    super(
+      `Ya existe un jugador con el nombre "${displayName}" en la liga "${conflictingLeagueName}"`
+    );
+    this.name = "DisplayNameTakenError";
+  }
+}
+
+/**
+ * Find the `Player` row (if any) that makes `displayName` unavailable, or
+ * `null` if it's free to use.
+ *
+ * Multi-liga spec §2.7: `displayName` is unique **globally**, not per
+ * league — but only among `role = PLAYER` rows, and only across leagues
+ * that are not archived (§2.8, an archived league's names go back into
+ * circulation). The admin's homonymous `role = ADMIN` row in every league
+ * is the deliberate exception (§2.1): it is never a candidate here, on
+ * either side of the comparison — an ADMIN row never collides with
+ * anything, which is exactly why `assertDisplayNameAvailable` below skips
+ * the check entirely when the entity being written is itself `role =
+ * ADMIN`.
+ *
+ * `opts.excludePlayerId` lets `updatePlayer` check a rename without the
+ * player's own (unchanged or changed) row counting as a conflict with
+ * itself.
+ *
+ * This is the single point of the check the spec's own risk section (§9)
+ * asks for: `createPlayer`, `updatePlayer` (below), lane D's
+ * `duplicateLeague`/`unarchiveLeague`, and lane B's `updateLeague`-adjacent
+ * flows all funnel through here so a forgotten call site can't
+ * reintroduce the cross-league collision that breaks login (§2.7, §4.4).
+ */
+export async function findDisplayNameConflict(
+  displayName: string,
+  opts: { excludePlayerId?: string } = {}
+): Promise<{ leagueName: string } | null> {
+  const conflict = await prisma.player.findFirst({
+    where: {
+      displayName,
+      role: "PLAYER",
+      league: { archivedAt: null },
+      ...(opts.excludePlayerId ? { id: { not: opts.excludePlayerId } } : {}),
+    },
+    select: { league: { select: { name: true } } },
+  });
+  return conflict ? { leagueName: conflict.league.name } : null;
+}
+
+/**
+ * Throws `DisplayNameTakenError` if `displayName` is unavailable for a
+ * `role`-typed `Player` (see `findDisplayNameConflict`). A no-op for `role:
+ * "ADMIN"` — the admin's row is the deliberate exception to the whole rule
+ * (spec §2.1, §2.7), so there is nothing to check against.
+ */
+export async function assertDisplayNameAvailable(
+  displayName: string,
+  role: "ADMIN" | "PLAYER",
+  opts: { excludePlayerId?: string } = {}
+): Promise<void> {
+  if (role !== "PLAYER") return;
+  const conflict = await findDisplayNameConflict(displayName, opts);
+  if (conflict) {
+    throw new DisplayNameTakenError(displayName, conflict.leagueName);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Player: create — generates and returns passcode (shown once)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a new player in the given league.
+ * Generates a random passcode, hashes it (bcrypt), persists the hash,
+ * and returns the plain passcode ONE TIME to the admin.
+ * After this call the plain passcode is never stored and cannot be retrieved.
+ */
+export async function createPlayer(
+  leagueId: string,
+  input: CreatePlayerInput
+): Promise<ActionResult<{ id: string; plainPasscode: string }>> {
+  await requireAdmin();
+
+  const parsed = createPlayerSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: "Datos del jugador inválidos",
+      fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+    };
+  }
+
+  const d = parsed.data;
+
+  // Multi-liga spec §5.6, criterio 23: no altas on an archived league. Skips
+  // silently (falls through to the pre-existing behaviour) if `leagueId`
+  // doesn't resolve at all — same as before this guard existed, that case
+  // was left to the FK constraint on `prisma.player.create` below.
+  const league = await prisma.league.findUnique({
+    where: { id: leagueId },
+    select: { archivedAt: true },
+  });
+  if (league) {
+    try {
+      assertLeagueWritable(league);
+    } catch (err) {
+      if (err instanceof LeagueArchivedError) {
+        return { ok: false, error: err.message };
+      }
+      throw err;
+    }
+  }
+
+  // displayName uniqueness (multi-liga spec §2.7): global across
+  // non-archived leagues among role=PLAYER rows, not just within this
+  // league — see findDisplayNameConflict's docstring. A role=ADMIN create
+  // (the admin's own per-league row) is exempt by design.
+  try {
+    await assertDisplayNameAvailable(d.displayName, d.role ?? "PLAYER");
+  } catch (err) {
+    if (err instanceof DisplayNameTakenError) {
+      return {
+        ok: false,
+        error: err.message,
+        fieldErrors: {
+          displayName: [
+            `Nombre en uso en la liga "${err.conflictingLeagueName}" — elige un nombre diferente`,
+          ],
+        },
+      };
+    }
+    throw err;
+  }
+
+  const { plain, hash } = await generateHashedPasscode();
+
+  const player = await prisma.player.create({
+    data: {
+      leagueId,
+      displayName: d.displayName,
+      faction: d.faction ?? null,
+      role: d.role ?? "PLAYER",
+      passcodeHash: hash,
+      active: true,
+    },
+  });
+
+  revalidatePath("/admin/jugadores");
+  return { ok: true, data: { id: player.id, plainPasscode: plain } };
+}
+
+// ---------------------------------------------------------------------------
+// Player: update displayName / faction / role
+// ---------------------------------------------------------------------------
+
+export async function updatePlayer(
+  playerId: string,
+  input: UpdatePlayerInput
+): Promise<ActionResult> {
+  await requireAdmin();
+
+  const parsed = updatePlayerSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: "Datos del jugador inválidos",
+      fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+    };
+  }
+
+  const d = parsed.data;
+
+  // Multi-liga spec §5.6, criterio 23. Skips silently (same fallback as
+  // createPlayer above) if `playerId` doesn't resolve — the update below
+  // already handled that case on its own before this guard existed.
+  const player = await prisma.player.findUnique({
+    where: { id: playerId },
+    select: { role: true, league: { select: { archivedAt: true } } },
+  });
+  if (player) {
+    try {
+      assertLeagueWritable(player.league);
+    } catch (err) {
+      if (err instanceof LeagueArchivedError) {
+        return { ok: false, error: err.message };
+      }
+      throw err;
+    }
+  }
+
+  // displayName uniqueness (multi-liga spec §2.7, §5.4 "alta o edición"),
+  // same single point as createPlayer — excludes this player's own row so
+  // an unchanged name (or renaming among the same PLAYER role) never
+  // collides with itself. Effective role is the incoming one if the update
+  // changes it, else the row's current role — `assertDisplayNameAvailable`
+  // is a no-op either way if that role is ADMIN.
+  try {
+    await assertDisplayNameAvailable(
+      d.displayName,
+      d.role ?? player?.role ?? "PLAYER",
+      { excludePlayerId: playerId }
+    );
+  } catch (err) {
+    if (err instanceof DisplayNameTakenError) {
+      return {
+        ok: false,
+        error: err.message,
+        fieldErrors: {
+          displayName: [
+            `Nombre en uso en la liga "${err.conflictingLeagueName}" — elige un nombre diferente`,
+          ],
+        },
+      };
+    }
+    throw err;
+  }
+
+  await prisma.player.update({
+    where: { id: playerId },
+    data: {
+      displayName: d.displayName,
+      faction: d.faction ?? null,
+      ...(d.role ? { role: d.role } : {}),
+    },
+  });
+
+  revalidatePath("/admin/jugadores");
+  return { ok: true, data: undefined };
+}
+
+// ---------------------------------------------------------------------------
+// Player: soft deactivate / reactivate (SPEC §4.2 — active flag for history;
+// rondas-con-fecha §5.6 — Hito 8, criterios 32-33)
+// ---------------------------------------------------------------------------
+
+/**
+ * Deactivate or reactivate a player.
+ *
+ * Deactivating (`active: false`, rondas-con-fecha §5.6, criterio 32): before
+ * flipping the flag, every one of this player's `phase = LEAGUE` matches that
+ * has no `Result` yet and belongs to an open round (or no round at all) is
+ * settled as an 80-0 walkover **in favor of the opponent** —
+ * `resolution = WALKOVER`, `bonusHome = bonusAway = 0` forced (never through
+ * `calculateBonus`, same reasoning as `declareWalkover`), with an `AuditLog`
+ * entry — all inside one transaction. Matches that already had a `Result`
+ * are left untouched. Afterwards, `redistributePending` recomputes the
+ * reparto of whatever is still pending (§5.1): those settled matches just
+ * vanished from the open rounds' bookkeeping.
+ *
+ * Reactivating (`active: true`) deliberately does none of this — it is a
+ * plain flag flip. Reactivating a deactivated player does **not** revert the
+ * walkovers their deactivation produced (criterio 33): the admin would have
+ * to edit those results by hand, via the usual §7.5 override.
+ *
+ * No settlement (and no redistribute) happens if the player was already in
+ * the target state — this only fires on a genuine `true → false` edge.
+ *
+ * **Not atomic end-to-end**, in a smaller way than `addMissingLeagueMatches`
+ * (Hito 8 review, plan/rondas-con-fecha/reviews/recalculo-alta-baja-y-cupo.md):
+ * the walkover settlement and the `active` flag flip commit before
+ * `redistributePending` opens its own separate transaction. If that call
+ * fails, the player is already inactive and their pendings already saldadas
+ * — only the reparto recompute is missing. Unlike `addMissingLeagueMatches`,
+ * this one **is** self-repairing by simply retrying: the redistribute call
+ * below is gated on the *target* state (`!active`), not on whether the
+ * settlement actually ran, so calling `setPlayerActive(playerId, false)`
+ * again on an already-inactive player skips the (already-done) settlement
+ * but still retries `redistributePending`.
+ */
+export async function setPlayerActive(
+  playerId: string,
+  active: boolean
+): Promise<ActionResult> {
+  const session = await requireAdmin();
+
+  const player = await prisma.player.findUnique({ where: { id: playerId } });
+  if (!player) {
+    return { ok: false, error: "Jugador no encontrado" };
+  }
+
+  // Multi-liga spec §5.6, criterio 23: no baja/alta toggling on an archived
+  // league — same rejection as every other write action in this file.
+  const league = await prisma.league.findUnique({
+    where: { id: player.leagueId },
+    select: { archivedAt: true },
+  });
+  if (league) {
+    try {
+      assertLeagueWritable(league);
+    } catch (err) {
+      if (err instanceof LeagueArchivedError) {
+        return { ok: false, error: err.message };
+      }
+      throw err;
+    }
+  }
+
+  const isDeactivating = !active && player.active;
+
+  if (isDeactivating) {
+    // Multi-liga spec §2.4, §4.4, §4.9: the admin session carries no fixed
+    // playerId, so the walkover-settlement actor is derived per-league (the
+    // `Player` with `role = ADMIN` of THIS player's league), not read off
+    // the session directly — same derivation as result-actions.ts.
+    const actorId = await resolveActingPlayerId(player.leagueId, session);
+    if (!actorId) {
+      return {
+        ok: false,
+        error:
+          "Esta liga no tiene un jugador con rol ADMIN. No se puede atribuir la acción.",
+      };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const pendingMatches = await tx.match.findMany({
+        where: {
+          leagueId: player.leagueId,
+          phase: "LEAGUE",
+          result: null,
+          OR: [{ playerHomeId: playerId }, { playerAwayId: playerId }],
+          AND: [{ OR: [{ roundId: null }, { round: { closedAt: null } }] }],
+        },
+        select: { id: true, playerHomeId: true, playerAwayId: true },
+      });
+
+      if (pendingMatches.length === 0) return;
+
+      await tx.result.createMany({
+        data: pendingMatches.map((m) => {
+          const deactivatedIsHome = m.playerHomeId === playerId;
+          const outcome: "HOME_WIN" | "AWAY_WIN" = deactivatedIsHome
+            ? "AWAY_WIN"
+            : "HOME_WIN";
+          return {
+            matchId: m.id,
+            homeVictoryPoints: deactivatedIsHome ? 0 : WALKOVER_VICTORY_POINTS,
+            awayVictoryPoints: deactivatedIsHome ? WALKOVER_VICTORY_POINTS : 0,
+            outcome,
+            resolution: "WALKOVER" as const,
+            reportedById: actorId,
+            bonusHome: 0,
+            bonusAway: 0,
+          };
+        }),
+      });
+
+      await tx.match.updateMany({
+        where: { id: { in: pendingMatches.map((m) => m.id) } },
+        data: { status: "REPORTED" },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: "SETTLE_PLAYER_DEACTIVATION",
+          entityType: "Player",
+          entityId: playerId,
+          payload: JSON.stringify({
+            leagueId: player.leagueId,
+            settledCount: pendingMatches.length,
+          }),
+        },
+      });
+    });
+  }
+
+  await prisma.player.update({
+    where: { id: playerId },
+    data: { active },
+  });
+
+  // Gated on the *target* state (`!active`), not `isDeactivating`: retrying
+  // this action on a player that is already inactive skips the settlement
+  // (already done, `isDeactivating` is false) but still retries the
+  // redistribution — the actual recovery path if a previous call's
+  // `redistributePending` failed after the flag and the walkovers had
+  // already committed (see the docstring above).
+  if (!active) {
+    const redistributeResult = await redistributePending(player.leagueId);
+    if (!redistributeResult.ok) {
+      return {
+        ok: false,
+        error: `El jugador se dio de baja y sus partidas pendientes se saldaron, pero no se pudo recalcular el reparto de rondas: ${redistributeResult.error}`,
+      };
+    }
+  }
+
+  revalidatePath("/admin/jugadores");
+  if (!active) {
+    revalidatePath("/mis-partidas");
+    revalidatePath("/clasificacion");
+    revalidatePath("/rondas");
+    revalidatePath("/calendario");
+    revalidatePath("/admin/rondas");
+  }
+  return { ok: true, data: undefined };
+}
+
+// ---------------------------------------------------------------------------
+// Player: reset passcode — generate a new one, hash it, return plain once
+// ---------------------------------------------------------------------------
+
+/**
+ * Reset a player's passcode. Generates a new random passcode, hashes it,
+ * persists the hash, and returns the plain text ONE TIME to the admin.
+ */
+export async function resetPlayerPasscode(
+  playerId: string
+): Promise<ActionResult<{ plainPasscode: string }>> {
+  await requireAdmin();
+
+  // Multi-liga spec §5.6, criterio 23. Same fallback as updatePlayer above
+  // for a `playerId` that doesn't resolve.
+  const player = await prisma.player.findUnique({
+    where: { id: playerId },
+    select: { league: { select: { archivedAt: true } } },
+  });
+  if (player) {
+    try {
+      assertLeagueWritable(player.league);
+    } catch (err) {
+      if (err instanceof LeagueArchivedError) {
+        return { ok: false, error: err.message };
+      }
+      throw err;
+    }
+  }
+
+  const { plain, hash } = await generateHashedPasscode();
+
+  await prisma.player.update({
+    where: { id: playerId },
+    data: { passcodeHash: hash },
+  });
+
+  revalidatePath("/admin/jugadores");
+  return { ok: true, data: { plainPasscode: plain } };
+}
+
+// ---------------------------------------------------------------------------
+// Player: hard delete — removes the player entirely
+// ---------------------------------------------------------------------------
+
+/**
+ * Permanently delete a player. Refuses if the player is referenced by any
+ * match or result, since deleting them would corrupt league history — in that
+ * case the admin should deactivate (setPlayerActive) instead, which preserves
+ * the record. AuditLog entries (actor-only references) are removed in the same
+ * transaction so the FK constraint is satisfied.
+ *
+ * Multi-liga spec §4.9, criterio 14: also refuses to delete the `role =
+ * ADMIN` Player of a league — that row is the only actor a league ever has
+ * for `Result.reportedById`/`AuditLog.actorId` when the admin acts on it
+ * (`resolveActingPlayerId`, src/lib/league-context.ts); deleting it would
+ * leave the league with no way to attribute a future admin action.
+ * Deactivating it (`setPlayerActive`) is still allowed — see spec §4.9:
+ * "si el admin no quiere jugar, se da de baja ... sin dejar de ser el
+ * actor de las acciones de admin".
+ */
+export async function deletePlayer(playerId: string): Promise<ActionResult> {
+  await requireAdmin();
+
+  // Multi-liga spec §5.6, criterio 23. Same fallback as updatePlayer above
+  // for a `playerId` that doesn't resolve.
+  const player = await prisma.player.findUnique({
+    where: { id: playerId },
+    select: { role: true, league: { select: { archivedAt: true } } },
+  });
+  if (player) {
+    try {
+      assertLeagueWritable(player.league);
+    } catch (err) {
+      if (err instanceof LeagueArchivedError) {
+        return { ok: false, error: err.message };
+      }
+      throw err;
+    }
+
+    if (player.role === "ADMIN") {
+      return {
+        ok: false,
+        error:
+          "No se puede borrar al jugador ADMIN de una liga: dejaría la liga sin actor para las acciones de administración.",
+      };
+    }
+  }
+
+  const [homeMatches, awayMatches, reported, confirmed] = await Promise.all([
+    prisma.match.count({ where: { playerHomeId: playerId } }),
+    prisma.match.count({ where: { playerAwayId: playerId } }),
+    prisma.result.count({ where: { reportedById: playerId } }),
+    prisma.result.count({ where: { confirmedById: playerId } }),
+  ]);
+
+  if (homeMatches + awayMatches + reported + confirmed > 0) {
+    return {
+      ok: false,
+      error:
+        "No se puede borrar: el jugador tiene partidas o resultados en la liga. Dalo de baja para conservar el histórico.",
+    };
+  }
+
+  await prisma.$transaction([
+    // Actor-only references; safe to remove for a player with no match history.
+    prisma.auditLog.deleteMany({ where: { actorId: playerId } }),
+    prisma.player.delete({ where: { id: playerId } }),
+  ]);
+
+  revalidatePath("/admin/jugadores");
+  return { ok: true, data: undefined };
+}

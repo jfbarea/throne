@@ -22,15 +22,15 @@ datasource db {
 
 // LeagueStatus: lifecycle of the league edition.
 enum LeagueStatus {
-  SETUP     // League is being configured; pairings not yet generated.
-  LEAGUE    // Active league phase (round-robin matches in progress).
-  PLAYOFFS  // Playoff bracket phase.
-  FINISHED  // League concluded.
+  SETUP // League is being configured; pairings not yet generated.
+  LEAGUE // Active league phase (round-robin matches in progress).
+  PLAYOFFS // Playoff bracket phase.
+  FINISHED // League concluded.
 }
 
 // Role: player access level.
 enum Role {
-  ADMIN  // League administrator (also a player).
+  ADMIN // League administrator (also a player).
   PLAYER // Regular participant.
 }
 
@@ -38,28 +38,28 @@ enum Role {
 // SCHEDULED = pairing created, result pending (may or may not have a date).
 enum MatchStatus {
   SCHEDULED // Pairing exists; no result reported yet.
-  REPORTED  // One player reported the result; awaiting rival confirmation.
+  REPORTED // One player reported the result; awaiting rival confirmation.
   CONFIRMED // Rival (or admin) confirmed the result; counts for standings.
-  DISPUTED  // Rival disputed the result; requires admin resolution.
+  DISPUTED // Rival disputed the result; requires admin resolution.
 }
 
 // MatchPhase: which competition phase the match belongs to.
 enum MatchPhase {
-  LEAGUE  // Regular round-robin phase.
+  LEAGUE // Regular round-robin phase.
   PLAYOFF // Elimination bracket phase.
 }
 
 // Outcome: final result of a match.
 enum Outcome {
-  HOME_WIN  // Home player won.
-  AWAY_WIN  // Away player won.
-  DRAW      // Draw (valid in league phase; invalid in playoffs per domain rules).
+  HOME_WIN // Home player won.
+  AWAY_WIN // Away player won.
+  DRAW // Draw (valid in league phase; invalid in playoffs per domain rules).
 }
 
 // Resolution: how a Result came to be (rondas-con-fecha spec §4.9).
 enum Resolution {
-  PLAYED        // The match was actually played.
-  WALKOVER      // Unplayed, walkover: participants agreed on a winner (80-0).
+  PLAYED // The match was actually played.
+  WALKOVER // Unplayed, walkover: participants agreed on a winner (80-0).
   UNPLAYED_DRAW // Unplayed, no agreement: settled as 0-0 when the round closes.
 }
 
@@ -70,9 +70,36 @@ enum Resolution {
 // League: global configuration for the active season.
 // In MVP there is a single active league.
 model League {
-  id     String       @id @default(cuid())
+  id     String @id @default(cuid())
   name   String
   season String // e.g. "2026 Spring"
+
+  // slug: kebab-case ASCII identifier used in the URL (multi-liga spec §2.6,
+  // §4.6). Derived from name + season via src/server/slug.ts and recomputed
+  // on every rename (updateLeague). No history is kept: renaming invalidates
+  // links to the old slug (spec §2.6, risk accepted).
+  //
+  // `@default(cuid())` is a safety net, not the intended source of a real
+  // slug: it exists so the many pre-existing test fixtures and any other
+  // direct `prisma.league.create` call that doesn't pass a slug explicitly
+  // still satisfy the NOT NULL/UNIQUE constraint. Every league created
+  // through the app (createLeague/duplicateLeague, lane D) always computes
+  // and passes a real slug explicitly, making this default effectively dead
+  // code on that path.
+  slug String @unique @default(cuid())
+
+  // archivedAt: null while the league is in circulation (multi-liga spec
+  // §2.8). Orthogonal to `status`, same relationship as Round.closedAt to
+  // Round — archiving is an explicit admin action, never an automatic effect
+  // of reaching FINISHED.
+  archivedAt DateTime?
+
+  // rulesMarkdown: free-form prose for the public bases page (multi-liga
+  // spec §2.11, §4.11). Whatever is already expressed as League config
+  // (scoring, bonus, tiebreakers, matchesPerRound, playoffSize) is rendered
+  // generated, never duplicated here. Defaults to "" so bases still render
+  // (generated block only) when the admin clears the prose entirely.
+  rulesMarkdown String @default("")
 
   status LeagueStatus @default(SETUP)
 
@@ -82,24 +109,24 @@ model League {
   pointsLoss Int @default(0)
 
   // Bonus configuration (W40k-style optional bonus points).
-  bonusEnabled Boolean @default(false)
+  bonusEnabled         Boolean @default(false)
   // bonusMarginThreshold: VP margin required for a massacre bonus (null = disabled).
   bonusMarginThreshold Int?
   // bonusMinVP: minimum VP a player must score to earn the min-VP bonus (null = disabled).
-  bonusMinVP Int?
+  bonusMinVP           Int?
 
   // Number of players that qualify for the playoff bracket.
   playoffSize Int @default(4)
 
   // Rondas-con-fecha (plan/specs/rondas-con-fecha.md §6.2):
   // matchesPerRound: matches each player must play per round.
-  matchesPerRound Int @default(2)
+  matchesPerRound Int       @default(2)
   // startMonth: the league's starting month, stored as the first day of that
   // month at midnight. Round deadlines are derived from it on generation.
   // Nullable on purpose: a league in SETUP has no starting month until the
   // admin sets one — there is no plausible computed default (§4.4), so the
   // "not configured yet" state is represented as null instead of guessed.
-  startMonth DateTime?
+  startMonth      DateTime?
 
   // Ordered list of tiebreaker criteria for standings.
   // Decision (ADR-002 compatibility): stored as a JSON-encoded string because
@@ -115,10 +142,10 @@ model League {
   updatedAt DateTime @updatedAt
 
   // Relations
-  players     Player[]
-  matches     Match[]
-  rounds      Round[]
-  bracket     Bracket?
+  players Player[]
+  matches Match[]
+  rounds  Round[]
+  bracket Bracket?
 }
 
 // Round: a month-long slice of the league phase (rondas-con-fecha spec §6.2).
@@ -129,7 +156,7 @@ model Round {
   leagueId String
 
   // 1-based. Order of the rounds within the league.
-  index Int
+  index    Int
   // Deadline for every match in this round. Derived from the league's start
   // month on generation, editable by the admin afterwards.
   deadline DateTime
@@ -145,14 +172,14 @@ model Round {
 
 // Player: a league participant.
 model Player {
-  id           String   @id @default(cuid())
+  id           String  @id @default(cuid())
   leagueId     String
   displayName  String
   // faction: W40k army/faction (optional free text).
   faction      String?
-  role         Role     @default(PLAYER)
+  role         Role    @default(PLAYER)
   passcodeHash String
-  active       Boolean  @default(true)
+  active       Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -262,7 +289,7 @@ model Bracket {
   createdAt DateTime @default(now())
 
   // Relations
-  league League       @relation(fields: [leagueId], references: [id])
+  league League        @relation(fields: [leagueId], references: [id])
   slots  BracketSlot[]
 }
 
@@ -286,7 +313,7 @@ model BracketSlot {
   feedsIntoSlotId String?
 
   // Relations
-  bracket       Bracket     @relation(fields: [bracketId], references: [id])
+  bracket       Bracket       @relation(fields: [bracketId], references: [id])
   match         Match[]
   feedsIntoSlot BracketSlot?  @relation("SlotProgression", fields: [feedsIntoSlotId], references: [id])
   fedBySlots    BracketSlot[] @relation("SlotProgression")
@@ -297,8 +324,8 @@ model BracketSlot {
 model AuditLog {
   id         String   @id @default(cuid())
   actorId    String
-  action     String   // e.g. "REPORT_RESULT", "CONFIRM_RESULT", "RESOLVE_DISPUTE"
-  entityType String   // e.g. "Match", "Result", "League"
+  action     String // e.g. "REPORT_RESULT", "CONFIRM_RESULT", "RESOLVE_DISPUTE"
+  entityType String // e.g. "Match", "Result", "League"
   entityId   String
   // payload: JSON-encoded snapshot of relevant fields at time of action.
   payload    String   @default("{}")
