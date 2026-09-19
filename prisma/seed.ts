@@ -59,7 +59,7 @@ const PLAYERS: PlayerSeed[] = [
   },
   {
     displayName: "Capitán Torvayne",
-    faction: "Marines Espaciales",
+    faction: "Ultramarines",
     role: "PLAYER",
   },
   { displayName: "Magos Drekk", faction: "Adeptus Mechanicus", role: "PLAYER" },

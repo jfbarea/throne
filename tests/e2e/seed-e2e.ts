@@ -65,7 +65,7 @@ async function main() {
 
   // Create 6 regular players.
   const players = [
-    { id: "e2e-player-001", displayName: "Jugador Alfa", faction: "Marines Espaciales" },
+    { id: "e2e-player-001", displayName: "Jugador Alfa", faction: "Adeptus Astartes" },
     { id: "e2e-player-002", displayName: "Jugador Beta", faction: "Tiránidos" },
     { id: "e2e-player-003", displayName: "Jugador Gamma", faction: "Orkos" },
     { id: "e2e-player-004", displayName: "Jugador Delta", faction: "Imperio T'au" },

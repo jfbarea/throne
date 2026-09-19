@@ -42,8 +42,14 @@ export const MAX_FACTION_NAME_LENGTH = 80;
  * Names follow the Spanish edition, which leaves a handful untranslated
  * because the Spanish edition itself does: the Latin ones the setting uses as
  * proper nouns ("Astra Militarum", "Adeptus Mechanicus", "Adepta Sororitas",
- * "Adeptus Custodes") and the xenos endonyms ("Aeldari", "Drukhari",
+ * "Adeptus Custodes", "Adeptus Astartes") and the xenos endonyms ("Aeldari", "Drukhari",
  * "Votann"). Everything with a Spanish form uses it.
+ *
+ * Every Space Marine army lives in its own group instead of inside Imperium,
+ * which would otherwise be a list of twenty: the generic "Adeptus Astartes"
+ * first, then the codex-compliant chapters, then the divergent ones that have
+ * a codex of their own. A player fielding a chapter that is not listed —
+ * homebrew or a successor — picks the generic "Adeptus Astartes".
  *
  * The catalogue is not a closed set: `Player.faction` may hold a value that is
  * not listed here (free text written before this catalogue existed, an English
@@ -55,19 +61,31 @@ export const FACTION_GROUPS: FactionGroup[] = [
   {
     label: "Imperium",
     factions: [
-      "Marines Espaciales",
-      "Ángeles Sangrientos",
-      "Ángeles Oscuros",
-      "Lobos Espaciales",
-      "Templarios Negros",
-      "Vigilantes de la Muerte",
-      "Caballeros Grises",
       "Adepta Sororitas",
       "Adeptus Custodes",
       "Adeptus Mechanicus",
       "Astra Militarum",
       "Caballeros Imperiales",
       "Agentes del Imperio",
+    ],
+  },
+  {
+    label: "Adeptus Astartes",
+    factions: [
+      "Adeptus Astartes",
+      "Ultramarines",
+      "Puños Imperiales",
+      "Puños Carmesíes",
+      "Cicatrices Blancas",
+      "Manos de Hierro",
+      "Salamandras",
+      "Guardia del Cuervo",
+      "Ángeles Sangrientos",
+      "Ángeles Oscuros",
+      "Lobos Espaciales",
+      "Templarios Negros",
+      "Vigilantes de la Muerte",
+      "Caballeros Grises",
     ],
   },
   {

@@ -38,15 +38,49 @@ describe("catálogo de facciones", () => {
     }
   });
 
-  it("cubre los tres grupos del juego y ninguno está vacío", () => {
+  it("cubre los grupos del juego y ninguno está vacío", () => {
     expect(FACTION_GROUPS.map((g) => g.label)).toEqual([
       "Imperium",
+      "Adeptus Astartes",
       "Caos",
       "Xenos",
     ]);
     for (const group of FACTION_GROUPS) {
       expect(group.factions.length).toBeGreaterThan(0);
     }
+  });
+
+  it("agrupa todos los marines: genérico, capítulos vanilla y divergentes", () => {
+    const astartes = FACTION_GROUPS.find((g) => g.label === "Adeptus Astartes");
+    expect(astartes?.factions).toEqual([
+      "Adeptus Astartes",
+      "Ultramarines",
+      "Puños Imperiales",
+      "Puños Carmesíes",
+      "Cicatrices Blancas",
+      "Manos de Hierro",
+      "Salamandras",
+      "Guardia del Cuervo",
+      "Ángeles Sangrientos",
+      "Ángeles Oscuros",
+      "Lobos Espaciales",
+      "Templarios Negros",
+      "Vigilantes de la Muerte",
+      "Caballeros Grises",
+    ]);
+
+    // Ninguno se quedó también en Imperium: un nombre, un sitio.
+    const imperium = FACTION_GROUPS.find((g) => g.label === "Imperium");
+    for (const name of astartes!.factions) {
+      expect(imperium?.factions).not.toContain(name);
+    }
+  });
+
+  it("ya no ofrece «Marines Espaciales»: el genérico es «Adeptus Astartes»", () => {
+    expect(ALL_FACTIONS).not.toContain("Marines Espaciales");
+    expect(ALL_FACTIONS).toContain("Adeptus Astartes");
+    // El del Caos es otra facción y no se toca.
+    expect(ALL_FACTIONS).toContain("Marines Espaciales del Caos");
   });
 
   it("el cupo máximo de facciones cabe en el largo máximo del campo", () => {
@@ -85,6 +119,12 @@ describe("catálogo de facciones", () => {
       "Chaos Knights",
       "Leagues of Votann",
       "T'au Empire",
+      "Imperial Fists",
+      "Crimson Fists",
+      "White Scars",
+      "Iron Hands",
+      "Salamanders",
+      "Raven Guard",
     ];
     for (const name of untranslated) {
       expect(ALL_FACTIONS).not.toContain(name);
@@ -92,7 +132,6 @@ describe("catálogo de facciones", () => {
 
     // Y las contrapartidas españolas sí están.
     for (const name of [
-      "Marines Espaciales",
       "Ángeles Sangrientos",
       "Vigilantes de la Muerte",
       "Caballeros Grises",
@@ -109,6 +148,12 @@ describe("catálogo de facciones", () => {
       "Caballeros del Caos",
       "Ligas de los Votann",
       "Imperio T'au",
+      "Puños Imperiales",
+      "Puños Carmesíes",
+      "Cicatrices Blancas",
+      "Manos de Hierro",
+      "Salamandras",
+      "Guardia del Cuervo",
     ]) {
       expect(ALL_FACTIONS).toContain(name);
     }
@@ -119,6 +164,7 @@ describe("catálogo de facciones", () => {
       "Adepta Sororitas",
       "Adeptus Custodes",
       "Adeptus Mechanicus",
+      "Adeptus Astartes",
       "Astra Militarum",
       "Aeldari",
       "Drukhari",
@@ -201,11 +247,7 @@ describe("serialiseFactions", () => {
 
 describe("round-trip parse ↔ serialise", () => {
   it("una selección del catálogo sobrevive intacta al ir y volver", () => {
-    const picked = [
-      "Marines Espaciales",
-      "Guardia de la Muerte",
-      "Imperio T'au",
-    ];
+    const picked = ["Adeptus Astartes", "Guardia de la Muerte", "Imperio T'au"];
     expect(parseFactions(serialiseFactions(picked))).toEqual(picked);
   });
 
