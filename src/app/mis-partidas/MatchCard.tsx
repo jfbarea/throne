@@ -17,34 +17,82 @@ import { resolveMatchStatusLabel } from "@/server/round-ui";
 // CONFIRMED only appears in legacy data (old confirmation flow); new matches use REPORTED.
 type MatchStatus = "SCHEDULED" | "REPORTED" | "CONFIRMED" | "DISPUTED";
 
+/** The match this card renders. Named (and exported) so the props this card
+ *  hands its children can be derived from it in a testable way — see
+ *  `scheduleFormPropsFor` below. */
+export interface MatchCardMatch {
+  id: string;
+  playerHomeId: string;
+  playerAwayId: string | null;
+  playerHomeName: string;
+  playerAwayName: string | null;
+  scheduledAt: string | null;
+  location: string | null;
+  status: MatchStatus;
+  /**
+   * `Round.deadline` of this match's round, ISO — the ceiling of
+   * calendario-de-verdad §4.7 (criterio 22). null when the match has no round
+   * (§5.2) or the page did not load it.
+   */
+  roundDeadline: string | null;
+  /** `League.startMonth`, ISO — the floor of §4.7. null in a SETUP league. */
+  leagueStartMonth: string | null;
+  result: {
+    homeVP: number;
+    awayVP: number;
+    outcome: string;
+    reportedById: string;
+    bonusHome: number;
+    bonusAway: number;
+    // Rondas-con-fecha (Hito 5, SPEC §4.9): how this Result came to be.
+    // Consumed by resolveMatchStatusLabel (Hito 6, src/server/round-ui.ts)
+    // to label the badge above (Apuntada / Incomparecencia / Saldada sin
+    // jugar) instead of collapsing every REPORTED match into "Apuntada".
+    resolution: string;
+  } | null;
+}
+
 interface MatchCardProps {
-  match: {
-    id: string;
-    playerHomeId: string;
-    playerAwayId: string | null;
-    playerHomeName: string;
-    playerAwayName: string | null;
-    scheduledAt: string | null;
-    location: string | null;
-    status: MatchStatus;
-    result: {
-      homeVP: number;
-      awayVP: number;
-      outcome: string;
-      reportedById: string;
-      bonusHome: number;
-      bonusAway: number;
-      // Rondas-con-fecha (Hito 5, SPEC §4.9): how this Result came to be.
-      // Consumed by resolveMatchStatusLabel (Hito 6, src/server/round-ui.ts)
-      // to label the badge above (Apuntada / Incomparecencia / Saldada sin
-      // jugar) instead of collapsing every REPORTED match into "Apuntada".
-      resolution: string;
-    } | null;
-  };
+  match: MatchCardMatch;
   // The logged-in player's ID.
   currentPlayerId: string;
   // Whether the current user is admin.
   isAdmin: boolean;
+}
+
+/**
+ * The props this card hands `ScheduleForm` (src/components/ScheduleForm.tsx).
+ *
+ * A named function, and exported, because the form is only mounted behind a
+ * click: nothing that renders this card on the server can press that button,
+ * so inline JSX props here are untestable — which is exactly how `resolution`
+ * went missing on this side while `MatchRow` (the calendar, the form's other
+ * consumer) passed it. Without it the form reads `undefined !== "PLAYED"` as
+ * "clearable" and paints «Limpiar fecha» on a match that the server then
+ * refuses (calendario-de-verdad §4.9, criterio 29).
+ *
+ * `leagueStartMonth` / `roundDeadline` (the `min`/`max` of criterio 22) go
+ * through here for the same reason: they are only ever read behind that click.
+ * Both come down from src/app/mis-partidas/page.tsx, which already loads the
+ * league and each match's round; `roundDeadline` is null for a match with no
+ * round (§5.2), which is "no ceiling", not "missing".
+ */
+export function scheduleFormPropsFor(match: MatchCardMatch): {
+  matchId: string;
+  currentScheduledAt: string | null;
+  currentLocation: string | null;
+  leagueStartMonth: string | null;
+  roundDeadline: string | null;
+  resolution: string | null;
+} {
+  return {
+    matchId: match.id,
+    currentScheduledAt: match.scheduledAt,
+    currentLocation: match.location,
+    leagueStartMonth: match.leagueStartMonth,
+    roundDeadline: match.roundDeadline,
+    resolution: match.result?.resolution ?? null,
+  };
 }
 
 function outcomeLabel(
@@ -86,6 +134,18 @@ export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
 
   // Button label depends on whether a result already exists.
   const reportButtonLabel = match.result ? "Editar resultado" : "Apuntar resultado";
+
+  // calendario-de-verdad §4.8: a match with no date cannot get a result —
+  // `reportResult` (src/server/result-actions.ts) rejects it before opening the
+  // transaction, for participants and admin alike. Without this the only way to
+  // find out is to fill the form and hit a server error, and §5.9's legacy
+  // matches (PLAYED with no date) are a dead end: their "Editar resultado" is
+  // refused too, and nothing on screen says the fix is to date the match first.
+  const hasSchedule = match.scheduledAt !== null;
+  const reportBlocked = canReportOrEdit && !hasSchedule;
+  const reportBlockedNoteId = `report-blocked-${match.id}`;
+  const reportBlockedReason =
+    "Esta partida no tiene fecha. Ponle fecha antes de apuntar el resultado.";
 
   // Agreeing on a date is a different permission from reporting a result:
   // `setMatchSchedule` (src/server/match-actions.ts) authorizes any
@@ -224,51 +284,92 @@ export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
           Incomparecencia needs a real rival — it never applies to a bye. */}
       {!showReport && !showWalkover && !showSchedule &&
         (canSchedule || canReportOrEdit) && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {canSchedule && (
-            <button
-              onClick={() => setShowSchedule(true)}
-              className="flex items-center gap-1 px-3 py-[7px] rounded text-[13px] font-semibold border transition-colors duration-[120ms] cursor-pointer"
-              style={{
-                background: "transparent",
-                borderColor: "var(--border-strong)",
-                color: "var(--fg-muted)",
-                fontFamily: "var(--font-sans)",
-              }}
+        <div className="mt-3 space-y-2">
+          <div className="flex flex-wrap gap-2">
+            {canSchedule && (
+              <button
+                onClick={() => setShowSchedule(true)}
+                className="flex items-center gap-1 px-3 py-[7px] rounded text-[13px] font-semibold border transition-colors duration-[120ms] cursor-pointer"
+                style={{
+                  background: "transparent",
+                  borderColor: "var(--border-strong)",
+                  color: "var(--fg-muted)",
+                  fontFamily: "var(--font-sans)",
+                }}
+              >
+                <CalendarBlank size={13} />
+                {scheduleButtonLabel}
+              </button>
+            )}
+            {canReportOrEdit && (
+              <button
+                onClick={() => setShowReport(true)}
+                disabled={reportBlocked}
+                aria-describedby={reportBlocked ? reportBlockedNoteId : undefined}
+                title={reportBlocked ? reportBlockedReason : undefined}
+                className={`flex items-center gap-1 px-3 py-[7px] rounded text-[13px] font-semibold border transition-colors duration-[120ms] ${
+                  reportBlocked ? "cursor-not-allowed" : "cursor-pointer"
+                }`}
+                style={{
+                  background: "transparent",
+                  borderColor: "var(--border-strong)",
+                  color: reportBlocked ? "var(--fg-faint)" : "var(--fg-muted)",
+                  fontFamily: "var(--font-sans)",
+                  opacity: reportBlocked ? 0.6 : 1,
+                }}
+              >
+                {match.result ? <Pencil size={13} /> : <Flag size={13} />}
+                {reportButtonLabel}
+              </button>
+            )}
+            {canReportOrEdit && match.playerAwayId && (
+              <button
+                onClick={() => setShowWalkover(true)}
+                className="flex items-center gap-1 px-3 py-[7px] rounded text-[13px] font-semibold border transition-colors duration-[120ms] cursor-pointer"
+                style={{
+                  background: "transparent",
+                  borderColor: "var(--border-strong)",
+                  color: "var(--fg-muted)",
+                  fontFamily: "var(--font-sans)",
+                }}
+              >
+                <Flag size={13} />
+                Incomparecencia
+              </button>
+            )}
+          </div>
+
+          {/* Why the result button is off, and the way out: put the date.
+              The incomparecencia button above stays live on purpose — §4.8
+              exempts walkovers, which resolve a match that was never played. */}
+          {reportBlocked && (
+            <p
+              id={reportBlockedNoteId}
+              className="flex flex-wrap items-center gap-x-1 gap-y-1 text-[12px]"
+              style={{ color: "var(--fg-faint)", fontFamily: "var(--font-sans)" }}
             >
-              <CalendarBlank size={13} />
-              {scheduleButtonLabel}
-            </button>
-          )}
-          {canReportOrEdit && (
-            <button
-              onClick={() => setShowReport(true)}
-              className="flex items-center gap-1 px-3 py-[7px] rounded text-[13px] font-semibold border transition-colors duration-[120ms] cursor-pointer"
-              style={{
-                background: "transparent",
-                borderColor: "var(--border-strong)",
-                color: "var(--fg-muted)",
-                fontFamily: "var(--font-sans)",
-              }}
-            >
-              {match.result ? <Pencil size={13} /> : <Flag size={13} />}
-              {reportButtonLabel}
-            </button>
-          )}
-          {canReportOrEdit && match.playerAwayId && (
-            <button
-              onClick={() => setShowWalkover(true)}
-              className="flex items-center gap-1 px-3 py-[7px] rounded text-[13px] font-semibold border transition-colors duration-[120ms] cursor-pointer"
-              style={{
-                background: "transparent",
-                borderColor: "var(--border-strong)",
-                color: "var(--fg-muted)",
-                fontFamily: "var(--font-sans)",
-              }}
-            >
-              <Flag size={13} />
-              Incomparecencia
-            </button>
+              <span>
+                Sin fecha no hay resultado: la partida necesita día antes de
+                tener marcador.
+              </span>
+              {canSchedule ? (
+                <button
+                  onClick={() => setShowSchedule(true)}
+                  className="underline cursor-pointer text-[12px] font-semibold"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    padding: 0,
+                    color: "var(--accent)",
+                    fontFamily: "var(--font-sans)",
+                  }}
+                >
+                  Poner fecha
+                </button>
+              ) : (
+                <span>Pídele a tu rival o al admin que le ponga fecha.</span>
+              )}
+            </p>
           )}
         </div>
       )}
@@ -276,9 +377,7 @@ export function MatchCard({ match, currentPlayerId, isAdmin }: MatchCardProps) {
       {/* Schedule form — same component the calendar uses. */}
       {showSchedule && (
         <ScheduleForm
-          matchId={match.id}
-          currentScheduledAt={match.scheduledAt}
-          currentLocation={match.location}
+          {...scheduleFormPropsFor(match)}
           onDone={() => setShowSchedule(false)}
         />
       )}

@@ -1,34 +1,42 @@
 "use client";
 
-// Client component: a single match row in the calendar.
-// Shows match details and provides an edit-schedule inline form for authorized users.
+// One match, as a row. Used twice by the calendar (spec
+// plan/specs/calendario-de-verdad.md §6.2): inside the expanded day (§4.3) and
+// inside the "Sin fecha" block of the visible month (§4.4).
+//
+// Two marks this row gained with the grid:
+//  - **playoff** (§4.11): the grid no longer filters by `phase = LEAGUE`, so a
+//    playoff match has to be visibly different from a league one.
+//  - **"jugada, falta la fecha"** (§5.9): a `PLAYED` result with no
+//    `scheduledAt`, the legacy shape this spec stopped creating but did not
+//    migrate. It has no cell to be painted in, so the only place it can be seen
+//    is here, in the "Sin fecha" block, saying why it is odd.
+//
+// Date and time are formatted in `Europe/Madrid` via `dayLabel`/`timeLabel`
+// (§4.12), never with a bare `toLocaleDateString`: the row has to agree with
+// the cell the match is painted in, and the browser's zone does not.
 
 import { useState } from "react";
 import { Badge } from "@/components";
 import { ScheduleForm } from "@/components/ScheduleForm";
-import { CalendarBlank, MapPin, Pencil } from "@phosphor-icons/react";
+import { CalendarBlank, MapPin, Pencil, Trophy } from "@phosphor-icons/react";
 import { resolveMatchStatusLabel } from "@/server/round-ui";
+import {
+  dayKeyOf,
+  dayLabel,
+  timeLabel,
+  type CalendarMatch,
+} from "@/server/calendar";
 
-interface MatchRowProps {
-  match: {
-    id: string;
-    playerHomeName: string;
-    playerAwayName: string | null;
-    scheduledAt: string | null; // ISO string or null
-    location: string | null;
-    status: string;
-    // Ronda a la que pertenece la partida (etiqueta, SPEC §4.6). null para
-    // partidas de liga sin ronda asignada todavía (PLAN.md H6).
-    roundIndex: number | null;
-    // Cómo se resolvió el Result (SPEC §4.9). null si todavía no hay Result.
-    resolution: string | null;
-  };
-  // Whether the current user can edit the schedule for this match.
-  canEdit: boolean;
+export interface MatchRowProps {
+  match: CalendarMatch;
+  /** Defaults to the match's own `canEdit`, resolved on the server. */
+  canEdit?: boolean;
 }
 
-export function MatchRow({ match, canEdit }: MatchRowProps) {
+export function MatchRow({ match, canEdit = match.canEdit }: MatchRowProps) {
   const [editing, setEditing] = useState(false);
+
   // Hito 6 (ui-cupo-y-rondas): the badge honors resolution — WALKOVER and
   // UNPLAYED_DRAW no longer show up looking like an ordinary "Jugada".
   const st = resolveMatchStatusLabel(
@@ -37,40 +45,37 @@ export function MatchRow({ match, canEdit }: MatchRowProps) {
     "Jugada"
   );
 
-  const formattedDate = match.scheduledAt
-    ? new Date(match.scheduledAt).toLocaleDateString("es-ES", {
-        weekday: "short",
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      })
-    : null;
+  const instant =
+    match.scheduledAt === null ? null : new Date(match.scheduledAt);
+  const formattedDate = instant === null ? null : dayLabel(dayKeyOf(instant));
+  const formattedTime = instant === null ? null : timeLabel(instant);
 
-  const formattedTime = match.scheduledAt
-    ? new Date(match.scheduledAt).toLocaleTimeString("es-ES", {
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : null;
+  const isPlayoff = match.phase === "PLAYOFF";
+  // §5.9: a result that predates this spec — played, but with no day to sit on.
+  const missingDate =
+    match.resolution === "PLAYED" && match.scheduledAt === null;
 
   return (
     <div
-      className="rounded border p-4"
+      className="rounded border p-3 sm:p-4"
+      data-testid="match-row"
+      data-match-id={match.id}
+      data-phase={match.phase}
+      data-mine={match.isMine ? "true" : "false"}
       style={{
         background: "var(--surface)",
-        borderColor: "var(--border)",
+        borderColor: isPlayoff ? "var(--accent-deep)" : "var(--border)",
       }}
     >
-      {/* Match header */}
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p
-            className="text-[15px] font-semibold"
+            className="text-[15px] font-semibold break-words"
             style={{ fontFamily: "var(--font-sans)", color: "var(--fg)" }}
           >
             {match.playerHomeName}
             <span
-              className="mx-2 font-normal text-[13px]"
+              className="mx-2 text-[13px] font-normal"
               style={{ color: "var(--fg-faint)" }}
             >
               vs
@@ -78,49 +83,71 @@ export function MatchRow({ match, canEdit }: MatchRowProps) {
             {match.playerAwayName ?? "—"}
           </p>
 
-          {/* Date and location */}
           <div
             className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]"
             style={{ color: "var(--fg-faint)", fontFamily: "var(--font-sans)" }}
           >
-            {formattedDate ? (
-              <>
-                <span className="flex items-center gap-1">
-                  <CalendarBlank size={12} />
-                  {formattedDate}
-                  {formattedTime && formattedTime !== "00:00" && (
-                    <span className="ml-1">{formattedTime}</span>
-                  )}
-                </span>
-                {match.location && (
-                  <span className="flex items-center gap-1">
-                    <MapPin size={12} />
-                    {match.location}
-                  </span>
+            {formattedDate !== null ? (
+              <span className="flex items-center gap-1">
+                <CalendarBlank size={12} />
+                {formattedDate}
+                {formattedTime !== null && formattedTime !== "00:00" && (
+                  <span className="ml-1">{formattedTime}</span>
                 )}
-              </>
+              </span>
             ) : (
-              <span
-                className="italic"
-                style={{ color: "var(--fg-faint)" }}
-              >
+              <span className="italic" style={{ color: "var(--fg-faint)" }}>
                 Sin fecha acordada
               </span>
             )}
-            {/* Ronda como etiqueta (SPEC §4.6, §6.4: "la ronda aparece como
-                agrupador o etiqueta"; la vista sigue siendo la lista por
-                scheduledAt). null = todavía sin ronda asignada (PLAN.md H6). */}
-            <span>{match.roundIndex !== null ? `Ronda ${match.roundIndex}` : "Sin ronda"}</span>
+
+            {match.location !== null && match.location !== "" && (
+              <span className="flex items-center gap-1">
+                <MapPin size={12} />
+                {match.location}
+              </span>
+            )}
+
+            {/* Round as a label (SPEC §4.6). null = playoff (§4.11) or a league
+                match with no round assigned yet (§5.2, criterio 36). */}
+            <span>
+              {isPlayoff
+                ? "Playoffs"
+                : match.roundIndex !== null
+                  ? `Ronda ${match.roundIndex}`
+                  : "Sin ronda"}
+            </span>
           </div>
+
+          {missingDate && (
+            <p
+              className="mt-2 text-[12px] font-semibold"
+              data-testid="missing-date"
+              style={{
+                color: "var(--ember-500)",
+                fontFamily: "var(--font-sans)",
+              }}
+            >
+              jugada, falta la fecha
+            </p>
+          )}
         </div>
 
-        {/* Status badge + edit button */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <Badge variant={st.variant}>{st.label}</Badge>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <div className="flex items-center gap-1">
+            {isPlayoff && (
+              <span data-testid="playoff-mark">
+                <Badge variant="ash">
+                  <Trophy size={12} /> Playoff
+                </Badge>
+              </span>
+            )}
+            <Badge variant={st.variant}>{st.label}</Badge>
+          </div>
           {canEdit && !editing && (
             <button
               onClick={() => setEditing(true)}
-              className="flex items-center gap-1 px-2 py-1 rounded text-[12px] font-semibold transition-colors duration-[120ms] cursor-pointer"
+              className="flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[12px] font-semibold transition-colors duration-[120ms]"
               style={{
                 background: "transparent",
                 border: "1px solid var(--border-strong)",
@@ -130,18 +157,26 @@ export function MatchRow({ match, canEdit }: MatchRowProps) {
               title="Fijar / editar fecha"
             >
               <Pencil size={12} />
-              <span className="hidden sm:inline">Fecha</span>
+              <span>Fecha</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Inline schedule form */}
       {editing && (
         <ScheduleForm
           matchId={match.id}
           currentScheduledAt={match.scheduledAt}
           currentLocation={match.location}
+          // §4.7, criterio 22: the two ends of the valid range become the
+          // `min`/`max` of the `datetime-local`. They are this match's own —
+          // `roundDeadline` is null for a playoff match (§4.11) and for one
+          // with no round yet (§5.2), which is exactly "no ceiling".
+          leagueStartMonth={match.leagueStartMonth}
+          roundDeadline={match.roundDeadline}
+          // §4.9/criterio 29: without the resolution the form cannot know it
+          // must hide "Limpiar fecha".
+          resolution={match.resolution}
           onDone={() => setEditing(false)}
         />
       )}

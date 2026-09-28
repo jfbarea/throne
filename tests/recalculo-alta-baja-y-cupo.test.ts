@@ -857,6 +857,19 @@ describe("El bloqueante de la review: el recálculo respeta el cupo ya consumido
     expect(matchPA).not.toBeNull();
     if (!matchPA) return;
 
+    // Agree on a date first. Since the "calendario-de-verdad" spec (§4.8),
+    // reportResult refuses a match with no scheduledAt, and
+    // generateLeagueMatches creates them all unscheduled. 15 Jan 2020 sits
+    // inside the valid window for every round of this league: after the floor
+    // (the 1st of startMonth, Jan 2020) and before the ceiling of round 1,
+    // which is the latest of the three. This is a precondition of the
+    // scenario, not part of what the test asserts — the assertions below are
+    // untouched.
+    await prisma.match.update({
+      where: { id: matchPA.id },
+      data: { scheduledAt: new Date(Date.UTC(2020, 0, 15, 19, 0)) },
+    });
+
     // Report it for real, through the actual reportResult action — the
     // match now has a genuine Result and sits wherever generateLeagueMatches
     // originally placed it (an open round, matchesPerRound = 1).

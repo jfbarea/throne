@@ -53,7 +53,7 @@
  * login fresco para asegurar que las cookies no se mezclan entre tests.
  */
 
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 
 // Constantes del entorno e2e (deben coincidir con global-setup.ts y playwright.config.ts)
 const ADMIN_PASSCODE = "admin-e2e-passcode-secret";
@@ -74,6 +74,15 @@ const SCALE_PLAYERS = [
   { name: "Jugador Lambda", faction: "Aeldari" },
 ];
 const LAST_SCALE_PLAYER = SCALE_PLAYERS[SCALE_PLAYERS.length - 1].name;
+
+/**
+ * El mes de la Ronda 1, como `?mes=AAAA-MM` de la rejilla
+ * (`calendario-de-verdad` §4.1). Es el `startMonth` que siembra
+ * tests/e2e/seed-e2e.ts (marzo de 2026): `deriveDeadlines` hace que la ronda N
+ * cierre el último día del mes N contado desde ahí, así que mes y ronda son la
+ * misma cosa y la Ronda 1 vive en 2026-03.
+ */
+const ROUND1_MONTH = "2026-03";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -96,6 +105,20 @@ async function loginPlayer(page: Page, name: string, passcode: string) {
   await page.getByRole("button", { name: "Entrar" }).click();
   // Players land on their own matches (src/app/page.tsx).
   await expect(page).toHaveURL(/\/mis-partidas$/);
+}
+
+/**
+ * The `MatchCard` (src/app/mis-partidas/MatchCard.tsx) a button lives in.
+ *
+ * Scoping to the card matters since `calendario-de-verdad`: the same card now
+ * holds two forms ("Poner fecha" and "Apuntar resultado") and the flow moves
+ * between them, so a page-wide locator would happily pick the inputs of a
+ * different match.
+ */
+function cardOf(inner: Locator): Locator {
+  return inner.locator(
+    "xpath=ancestor::div[contains(@class,'rounded') and contains(@class,'border') and contains(@class,'p-4')][1]"
+  );
 }
 
 /** Creates one player from the admin/jugadores form and dismisses the
@@ -204,10 +227,15 @@ test.describe("Recorrido completo", () => {
       await page.waitForLoadState("networkidle");
     }
 
-    // After generating (or if already generated), navigate to calendario to verify matches exist
+    // After generating (or if already generated), navigate to calendario to
+    // verify matches exist. `calendario-de-verdad` §4.1 replaced the two flat
+    // lists ("Sin fecha" / "Agendadas") with the month grid, so what is checked
+    // here is the grid itself and the block of undated matches of its round
+    // (§4.4) — "Agendadas" no longer exists anywhere in this page.
     await page.goto("/calendario");
-    // There should be matches (any of these sections should be visible)
-    await expect(page.locator("body")).toContainText(/Sin fecha|Agendadas|partida/i);
+    await expect(page.getByTestId("month-grid")).toBeVisible();
+    await expect(page.getByTestId("grid-cells")).toBeVisible();
+    await expect(page.locator("body")).toContainText(/Sin fecha · Ronda \d/);
 
     // Rondas-con-fecha: generating pairings also creates the league's
     // rounds. With 12 active players and matchesPerRound=2 (seed default),
@@ -220,31 +248,80 @@ test.describe("Recorrido completo", () => {
     await expect(page.locator("body")).toContainText("Ronda 6");
   });
 
-  test("5. Admin fija fecha de una partida", async ({ page }) => {
+  test("5. Admin agenda una partida tocando un día de la rejilla", async ({ page }) => {
+    // `calendario-de-verdad` §4.5: agendar ya no es "buscar la partida en una
+    // lista y abrir su formulario", es **tocar el día** y elegir qué partida se
+    // lleva allí. Este paso recorre ese camino entero — celda → detalle del día
+    // → selector → hora → `setMatchSchedule` — que es lo que la rejilla
+    // sustituye. El formulario de fecha por fila sigue existiendo y lo ejercita
+    // el paso 7, que es donde la feature lo vuelve obligatorio.
     await loginAdmin(page);
 
     await page.goto("/calendario");
+    await expect(page.getByTestId("month-grid")).toBeVisible();
 
-    // The edit button has a Pencil icon and title "Fijar / editar fecha"
-    // On desktop it also shows "Fecha" text; use the title attribute to find it
-    const editButton = page.locator('button[title="Fijar / editar fecha"]').first();
-    await expect(editButton).toBeVisible();
-    await editButton.click();
+    // Un día del mes visible que acepte interacción (§4.1: los días de relleno
+    // de los meses contiguos están deshabilitados). Su `data-testid` es
+    // `day-AAAA-MM-DD`, así que de él sale también el `?mes` al que volver.
+    const day = page.locator('[data-in-month="true"]:not([disabled])').first();
+    await expect(day).toBeVisible();
+    const dayKey = (await day.getAttribute("data-testid"))!.replace("day-", "");
+    const monthKey = dayKey.slice(0, 7);
 
-    // Fill in the date
-    const nextWeek = new Date();
-    nextWeek.setDate(nextWeek.getDate() + 7);
-    const dateStr = nextWeek.toISOString().slice(0, 16);
+    await day.click();
 
-    const dateInput = page.locator('input[type="datetime-local"]').first();
-    await dateInput.fill(dateStr);
+    const detail = page.getByTestId("day-detail");
+    await expect(detail).toBeVisible();
+    await expect(detail).toHaveAttribute("data-day", dayKey);
 
-    // Submit via "Guardar fecha" button
-    await page.getByRole("button", { name: "Guardar fecha" }).click();
+    // El selector del día (§4.5), montado al pie del detalle (criterio 15).
+    const picker = detail.getByTestId("day-schedule-picker");
+    await expect(picker).toBeVisible();
+    await picker.getByRole("button", { name: /^Agendar aquí ·/ }).click();
 
-    await page.waitForLoadState("networkidle");
-    // Page reloads; "Agendadas" section should appear
-    await expect(page.locator("body")).toContainText("Agendadas");
+    // La lista llega agrupada por ronda (t07): cabecera por grupo, y la de un
+    // admin son muchas —`eligibleForDay` no le aplica la regla de rondas
+    // (criterio 17)— así que por encima de seis candidatas trae buscador.
+    const headings = picker.getByTestId("candidate-group");
+    expect(await headings.count()).toBeGreaterThan(0);
+    await expect(headings.first()).toHaveText(/^(Ronda \d+|Sin ronda)$/);
+
+    const candidates = picker.getByRole("listitem");
+    const candidateCount = await candidates.count();
+    if (candidateCount > 6) {
+      const search = picker.getByLabel("Buscar jugador");
+      await expect(search).toBeVisible();
+      // Filtrar por el local de la primera candidata deja al menos esa; la
+      // lista nunca queda en blanco sin decirlo.
+      const firstName = (await candidates.first().innerText()).split(" vs ")[0];
+      await search.fill(firstName);
+      expect(await picker.getByRole("listitem").count()).toBeGreaterThan(0);
+      await search.fill("");
+      expect(await picker.getByRole("listitem").count()).toBe(candidateCount);
+    }
+
+    // La primera candidata: para el admin, cualquier ronda (criterio 17). Las
+    // cabeceras de grupo no son `listitem`, así que esto sigue siendo una fila.
+    await candidates.first().getByRole("button").click();
+
+    await picker.locator('input[type="time"]').fill("20:00");
+    await picker.getByRole("button", { name: "Agendar aquí", exact: true }).click();
+
+    // El selector se repliega al aceptar el servidor; si rechazara, pintaría el
+    // motivo en un `role="alert"` y esto fallaría con el mensaje a la vista.
+    await expect(picker.getByRole("alert")).toHaveCount(0);
+    await expect(
+      picker.getByRole("button", { name: /^Agendar aquí ·/ })
+    ).toBeVisible({ timeout: 15_000 });
+
+    // Y la partida está en la celda de ese día: un punto donde antes no había
+    // ninguno. Se recarga a propósito — la rejilla es un Server Component y la
+    // fecha se acaba de escribir en el servidor.
+    await page.goto(`/calendario?mes=${monthKey}`);
+    const reloaded = page.getByTestId(`day-${dayKey}`);
+    await expect(reloaded).toBeVisible();
+    expect(Number(await reloaded.getAttribute("data-matches"))).toBeGreaterThan(0);
+    await expect(reloaded.getByTestId("day-dot").first()).toBeVisible();
   });
 
   test("6. Jugador puede ver sus partidas, agrupadas por ronda", async ({ page }) => {
@@ -266,8 +343,15 @@ test.describe("Recorrido completo", () => {
     await expect(page.locator("body")).toContainText(/Ronda 1/);
   });
 
-  test("7. Jugador Alfa apunta resultado — la partida cuenta en standings de inmediato", async ({ page }) => {
+  test("7. Jugador Alfa fecha la partida y luego apunta el resultado", async ({ page }) => {
     // Hito 15: apuntar el resultado es suficiente, sin confirmación del rival.
+    //
+    // `calendario-de-verdad` §4.8 invierte el orden de este paso: **sin fecha
+    // no hay resultado**. `reportResult` rechaza una partida con
+    // `scheduledAt = null` (para cualquier rol), y `MatchCard` deshabilita el
+    // botón y dice por qué. Así que el guion fecha primero y apunta después —
+    // que es justo lo que la feature vuelve obligatorio, y lo que antes de
+    // ella no hacía ningún recorrido de punta a punta.
     await loginPlayer(page, PLAYER1_NAME, PLAYER_PASSCODE);
 
     await page.goto("/mis-partidas");
@@ -282,24 +366,73 @@ test.describe("Recorrido completo", () => {
     const hasPending = await reportBtn.isVisible({ timeout: 5_000 }).catch(() => false);
 
     if (hasPending) {
-      // Rondas-con-fecha Hito 6 (ui-cupo-y-rondas): "Mis partidas" now groups
-      // matches by round, closest deadline first (SPEC §4.6, criterio 9).
-      // Which specific match's "Apuntar resultado" button happens to render
-      // first is no longer guaranteed to have PLAYER1 as the home player —
-      // that used to hold only by accident (PLAYER1 is home in every one of
-      // their pairings except the one against admin, and step 4 always dated
-      // that exact match, which pushed it to the back of the old flat,
-      // status-only list). Read who's home directly from the card instead of
-      // assuming, so this test stays correct regardless of match order —
-      // today, and after Hito 10 reshapes this flow for rondas.
-      const card = reportBtn.locator(
-        "xpath=ancestor::div[contains(@class,'rounded') and contains(@class,'border') and contains(@class,'p-4')][1]"
-      );
+      // §4.8/criterio 25, en pantalla: mientras la partida no tenga día, el
+      // botón de resultado está deshabilitado y la tarjeta explica el porqué.
+      // La salida es poner la fecha, y está ahí mismo, en la misma tarjeta.
+      if (!(await reportBtn.isEnabled())) {
+        // Por POSICIÓN, no por contenido: al abrir el formulario de fecha la
+        // tarjeta esconde sus botones de acción, así que un localizador
+        // filtrado por "Apuntar resultado" dejaría de apuntar a esta tarjeta en
+        // la acción siguiente. Es el mismo motivo por el que el paso 9 usa
+        // `nth`. La posición no cambia al desplegar un formulario dentro.
+        const cards = page.locator("div.rounded.border.p-4");
+        const cardCount = await cards.count();
+        let targetIndex = -1;
+        for (let i = 0; i < cardCount; i++) {
+          const has = await cards
+            .nth(i)
+            .getByRole("button", { name: /apuntar resultado/i })
+            .isVisible()
+            .catch(() => false);
+          if (has) {
+            targetIndex = i;
+            break;
+          }
+        }
+        expect(targetIndex, "no hay ninguna tarjeta con botón de resultado").toBeGreaterThanOrEqual(0);
+        const undated = cards.nth(targetIndex);
+
+        await expect(undated).toContainText(
+          "Sin fecha no hay resultado: la partida necesita día antes de tener marcador."
+        );
+        await undated.getByRole("button", { name: "Poner fecha" }).first().click();
+
+        // Criterio 22: el `datetime-local` llega con `min`/`max` — el arranque
+        // de la liga y el final del día de cierre de **su** ronda (§4.7, §9.5).
+        // El propio `max` es la fecha que se pone: por construcción cae dentro
+        // del rango, y comprobarlo aquí es comprobar que las cotas están vivas
+        // en producción, y no sólo en un test que se las pasa a mano.
+        const dateInput = undated.locator('input[type="datetime-local"]');
+        const min = await dateInput.getAttribute("min");
+        const max = await dateInput.getAttribute("max");
+        expect(min, "el input llega sin min: criterio 22 muerto").toBeTruthy();
+        expect(max, "el input llega sin max: criterio 22 muerto").toBeTruthy();
+
+        await dateInput.fill(max!);
+        await undated.getByRole("button", { name: "Guardar fecha" }).click();
+        await page.waitForLoadState("networkidle");
+
+        // La escritura revalida la vista y reordena las tarjetas (la consulta
+        // ordena por `scheduledAt`), así que a partir de aquí no vale ninguna
+        // referencia tomada antes: se recarga y se busca de nuevo.
+        await page.goto("/mis-partidas");
+      }
+
+      // La primera partida de Alfa que YA se puede apuntar. Rondas-con-fecha
+      // Hito 6 agrupa por ronda, así que quién sale primero no está garantizado
+      // y tampoco que Alfa sea el local: se lee del propio naipe.
+      const ready = page
+        .getByRole("button", { name: /apuntar resultado/i })
+        .and(page.locator("button:not([disabled])"))
+        .first();
+      await expect(ready).toBeVisible();
+
+      const card = cardOf(ready);
       const nameSpans = card.locator("p").first().locator("span");
       const homeName = (await nameSpans.first().innerText()).trim();
       const isPlayer1Home = homeName === PLAYER1_NAME;
 
-      await reportBtn.click();
+      await ready.click();
 
       // Fill VP values - two number inputs - putting the winning score on
       // whichever side PLAYER1 actually plays.
@@ -343,7 +476,14 @@ test.describe("Recorrido completo", () => {
 
     // Beta should see an "Editar resultado" button for the match already reported by Alfa.
     // If the match shows "Editar resultado" button, Beta can edit (both participants allowed).
-    const editBtn = page.getByRole("button", { name: /editar resultado/i }).first();
+    //
+    // Sólo las **habilitadas**: desde `calendario-de-verdad` §4.8 una partida
+    // saldada sin fecha (las que deja `closeRound`) también dice "Editar
+    // resultado", pero con el botón muerto — editarla exigiría fecharla antes.
+    const editBtn = page
+      .getByRole("button", { name: /editar resultado/i })
+      .and(page.locator("button:not([disabled])"))
+      .first();
     const isBtnVisible = await editBtn.isVisible({ timeout: 5000 }).catch(() => false);
 
     if (isBtnVisible) {
@@ -456,7 +596,13 @@ test.describe("Recorrido completo", () => {
     // calendario y mis-partidas. /calendario muestra TODAS las partidas de
     // la liga (no solo las de Alfa), así que ve también la incomparecencia
     // de Gamma y las saldadas del cierre de la Ronda 1.
-    await page.goto("/calendario");
+    //
+    // `calendario-de-verdad` §4.1: la rejilla enseña **un mes**, y su bloque
+    // "Sin fecha" es el de la ronda de ese mes (§4.4). La incomparecencia y las
+    // saldadas son de la Ronda 1 y no tienen fecha, así que hay que pedir su
+    // mes — el de arranque de la liga del seed, marzo de 2026 — en vez de
+    // confiar en el mes de entrada, que ya no es ése una vez cerrada la ronda.
+    await page.goto(`/calendario?mes=${ROUND1_MONTH}`);
     await expect(page.locator("body")).toContainText(/Incomparecencia/i);
     await expect(page.locator("body")).toContainText(/Saldada sin jugar/i);
 

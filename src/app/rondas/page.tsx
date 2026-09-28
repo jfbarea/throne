@@ -1,6 +1,12 @@
-// Rondas — league-wide calendar: every round, its deadline, how many of its
+// Rondas — the round board: every round, its deadline, how many of its
 // matches are resolved and every active player's cupo (SPEC §4.6, criterios
 // 12-13). Hito 6 (ui-cupo-y-rondas, plan/rondas-con-fecha/PLAN.md).
+//
+// The page used to call itself "Calendario de la liga". Now that /calendario
+// is a real month grid, two menu entries would claim the same name, so the
+// title and the subtitle name what this page actually is — rounds, their
+// deadlines and each player's cupo (calendario-de-verdad §4.13, criterio 37).
+// Nothing else about this page changes: same route, same query, same content.
 //
 // Protected with requireAuth (like /clasificacion, /calendario and
 // /bracket) — not public like /bases (criterio 13).
@@ -146,13 +152,14 @@ function PageShell({
             className="mt-2 text-[28px] font-semibold leading-tight"
             style={{ fontFamily: "var(--font-display)", color: "var(--fg)" }}
           >
-            Calendario de la liga
+            Rondas y cupos
           </h1>
           <p
             className="mt-1 text-[13px]"
             style={{ color: "var(--fg-muted)", fontFamily: "var(--font-sans)" }}
           >
-            El cupo de cada jugador por ronda — a quién hay que perseguir.
+            Cada ronda, cuándo cierra y el cupo de cada jugador — a quién hay
+            que perseguir.
           </p>
         </div>
 

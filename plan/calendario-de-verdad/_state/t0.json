@@ -1,0 +1,79 @@
+{
+  "track": "T0",
+  "slug": "contratos-y-fechas",
+  "status": "READY_FOR_REVIEW",
+  "spec": "plan/specs/calendario-de-verdad.md",
+  "plan": "plan/calendario-de-verdad/TRACKS.md",
+  "branch": "feat/calendario-de-verdad",
+  "commit_sha": "84e8302",
+  "commits": [
+    {
+      "sha": "4ce86b7",
+      "summary": "Entregas 1, 2 y 4: src/server/calendar.ts, los predicados de agenda en result-logic.ts y la fixture compartida."
+    },
+    {
+      "sha": "84e8302",
+      "summary": "Entrega 3: los tres stubs con sus props definitivas y su marcador visible."
+    }
+  ],
+  "files_changed": [
+    "src/server/calendar.ts",
+    "src/server/result-logic.ts",
+    "src/app/calendario/MonthGrid.tsx",
+    "src/app/calendario/DayDetail.tsx",
+    "src/app/calendario/DaySchedulePicker.tsx",
+    "tests/helpers/calendario.ts",
+    "tests/calendar.test.ts",
+    "plan/calendario-de-verdad/_state/t0.json"
+  ],
+  "public_api": {
+    "src/server/calendar.ts": [
+      "const LEAGUE_TZ = \"Europe/Madrid\"",
+      "interface MonthKey { year: number; month: number }  // month 1-12",
+      "interface DayCell { dayKey: string; day: number; month: MonthKey; inMonth: boolean; weekday: number }  // weekday 1=lunes..7=domingo",
+      "interface RoundRef { index: number; deadline: Date; closedAt: Date | null }",
+      "interface CalendarMatch { id, playerHomeName, playerAwayName, scheduledAt: string|null (ISO), location, status, phase: 'LEAGUE'|'PLAYOFF', roundIndex: number|null, resolution: string|null, isMine: boolean, canEdit: boolean }",
+      "interface SchedulableMatch { id, playerHomeName, playerAwayName, roundIndex: number|null, scheduledAt: string|null }",
+      "parseMonthKey(raw: string | null): MonthKey | null",
+      "formatMonthKey(m: MonthKey): string",
+      "compareMonthKeys(a: MonthKey, b: MonthKey): number",
+      "monthKeyEquals(a: MonthKey, b: MonthKey): boolean",
+      "addMonths(m: MonthKey, delta: number): MonthKey",
+      "daysInMonth(m: MonthKey): number",
+      "dayKeyOf(instant: Date): string",
+      "monthKeyOf(instant: Date): MonthKey",
+      "startOfDay(dayKey: string): Date",
+      "endOfDay(dayKey: string): Date",
+      "instantOnDay(dayKey: string, time: string): Date",
+      "monthBounds(m: MonthKey): { start: Date; end: Date }",
+      "monthGridDays(m: MonthKey): DayCell[]",
+      "monthOfRound(startMonth: Date, roundIndex: number): MonthKey",
+      "navigableMonths(rounds: RoundRef[], playoffDays: Date[]): MonthKey[]",
+      "entryMonth(nav: MonthKey[], rounds: RoundRef[], now: Date): MonthKey",
+      "scheduleBounds(startMonth: Date | null, roundDeadline: Date | null): { min: Date | null; max: Date | null }",
+      "groupByDay<T extends { scheduledAt: Date | null }>(items: T[]): Map<string, T[]>",
+      "monthLabel(m: MonthKey): string",
+      "dayLabel(dayKey: string): string",
+      "timeLabel(instant: Date): string"
+    ],
+    "src/server/result-logic.ts": [
+      "type ScheduleRejection = 'AFTER_ROUND_DEADLINE' | 'BEFORE_LEAGUE_START' | 'ROUND_CLOSED' | 'CLEARING_PLAYED_MATCH'",
+      "interface ScheduleContext { roundDeadline: Date|null; roundClosedAt: Date|null; leagueStartMonth: Date|null; hasPlayedResult: boolean }",
+      "type ScheduleDecision = { ok: true } | { ok: false; reason: ScheduleRejection }",
+      "canScheduleAt(scheduledAt: Date | null, ctx: ScheduleContext, isAdmin: boolean): ScheduleDecision",
+      "canReportGivenSchedule(scheduledAt: Date | null): boolean",
+      "interface EligibilityInput { id: string; playerHomeId: string; playerAwayId: string|null; roundIndex: number|null; roundClosedAt: Date|null }",
+      "interface EligibilityContext { month: MonthKey; rounds: RoundRef[]; playerId: string|null; isAdmin: boolean }",
+      "eligibleForDay(matches: EligibilityInput[], ctx: EligibilityContext): string[]"
+    ]
+  },
+  "verification": {
+    "lint": "npm run lint — limpio",
+    "test": "npm run test — 600/600 en 20 ficheros",
+    "test_tz_matrix": "600/600 con TZ=UTC, TZ=Europe/Madrid, TZ=America/New_York (y TZ=Pacific/Kiritimati como control extra)",
+    "build": "npm run build — verde, 23 rutas",
+    "coverage": "src/server/calendar.ts al 100 % de líneas (110/110), ramas (36/36), sentencias (130/130) y funciones (33/33); src/server/result-logic.ts al 100 % sobre la suite completa"
+  },
+  "notes": "T0 cierra a nivel unitario los criterios 3, 8, 9, 10, 13, 14, 17, 18-21, 23, 25, 28-33 de la spec. Ningún criterio de punta a punta: no entra ninguna acción de servidor, ninguna consulta ni UI real.\n\nDECISIONES NO TRIVIALES:\n\n1. §9.5, el punto crítico del plan. `scheduleBounds` NO devuelve la deadline guardada como techo: devuelve `endOfDay(dayKeyOf(roundDeadline))`, el final de ese día en Europe/Madrid. Para la ronda 1 de la fixture (guardada como 2026-10-31T00:00:00Z por deriveDeadlines) el techo es 2026-10-31T22:59:59.999Z, nueve horas más tarde que el instante guardado. Sin eso, una partida jugada el propio día del cierre a las 20:00 hora española queda fuera de su ronda. Fijado con tres tests en describe('T0-AC2: …'), verificados por sabotaje: sustituyendo la línea por `max = roundDeadline` fallan 4 tests, y con la implementación real pasan los 69.\n\n2. El suelo se lee igual de simétrico: `startOfDay` del día 1 del mes de `League.startMonth`, en hora española (2026-09-30T22:00:00Z para octubre de 2026, que es CEST). No se usa `getUTCMonth` como hace deriveDeadlines, sino `monthKeyOf`, que resuelve en Europe/Madrid; para los valores que schemas.ts guarda (día 1 a medianoche UTC) ambas lecturas coinciden, y la española es la que §4.12 manda.\n\n3. Conversión de zona sin dependencias (§7, §9.4): `Intl.DateTimeFormat` con `timeZone: 'Europe/Madrid'` y `hourCycle: 'h23'` para instante→reloj, y un doble cálculo de offset para reloj→instante. El segundo cálculo se hace SIEMPRE, sin `if (off2 !== off1)`, a propósito: la rama del cambio de hora solo sería alcanzable dos días al año y habría dejado un hueco de cobertura permanente; sin rama, el camino de DST y el normal son la misma línea. Comprobado en los dos cambios de hora de 2026 (29 de marzo, día de 23 h; 25 de octubre, día de 25 h).\n\n4. `monthGridDays` es aritmética de calendario pura, en UTC, no en Europe/Madrid: en qué día de la semana cae el 1 de un mes no depende de ninguna zona. La zona solo interviene al situar un INSTANTE (dayKeyOf/monthKeyOf). Esto hace la rejilla TZ-independiente por construcción, no por cuidado.\n\n5. `eligibleForDay` se desvía de la firma que TRACKS.md esbozaba: su `ctx` lleva `rounds: RoundRef[]` además de `month`. Con solo el mes no se puede saber qué ronda cubre ese mes, que es justo lo que la regla de «adelantar sí, retrasar no» necesita; pasar la lista de rondas mantiene la decisión dentro del predicado en vez de obligar a cada llamante a calcular el índice por su cuenta (y a equivocarse de forma distinta). Los ids se devuelven en el orden de entrada.\n\n6. `navigableMonths` devuelve un rango CONTIGUO de meses (del mínimo al máximo), no el conjunto de meses con contenido. Las flechas avanzan mes a mes: un hueco entre la última ronda y un mes de playoff lejano dejaría la otra orilla inalcanzable. Un mes intermedio vacío es un caso previsto por §5.1 («rejilla pintada y vacía, no es un error»).\n\n7. Los tipos de vista `CalendarMatch` y `SchedulableMatch` viven en `src/server/calendar.ts`, no en un componente. Son el contrato entre T2 y T3, y ninguno de los dos puede ser dueño del fichero donde vive el contrato del otro. Son interfaces de datos planos: no meten React en un módulo puro.\n\n8. Los stubs mantienen viva la cadena de montaje MonthGrid → DayDetail → DaySchedulePicker desde el primer commit, no solo las firmas. Cada uno declara su propio `STUB_MARKER`, así que cuando los tres estén implementados el marcador desaparece de src/ sin dejar un fichero compartido que sobreviva y engañe al test de T5.\n\n9. No se expone ningún helper para formatear el `min`/`max` del `datetime-local`. `ScheduleForm` (T3) ya construye sus valores con getters locales del navegador, que es la semántica del propio input; mezclar ahí Europe/Madrid produciría un input desplazado una o dos horas. T3 recibe `scheduleBounds` como Dates y las formatea con su `toInputValue` actual.\n\n10. La fixture compartida siembra en la DB real de test (file:./test.db) con el patrón de tests/cierre-de-ronda.test.ts (ids únicos por llamada, sin limpieza entre tests) y se ejerce en describe('T0-AC8: …'): T1 no se encuentra con un sembrador que nunca se ejecutó. Además expone `makeCalendarMatch`/`makeSchedulableMatch` para los tracks de UI, que no tocan DB.\n\nFICHEROS AJENOS TOCADOS: ninguno. Quedan en el working tree, sin commitear, dos modificaciones que NO son de este track: `next-env.d.ts` (lo reescribe `next build`) y `plan/calendario-de-verdad/TRACKS.md` (sección «Arranque de un worktree», del coordinador, apareció durante la ejecución del track).",
+  "review_feedback": null
+}

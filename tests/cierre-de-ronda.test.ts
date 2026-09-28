@@ -53,6 +53,20 @@ const PAST = new Date(Date.now() - 24 * 60 * 60 * 1000);
 const FUTURE = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 const FAR_FUTURE = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
 
+/**
+ * The day a match was agreed on, for the tests that go on to apuntar a
+ * result. Since "calendario-de-verdad" (spec §4.8) `reportResult` refuses a
+ * match with `scheduledAt = null`, so having a date is now a *precondition*
+ * of reporting, not part of what these criteria assert: they are about
+ * closing a round, and the date only has to exist.
+ *
+ * A week ago: after every league's `startMonth` here (March 2026) and before
+ * even the `PAST` deadline, so it is a valid day for any round these tests
+ * build. The matches that are never reported keep no date on purpose —
+ * `closeRound` settles them regardless (§4.8, criterio 27).
+ */
+const AGREED_DAY = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
 async function createTestLeague(
   overrides: {
     bonusEnabled?: boolean;
@@ -105,7 +119,10 @@ async function createMatch(
   leagueId: string,
   roundId: string,
   homeId: string,
-  awayId: string
+  awayId: string,
+  // Pass `AGREED_DAY` when the test goes on to call `reportResult`: since
+  // "calendario-de-verdad" §4.8 a match with no date cannot be apuntada.
+  scheduledAt: Date | null = null
 ) {
   return prisma.match.create({
     data: {
@@ -115,6 +132,7 @@ async function createMatch(
       status: "SCHEDULED",
       playerHomeId: homeId,
       playerAwayId: awayId,
+      scheduledAt,
     },
   });
 }
@@ -305,7 +323,16 @@ describe("AC-21: tras el cierre, un participante no puede apuntar; el admin pued
     const p1 = await createPlayer(league.id, "A");
     const p2 = await createPlayer(league.id, "B");
     const round = await createRound(league.id, 1, PAST);
-    const match = await createMatch(league.id, round.id, p1.id, p2.id);
+    // Dated: both the participant's attempt and the admin's override below go
+    // through `reportResult`, which since §4.8 needs a day to even get as far
+    // as the round-closed guard this test is about.
+    const match = await createMatch(
+      league.id,
+      round.id,
+      p1.id,
+      p2.id,
+      AGREED_DAY
+    );
 
     mockSession.role = "ADMIN";
     mockSession.playerId = admin.id;
@@ -437,8 +464,20 @@ describe("AC-15: un jugador a 0 de 2 puede apuntar sin error una partida de una 
     // not reached yet), p1 has 0 of 2 there. Round 2 is a later round.
     const round1 = await createRound(league.id, 1, FUTURE);
     const round2 = await createRound(league.id, 2, FAR_FUTURE);
-    const currentRoundMatch = await createMatch(league.id, round1.id, p1.id, p2.id);
-    const laterMatch = await createMatch(league.id, round2.id, p1.id, p3.id);
+    const currentRoundMatch = await createMatch(
+      league.id,
+      round1.id,
+      p1.id,
+      p2.id
+    );
+    // The adelantada match is the one that gets reported, so it has a day.
+    const laterMatch = await createMatch(
+      league.id,
+      round2.id,
+      p1.id,
+      p3.id,
+      AGREED_DAY
+    );
 
     mockSession.role = "PLAYER";
     mockSession.playerId = p1.id;
@@ -472,8 +511,16 @@ describe("AC-16: el jugador recibe el saldo de su ronda cerrada y la partida ade
 
     const round1 = await createRound(league.id, 1, PAST); // closes this month
     const round2 = await createRound(league.id, 2, FUTURE);
+    // currentMatch stays dateless on purpose: it is the one `closeRound` has
+    // to settle to 0-0, and §4.8 keeps that path exempt (criterio 27).
     const currentMatch = await createMatch(league.id, round1.id, p1.id, p2.id);
-    const laterMatch = await createMatch(league.id, round2.id, p1.id, p3.id);
+    const laterMatch = await createMatch(
+      league.id,
+      round2.id,
+      p1.id,
+      p3.id,
+      AGREED_DAY
+    );
 
     // p1 adelanta su partida de la ronda 2 antes de que cierre la ronda 1.
     mockSession.role = "PLAYER";

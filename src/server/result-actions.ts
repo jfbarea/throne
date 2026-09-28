@@ -16,6 +16,7 @@ import {
   canDeclareWalkoverOverExistingResult,
   canReport,
   canReportGivenRoundClosed,
+  canReportGivenSchedule,
   canReportInStatus,
   deriveOutcome,
   WALKOVER_VICTORY_POINTS,
@@ -45,6 +46,15 @@ export type ActionResult<T = void> =
  * inside the transaction is never mistaken for "the round is closed".
  */
 class RoundClosedDuringTransactionError extends Error {}
+
+/**
+ * Internal sentinel thrown inside the `reportResult` transaction to abort it
+ * when the schedule guard (`canReportGivenSchedule`, calendario-de-verdad
+ * spec §4.8) fails on the re-read done with `tx` — see the docstring on
+ * `reportResult`. Same mechanics and same scoping as
+ * `RoundClosedDuringTransactionError`; never leaks past the action.
+ */
+class UnscheduledDuringTransactionError extends Error {}
 
 // ---------------------------------------------------------------------------
 // Input schema
@@ -110,6 +120,9 @@ async function writeAuditLog(
  *  - Writes AuditLog entry (REPORT_RESULT for fresh, EDIT_RESULT for overwrite).
  *  - DRAW is invalid in playoff matches (SPEC §7.4).
  *  - If phase=PLAYOFF and !isBye, advances the winner within the transaction.
+ *  - Refuses a match with no `scheduledAt` (calendario-de-verdad spec §4.8,
+ *    criterio 25), for every role. Checked twice, like the round-closed
+ *    guard: fast path below, authoritative re-read inside the transaction.
  *
  * Round-closed guard checked TWICE against the same predicate
  * (`canReportGivenRoundClosed`), H5b sweep (plan/rondas-con-fecha/PLAN.md):
@@ -204,6 +217,24 @@ export async function reportResult(
     };
   }
 
+  // Schedule guard (calendario-de-verdad spec §4.8, criterio 25): sin fecha no
+  // hay resultado. Last link of the chain, and the only one that does NOT take
+  // a role — the admin does not get around it either, or the exception would
+  // reintroduce through the back door exactly what the rule closes. It rejects
+  // before the transaction is opened, so nothing is written: no `Result`, no
+  // `AuditLog` (criterio 25 is verified by counting rows, not by the `ok`
+  // flag).
+  //
+  // Only this action asks. `declareWalkover` and `closeRound` resolve matches
+  // that were never played and stay exempt (criteria 26, 27).
+  if (!canReportGivenSchedule(match.scheduledAt)) {
+    return {
+      ok: false,
+      error:
+        "Esta partida todavía no tiene fecha. Ponle día antes de apuntar el resultado.",
+    };
+  }
+
   // Calculate bonus at report time (SPEC §7.1, §9).
   const { bonusHome, bonusAway } = calculateBonus(
     homeVictoryPoints,
@@ -246,6 +277,23 @@ export async function reportResult(
         ) {
           throw new RoundClosedDuringTransactionError();
         }
+      }
+
+      // Authoritative re-read of the schedule guard (§4.8, same TOCTOU
+      // pattern as the round-closed one right above): a concurrent
+      // `setMatchSchedule` clearing the date could have landed in the window
+      // between the fast-path check and this transaction opening, which
+      // would otherwise write a `resolution = PLAYED` result onto a match
+      // with no date — precisely the invariant §4.8 exists to hold. The
+      // opposite order of the same race is already blocked on the other
+      // side: `setMatchSchedule` re-reads the `Result` inside its own
+      // transaction and refuses to clear the date of a PLAYED match (§4.9).
+      const currentSchedule = await tx.match.findUnique({
+        where: { id: matchId },
+        select: { scheduledAt: true },
+      });
+      if (!canReportGivenSchedule(currentSchedule?.scheduledAt ?? null)) {
+        throw new UnscheduledDuringTransactionError();
       }
 
       // Upsert Result (create or overwrite).
@@ -340,6 +388,13 @@ export async function reportResult(
         ok: false,
         error:
           "La ronda de esta partida ya está cerrada. Solo el admin puede editar el resultado.",
+      };
+    }
+    if (err instanceof UnscheduledDuringTransactionError) {
+      return {
+        ok: false,
+        error:
+          "Esta partida todavía no tiene fecha. Ponle día antes de apuntar el resultado.",
       };
     }
     throw err;

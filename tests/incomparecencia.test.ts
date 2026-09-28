@@ -89,7 +89,16 @@ async function createMatch(
   leagueId: string,
   homeId: string,
   awayId: string | null,
-  overrides: { phase?: "LEAGUE" | "PLAYOFF"; roundId?: string } = {}
+  overrides: {
+    phase?: "LEAGUE" | "PLAYOFF";
+    roundId?: string;
+    // Only the tests that go on to call `reportResult` pass this: since
+    // "calendario-de-verdad" (spec §4.8) a match with `scheduledAt = null`
+    // cannot be apuntada. `declareWalkover` stays exempt (criterio 26), which
+    // is why every other match in this file is created with no date — that is
+    // exactly the state the incomparecencia has to keep working in.
+    scheduledAt?: Date;
+  } = {}
 ) {
   return prisma.match.create({
     data: {
@@ -99,6 +108,7 @@ async function createMatch(
       playerHomeId: homeId,
       playerAwayId: awayId,
       roundId: overrides.roundId,
+      scheduledAt: overrides.scheduledAt ?? null,
     },
   });
 }
@@ -108,6 +118,9 @@ async function createRound(leagueId: string, index: number, deadline: Date) {
 }
 
 const PAST = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+/** The day the pair agreed on, for the matches that get a real result. */
+const AGREED_DAY = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
 // ---------------------------------------------------------------------------
 // AC-23: cualquiera de los dos participantes declara la incomparecencia
@@ -241,7 +254,11 @@ describe("AC-25: el otro participante sobrescribe la incomparecencia con el resu
     const league = await createTestLeague();
     const home = await createPlayer(league.id, "A");
     const away = await createPlayer(league.id, "B");
-    const match = await createMatch(league.id, home.id, away.id);
+    // Dated: the correction below goes through `reportResult`, which since
+    // §4.8 needs the match to have a day.
+    const match = await createMatch(league.id, home.id, away.id, {
+      scheduledAt: AGREED_DAY,
+    });
 
     // Home declares a (possibly self-serving) walkover in their own favor.
     mockSession.role = "PLAYER";
@@ -444,7 +461,11 @@ describe("D5: un participante no puede convertir un resultado ya jugado en incom
     const league = await createTestLeague();
     const home = await createPlayer(league.id, "A");
     const away = await createPlayer(league.id, "B");
-    const match = await createMatch(league.id, home.id, away.id);
+    // Dated: the 45-40 this test fabricates a walkover over is written with
+    // `reportResult`, which since §4.8 needs the match to have a day.
+    const match = await createMatch(league.id, home.id, away.id, {
+      scheduledAt: AGREED_DAY,
+    });
 
     mockSession.role = "PLAYER";
     mockSession.playerId = home.id;
@@ -478,7 +499,11 @@ describe("D5: un participante no puede convertir un resultado ya jugado en incom
     const admin = await createAdmin(league.id);
     const home = await createPlayer(league.id, "A");
     const away = await createPlayer(league.id, "B");
-    const match = await createMatch(league.id, home.id, away.id);
+    // Dated for the same reason as the test right above: the played result
+    // the admin then converts is written with `reportResult` (§4.8).
+    const match = await createMatch(league.id, home.id, away.id, {
+      scheduledAt: AGREED_DAY,
+    });
 
     mockSession.role = "PLAYER";
     mockSession.playerId = home.id;
@@ -609,7 +634,12 @@ describe("D5: TOCTOU — la re-lectura dentro de la transacción es la que manda
     const league = await createTestLeague();
     const home = await createPlayer(league.id, "A");
     const away = await createPlayer(league.id, "B");
-    const match = await createMatch(league.id, home.id, away.id);
+    // Dated: the concurrent write injected into the window is a real
+    // `reportResult`, which since §4.8 needs the match to have a day — without
+    // it the race would never reach the re-read this test is about.
+    const match = await createMatch(league.id, home.id, away.id, {
+      scheduledAt: AGREED_DAY,
+    });
 
     // Starting point: an existing WALKOVER (not PLAYED), so declareWalkover's
     // fast-path read — taken before the race below is even set up — sees a

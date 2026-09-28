@@ -1,0 +1,235 @@
+{
+  "status": "HUMAN_REVIEW",
+  "mode": "parallel",
+  "spec": "plan/specs/calendario-de-verdad.md",
+  "branch": "feat/calendario-de-verdad",
+  "wave": 4,
+  "tasks": [
+    {
+      "id": "t00",
+      "slug": "contratos-y-fechas",
+      "wave": 1,
+      "deps": [],
+      "criteria": [
+        "3u",
+        "13u",
+        "17u",
+        "18u",
+        "19u",
+        "20u",
+        "21u",
+        "23u",
+        "32u",
+        "33u"
+      ],
+      "files": [
+        "src/server/calendar.ts",
+        "src/server/result-logic.ts",
+        "tests/helpers/calendario.ts",
+        "tests/calendar.test.ts",
+        "src/app/calendario/MonthGrid.tsx",
+        "src/app/calendario/DayDetail.tsx",
+        "src/app/calendario/DaySchedulePicker.tsx"
+      ],
+      "status": "DONE",
+      "commit_sha": "4ce86b7,84e8302,a9a55dc",
+      "notes": "Ejecutada antes de adoptar /feature-parallel, con el agente builder, que commiteó su propio trabajo. De t01 en adelante commitea el orquestador. scheduleBounds resuelve el off-by-one de spec 9.5 con endOfDay(dayKeyOf(deadline)), verificado por sabotaje. Desviación repartida a la ola 2: eligibleForDay recibe rounds: RoundRef[] en su ctx, porque con solo month no se sabe qué ronda cubre ese mes. Detalle en _state/t0.json."
+    },
+    {
+      "id": "t01",
+      "slug": "guardas-de-escritura",
+      "wave": 2,
+      "deps": [
+        "t00"
+      ],
+      "criteria": [
+        "18",
+        "19",
+        "20",
+        "21",
+        "23",
+        "24",
+        "25",
+        "26",
+        "27",
+        "28",
+        "29a",
+        "30",
+        "31",
+        "32",
+        "34a"
+      ],
+      "files": [
+        "src/server/match-actions.ts",
+        "src/server/result-actions.ts",
+        "tests/guardas-fecha.test.ts"
+      ],
+      "status": "DONE",
+      "commit_sha": "31548e2",
+      "notes": "APPROVED por el integrator sin bloqueantes. Cerró el TOCTOU que el plan avisaba (re-lectura de Round y Result con tx como primera operación de la transacción) y añadió por su cuenta la re-lectura simétrica en reportResult, que cierra la carrera inversa. Criterio 25 verificado contando filas de Result y AuditLog. Partición ampliada en marcha con los 3 ficheros de fixtures que su guarda rompió (criterio 39 los nombra y el PLAN no se los había asignado a nadie): 10 tests devueltos a verde ajustando precondición, nunca aserción, verificado por sabotaje."
+    },
+    {
+      "id": "t02",
+      "slug": "rejilla",
+      "wave": 2,
+      "deps": [
+        "t00"
+      ],
+      "criteria": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "34b",
+        "35",
+        "36",
+        "38a"
+      ],
+      "files": [
+        "src/app/calendario/page.tsx",
+        "src/app/calendario/MonthGrid.tsx",
+        "src/app/calendario/DayDetail.tsx",
+        "src/app/calendario/MatchRow.tsx",
+        "tests/rejilla.test.tsx"
+      ],
+      "status": "DONE",
+      "commit_sha": "7087b5f",
+      "notes": "APPROVED. 4 consultas constantes medidas con el cliente Prisma instrumentado. La cadena page.tsx -> MonthGrid -> DayDetail -> DaySchedulePicker queda viva y probada por el camino real (render de CalendarioPage, sesion PLAYER, clic). Observaciones para t05: playoffs sin fecha invisibles si no hay mes de playoff navegable; desviacion de 4.11 sobre la cabecera de un mes sin ronda resuelta en un comentario en vez de escalada; la consulta se ensancha mas de lo que dice 4.1; criterio 17 solo parcialmente vivo desde la pagina para un admin."
+    },
+    {
+      "id": "t03",
+      "slug": "agendar",
+      "wave": 2,
+      "deps": [
+        "t00"
+      ],
+      "criteria": [
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "22",
+        "29b",
+        "33",
+        "38b"
+      ],
+      "files": [
+        "src/app/calendario/DaySchedulePicker.tsx",
+        "src/components/ScheduleForm.tsx",
+        "src/components/index.ts",
+        "tests/agendar.test.tsx"
+      ],
+      "status": "DONE",
+      "commit_sha": "78b6a3f",
+      "notes": "APPROVED. Selector en linea bajo el dia (cierra la pregunta abierta 9.2); descartados modal y hoja inferior por exigir portal, focus trap y scroll lock que 7 no pide. No reimplementa eligibleForDay. Deja el criterio 22 sin cerrar: ScheduleForm acepta las cotas pero ningun call site se las pasa (C1 del informe de ola) — no cabia en su particion."
+    },
+    {
+      "id": "t04",
+      "slug": "periferia",
+      "wave": 2,
+      "deps": [
+        "t00"
+      ],
+      "criteria": [
+        "37"
+      ],
+      "files": [
+        "src/app/rondas/page.tsx",
+        "src/app/mis-partidas/MatchCard.tsx",
+        "tests/periferia.test.tsx"
+      ],
+      "status": "DONE",
+      "commit_sha": "c4449fb",
+      "notes": "CHANGES_REQUESTED en la primera vuelta y cerrado en la segunda. Bloqueante: MatchCard no pasaba resolution al ScheduleForm, con lo que una partida PLAYED seguia pintando «Limpiar fecha» en /mis-partidas (criterio 29). Arreglado extrayendo scheduleFormPropsFor, funcion exportada, para que la costura MatchCard-ScheduleForm sea testeable: el formulario solo se monta tras un clic y por eso el fallo paso desapercibido."
+    },
+    {
+      "id": "t05",
+      "slug": "integracion",
+      "wave": 3,
+      "deps": [
+        "t01",
+        "t02",
+        "t03",
+        "t04"
+      ],
+      "criteria": [
+        "22",
+        "34",
+        "38",
+        "39"
+      ],
+      "files": [
+        "src/server/calendar.ts",
+        "src/app/calendario/page.tsx",
+        "src/app/calendario/MatchRow.tsx",
+        "src/app/mis-partidas/page.tsx",
+        "src/app/mis-partidas/MatchCard.tsx",
+        "tests/helpers/calendario.ts",
+        "tests/rejilla.test.tsx",
+        "tests/agendar.test.tsx",
+        "tests/periferia.test.tsx",
+        "tests/montaje.test.tsx",
+        "tests/e2e/full-journey.spec.ts",
+        "tests/e2e/calendario.spec.ts",
+        "plan/calendario-de-verdad/trazabilidad.md"
+      ],
+      "status": "DONE",
+      "commit_sha": "a2c318e",
+      "notes": "Cierra la feature. Criterio 22 de muerto a vivo: CalendarMatch gana roundDeadline y leagueStartMonth POR PARTIDA (la deadline del mes visible seria el techo equivocado para roundId null y para playoff), y se comprueba desde la pagina con clic real. tests/montaje.test.tsx: guardian de STUB_MARKER + camino completo. Encontro un agujero real del criterio 34: que un PLAYED sin fecha sigue contando en la clasificacion no lo afirmaba ningun test; ahora se comprueba renderizando /clasificacion. Criterio 38 pasa de heuristica a medida real con Playwright a 390x844. Decision revisable: leagueStartMonth viaja dentro de CalendarMatch en vez de bajar como prop, porque MonthGrid y DayDetail no estaban en su particion."
+    },
+    {
+      "id": "t06",
+      "slug": "gate-de-ola-2",
+      "wave": 2,
+      "deps": [
+        "t01",
+        "t02",
+        "t03",
+        "t04"
+      ],
+      "criteria": [
+        "39 (parcial)"
+      ],
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "tests/calendar.test.ts",
+        "tests/helpers/calendario.ts",
+        "tests/recalculo-alta-baja-y-cupo.test.ts",
+        "tests/reportar-confirmar.test.ts"
+      ],
+      "status": "DONE",
+      "commit_sha": "b0a4039",
+      "notes": "Trabajo del orquestador en el gate, sobre ficheros que no eran de ninguna tarea. Tres dependencias de test sin declarar (habrian reventado npm ci), la order-dependence entre rejilla y periferia por el createdAt de 2030, el bloque T0-AC7 de los stubs ya sustituidos, un fixture mas sin fecha, y la invariante caducada de reportar-confirmar. Revisado por el integrator: los cinco cambios correctos."
+    },
+    {
+      "id": "t07",
+      "slug": "selector-navegable",
+      "wave": 4,
+      "deps": [
+        "t05"
+      ],
+      "criteria": [
+        "§4.5 / §9.2 (forma del selector)"
+      ],
+      "files": [
+        "src/app/calendario/DaySchedulePicker.tsx",
+        "tests/agendar.test.tsx",
+        "tests/montaje.test.tsx",
+        "tests/e2e/full-journey.spec.ts"
+      ],
+      "status": "DONE",
+      "commit_sha": "cc8518b",
+      "notes": "Feedback del usuario en HUMAN_REVIEW. Agrupado por ronda (cabeceras como li role=presentation, para que los listitem sigan siendo solo las candidatas y los e2e que clican la primera no se enteren) y buscador insensible a acentos via NFD. Umbral de 6 sobre la longitud SIN filtrar, para que el campo no se desmonte al escribir. 13 tests nuevos, 12 de ellos verificados en rojo contra el componente de HEAD. Decision del worker no pedida: cancelar limpia la busqueda, volver del paso de la hora la conserva. Observacion del worker: el umbral lo bajaria a 5, nunca lo subiria; y con 78 candidatas de admin el agrupado da 13 cabeceras y el documento se hace largo — la salida seria colapsar los grupos distintos al del mes, decision del usuario."
+    }
+  ]
+}

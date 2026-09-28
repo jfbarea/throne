@@ -402,11 +402,27 @@ describe("scheduledAt and status are independent dimensions", () => {
     return { ...match, status: "REPORTED" }; // scheduledAt NOT changed
   }
 
-  it("can report a match without scheduledAt (date not required)", () => {
-    const match: MatchState = { scheduledAt: null, status: "SCHEDULED" };
+  // The "calendario-de-verdad" spec (§4.8) inverted the rule this block used
+  // to document. Reporting a result now REQUIRES a date: `reportResult`
+  // rejects a match whose `scheduledAt` is null, for every role, and
+  // `setMatchSchedule` refuses to clear the date of a match whose result has
+  // `resolution = PLAYED` (§4.9). The real guards are exercised against the
+  // real actions in tests/guardas-fecha.test.ts (AC-25, AC-29, AC-30).
+  //
+  // What survives here is the narrower claim this in-memory model can
+  // actually make, and which the spec did NOT change: the two fields are
+  // still independent *columns* — writing one never rewrites the other. That
+  // is why `Match.scheduledAt` stays nullable and orthogonal to `status`
+  // (spec §6.3: no migration), with the new invariant enforced in the server
+  // actions rather than in the schema.
+  it("reporting a result does not touch scheduledAt (they remain separate columns)", () => {
+    const match: MatchState = {
+      scheduledAt: "2026-09-15T18:00:00.000Z",
+      status: "SCHEDULED",
+    };
     const afterReport = applyReport(match);
     expect(afterReport.status).toBe("REPORTED");
-    expect(afterReport.scheduledAt).toBeNull();
+    expect(afterReport.scheduledAt).toBe("2026-09-15T18:00:00.000Z");
   });
 
   it("setting a date does NOT change the match status", () => {

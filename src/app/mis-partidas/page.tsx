@@ -190,6 +190,13 @@ export default async function MisPartidasPage() {
     return `${deadlineLabel} · ${quotaLabel(resolved, required)}`;
   }
 
+  // The floor of calendario-de-verdad §4.7, read once: `toCardProps` below is
+  // a closure, and TypeScript will not carry the `if (!league) return` narrowing
+  // into it.
+  const leagueStartMonthIso = league.startMonth
+    ? league.startMonth.toISOString()
+    : null;
+
   function toCardProps(m: RawMatch) {
     return {
       match: {
@@ -201,6 +208,13 @@ export default async function MisPartidasPage() {
         scheduledAt: m.scheduledAt ? m.scheduledAt.toISOString() : null,
         location: m.location,
         status: m.status as "SCHEDULED" | "REPORTED" | "CONFIRMED" | "DISPUTED",
+        // calendario-de-verdad §4.7, criterio 22: the two ends of the valid
+        // range, so the `datetime-local` this card mounts carries `min`/`max`.
+        // Both are already loaded above (the league, and each match's round);
+        // `roundDeadline` stays null for a match with no round (§5.2), which
+        // is "no ceiling", the same answer the server gives.
+        roundDeadline: m.round ? m.round.deadline.toISOString() : null,
+        leagueStartMonth: leagueStartMonthIso,
         result: m.result
           ? {
               homeVP: m.result.homeVictoryPoints,

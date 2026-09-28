@@ -52,6 +52,17 @@ function uid(prefix: string): string {
 const PAST = new Date(Date.now() - 24 * 60 * 60 * 1000);
 const FUTURE = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
+/**
+ * The day the pair agreed on. Passed only by the tests whose pending write is
+ * a `reportResult`: since "calendario-de-verdad" (spec §4.8) it refuses a
+ * match with `scheduledAt = null`, and that rejection happens *before* the
+ * transaction is opened — i.e. before the window these criteria are about.
+ * The date is therefore a precondition for the race to exist at all, not part
+ * of what is being asserted. `declareWalkover` stays exempt (criterio 26), so
+ * its matches here keep no date.
+ */
+const AGREED_DAY = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
 async function createTestLeague() {
   return prisma.league.create({
     data: {
@@ -95,7 +106,9 @@ async function createMatch(
   leagueId: string,
   roundId: string,
   homeId: string,
-  awayId: string
+  awayId: string,
+  // `AGREED_DAY` for the tests whose pending write is a `reportResult` (§4.8).
+  scheduledAt: Date | null = null
 ) {
   return prisma.match.create({
     data: {
@@ -105,6 +118,7 @@ async function createMatch(
       status: "SCHEDULED",
       playerHomeId: homeId,
       playerAwayId: awayId,
+      scheduledAt,
     },
   });
 }
@@ -138,7 +152,15 @@ describe("H5b criterio 1: TOCTOU de la guarda de ronda cerrada en reportResult",
     const p1 = await createPlayer(league.id, "A");
     const p2 = await createPlayer(league.id, "B");
     const round = await createRound(league.id, 1, PAST); // due — closeable
-    const match = await createMatch(league.id, round.id, p1.id, p2.id);
+    // Dated so the pending reportResult clears the §4.8 guard and actually
+    // reaches the transaction, where the round-closed re-read decides.
+    const match = await createMatch(
+      league.id,
+      round.id,
+      p1.id,
+      p2.id,
+      AGREED_DAY
+    );
 
     // p1's fast-path read (outside this race helper) will see the round
     // still open — this is set up BEFORE the spy so reportResult's own
@@ -240,7 +262,15 @@ describe("H5b criterio 3: un fallo real de DB no se reporta como guarda de ronda
     const p1 = await createPlayer(league.id, "A");
     const p2 = await createPlayer(league.id, "B");
     const round = await createRound(league.id, 1, FUTURE); // open round
-    const match = await createMatch(league.id, round.id, p1.id, p2.id);
+    // Dated so reportResult gets past the §4.8 guard and opens the
+    // transaction — which is where the simulated DB failure lives.
+    const match = await createMatch(
+      league.id,
+      round.id,
+      p1.id,
+      p2.id,
+      AGREED_DAY
+    );
 
     const spy = vi
       .spyOn(prisma, "$transaction")
@@ -321,7 +351,15 @@ describe("H5b criterio 4: el override del admin sigue funcionando en ronda cerra
     const p1 = await createPlayer(league.id, "A");
     const p2 = await createPlayer(league.id, "B");
     const round = await createRound(league.id, 1, PAST);
-    const match = await createMatch(league.id, round.id, p1.id, p2.id);
+    // Dated: the admin's override goes through `reportResult`, and §4.8 has
+    // no admin escape — not even for the override this test is about.
+    const match = await createMatch(
+      league.id,
+      round.id,
+      p1.id,
+      p2.id,
+      AGREED_DAY
+    );
 
     mockSession.adminPlayerId = admin.id;
     const closeResult = await closeRound(round.id);
