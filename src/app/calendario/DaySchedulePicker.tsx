@@ -50,6 +50,7 @@ import {
   timeLabel,
   type SchedulableMatch,
 } from "@/server/calendar";
+import { matchesPlayerQuery } from "@/server/match-search";
 
 /** Evening kick-off, the hour this league actually plays at. */
 const DEFAULT_TIME = "20:00";
@@ -84,28 +85,6 @@ function currentDateLabel(iso: string): string {
 
 function matchTitle(match: SchedulableMatch): string {
   return `${match.playerHomeName} vs ${match.playerAwayName ?? "—"}`;
-}
-
-/**
- * Lower-case and strip diacritics, so typing `martin` finds `Martín` — half
- * this league writes its own name without the accent. NFD splits a letter into
- * base + combining mark and the range below drops the marks; the explicit
- * range is used instead of `\p{Diacritic}` because the build targets ES2017.
- */
-function fold(text: string): string {
-  return text
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-}
-
-/** True when either player's name contains the (already folded) needle. */
-function matchesQuery(match: SchedulableMatch, needle: string): boolean {
-  if (needle === "") return true;
-  return (
-    fold(match.playerHomeName).includes(needle) ||
-    fold(match.playerAwayName ?? "").includes(needle)
-  );
 }
 
 interface CandidateGroup {
@@ -174,10 +153,9 @@ export function DaySchedulePicker({
   const searchInputId = useId();
 
   const groups = useMemo(() => {
-    const needle = fold(query.trim());
     const filtered = groupByRound(candidates).map((group) => ({
       ...group,
-      matches: group.matches.filter((m) => matchesQuery(m, needle)),
+      matches: group.matches.filter((m) => matchesPlayerQuery(m, query)),
     }));
     // A group left empty by the filter is not painted.
     return filtered.filter((group) => group.matches.length > 0);

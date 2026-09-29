@@ -99,3 +99,45 @@ export function resolveMatchStatusLabel(
   // legacy or corrupted row ever holds something outside the enum.
   return { label: status, variant: "neutral" };
 }
+
+// ---------------------------------------------------------------------------
+// pickCurrentRoundId — SPEC partidas-por-jornada §4.1, criterio 7
+// ---------------------------------------------------------------------------
+
+/** The minimal round shape `pickCurrentRoundId` needs. */
+export interface CurrentRoundInput {
+  id: string;
+  index: number;
+  deadline: Date;
+  closedAt: Date | null;
+}
+
+/**
+ * Picks the round "Mis partidas" opens on load (SPEC partidas-por-jornada
+ * §4.1, criterio 7): among open rounds (`closedAt === null`) whose deadline
+ * has not passed (`>= now`), the closest one; if none, the open round whose
+ * deadline is the most recent past one; with no open rounds at all, `null`.
+ * A tied deadline goes to the lower `index` (§5).
+ */
+export function pickCurrentRoundId(
+  rounds: CurrentRoundInput[],
+  now: Date
+): string | null {
+  const open = rounds.filter((r) => r.closedAt === null);
+  if (open.length === 0) return null;
+
+  const notExpired = open.filter((r) => r.deadline.getTime() >= now.getTime());
+  // Branch 1 picks the closest (smallest) deadline; branch 2 picks the most
+  // recent (largest) past one. Both tie-break on the smaller `index` (§5).
+  const wantsSmallestDeadline = notExpired.length > 0;
+  const pool = wantsSmallestDeadline ? notExpired : open;
+
+  const best = pool.reduce((best, r) => {
+    const delta = r.deadline.getTime() - best.deadline.getTime();
+    if (delta === 0) return r.index < best.index ? r : best;
+    const better = wantsSmallestDeadline ? delta < 0 : delta > 0;
+    return better ? r : best;
+  });
+
+  return best.id;
+}

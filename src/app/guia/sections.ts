@@ -47,7 +47,7 @@ export const GUIDE_SECTIONS: GuideSection[] = [
     title: "Tu cupo de la ronda",
     bullets: [
       "Cada mes (cada ronda) te toca jugar un número de partidas — 2 por defecto, puede ser otro según la liga.",
-      "En Mis partidas ves tus partidas agrupadas por ronda, con cuántas te faltan («falta 1 de 2»). En Rondas ves el cupo de todo el mundo.",
+      "En Mis partidas ves tus partidas agrupadas por ronda, con cuántas te faltan («falta 1 de 2»); las rondas salen plegadas salvo la actual, hay un buscador por nombre y por defecto solo se ven las pendientes, con un filtro Pendientes · Jugadas · Todas para cambiar de vista. En Rondas ves el cupo de todo el mundo.",
       "Adelantar está permitido: puedes jugar en octubre una partida que te tocaba en diciembre. Pero eso no te libra de las de tu ronda en curso — cuando llegue su cierre, cuentan igual.",
     ],
   },

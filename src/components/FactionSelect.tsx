@@ -19,6 +19,7 @@ import {
   MAX_FACTIONS_PER_PLAYER,
   isKnownFaction,
 } from "@/lib/factions";
+import { foldText } from "@/server/match-search";
 
 interface FactionSelectProps {
   label?: string;
@@ -36,12 +37,7 @@ interface FactionSelectProps {
 
 /** Case/accent-insensitive contains, so "tau" matches "Imperio T'au". */
 function matches(haystack: string, needle: string): boolean {
-  const fold = (s: string) =>
-    s
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/['\u2019]/g, "")
-      .toLowerCase();
+  const fold = (s: string) => foldText(s).replace(/['\u2019]/g, "");
   return fold(haystack).includes(fold(needle));
 }
 

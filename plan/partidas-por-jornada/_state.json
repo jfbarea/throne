@@ -1,0 +1,127 @@
+{
+  "status": "DONE",
+  "mode": "parallel",
+  "spec": "plan/specs/partidas-por-jornada.md",
+  "branch": "feat/partidas-por-jornada",
+  "wave": 2,
+  "tasks": [
+    {
+      "id": "t00",
+      "slug": "contratos-y-dominio",
+      "wave": 1,
+      "deps": [],
+      "criteria": [
+        "CA-7",
+        "CA-6u",
+        "CA-11u",
+        "CA-15u",
+        "CA-16u",
+        "CA-21u"
+      ],
+      "files": [
+        "src/server/match-search.ts",
+        "src/server/round-ui.ts",
+        "src/server/partidas-view.ts",
+        "src/app/mis-partidas/browser-contract.ts",
+        "src/app/mis-partidas/PartidasBrowser.tsx",
+        "src/app/mis-partidas/VistaTabs.tsx",
+        "tests/partidas-dominio.test.ts"
+      ],
+      "status": "DONE",
+      "commit_sha": "f257e53",
+      "notes": "Worker cortado por ECONNRESET tras lint; gate completado por el orquestador: test 750/750, lint limpio, tsc --noEmit limpio. next build no verificable: sin red (next/font no alcanza fonts.googleapis.com). Rango de acentos reescrito con escapes \\u0300-\\u036f."
+    },
+    {
+      "id": "t01",
+      "slug": "navegador",
+      "wave": 2,
+      "deps": [
+        "t00"
+      ],
+      "criteria": [
+        "CA-8",
+        "CA-9",
+        "CA-10",
+        "CA-11",
+        "CA-12",
+        "CA-13",
+        "CA-14",
+        "CA-15",
+        "CA-16",
+        "CA-17",
+        "CA-18",
+        "CA-19b",
+        "CA-22b"
+      ],
+      "files": [
+        "src/app/mis-partidas/PartidasBrowser.tsx",
+        "tests/partidas-browser.test.tsx"
+      ],
+      "status": "DONE",
+      "commit_sha": "9caef31"
+    },
+    {
+      "id": "t02",
+      "slug": "pagina-y-pestanas",
+      "wave": 2,
+      "deps": [
+        "t00"
+      ],
+      "criteria": [
+        "CA-1",
+        "CA-2",
+        "CA-3",
+        "CA-4",
+        "CA-5",
+        "CA-6",
+        "CA-19a",
+        "CA-20"
+      ],
+      "files": [
+        "src/app/mis-partidas/page.tsx",
+        "src/app/mis-partidas/VistaTabs.tsx",
+        "src/server/partidas-blocks.ts",
+        "tests/partidas-pagina.test.tsx"
+      ],
+      "status": "DONE",
+      "commit_sha": "e64a846",
+      "notes": "Incluye tests/montaje.test.tsx (fuera de partición, hueco del plan; arreglo del orquestador con OK del usuario)."
+    },
+    {
+      "id": "t03",
+      "slug": "buscador-compartido",
+      "wave": 2,
+      "deps": [
+        "t00"
+      ],
+      "criteria": [
+        "CA-21"
+      ],
+      "files": [
+        "src/app/calendario/DaySchedulePicker.tsx",
+        "src/components/FactionSelect.tsx",
+        "src/app/guia/sections.ts"
+      ],
+      "status": "DONE",
+      "commit_sha": "b0125cd"
+    },
+    {
+      "id": "t04",
+      "slug": "e2e",
+      "wave": 2,
+      "deps": [
+        "t00"
+      ],
+      "criteria": [
+        "CA-22a",
+        "CA-23"
+      ],
+      "files": [
+        "tests/e2e/full-journey.spec.ts"
+      ],
+      "status": "DONE",
+      "commit_sha": "1a71ee3",
+      "notes": "Test del criterio 22 ajustado por el orquestador: filtro a Todas y bloques desplegados, porque corre con todas las rondas cerradas."
+    }
+  ]
+}

@@ -307,9 +307,12 @@ describe("AC-22 (vivo, desde la página): el datetime-local sale con min y max",
     // Alice juega contra Bob más de una vez.
     const round3 = screen
       .getByText(/^Ronda 3 ·/)
-      .closest("section") as HTMLElement | null;
+      .closest("details") as HTMLElement | null;
     expect(round3, "no hay bloque de la ronda 3 en /mis-partidas").not.toBeNull();
 
+    // partidas-por-jornada §4.1: only the current round starts open, and in
+    // this fixture that is not round 3.
+    await user.click(round3!.querySelector("summary")!);
     await user.click(
       within(round3!).getByRole("button", { name: /Poner fecha|Cambiar fecha/ })
     );

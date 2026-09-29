@@ -51,9 +51,18 @@
  *
  * Nota: los tests son secuenciales y comparten estado de DB. Cada test hace
  * login fresco para asegurar que las cookies no se mezclan entre tests.
+ *
+ * `partidas-por-jornada`: bloques plegables por ronda y filtro `Pendientes`
+ * por defecto (plan/specs/partidas-por-jornada.md §4.1, §4.6) tocan los
+ * pasos 6-9 (ver comentarios en cada uno) y añaden el paso 4b (pestañas del
+ * admin) y un test en "Mobile viewport" (criterio 22).
  */
 
 import { test, expect, type Locator, type Page } from "@playwright/test";
+import {
+  TEST_IDS,
+  statusFilterOptionTestId,
+} from "@/app/mis-partidas/browser-contract";
 
 // Constantes del entorno e2e (deben coincidir con global-setup.ts y playwright.config.ts)
 const ADMIN_PASSCODE = "admin-e2e-passcode-secret";
@@ -119,6 +128,26 @@ function cardOf(inner: Locator): Locator {
   return inner.locator(
     "xpath=ancestor::div[contains(@class,'rounded') and contains(@class,'border') and contains(@class,'p-4')][1]"
   );
+}
+
+// Localizado por el texto de su `<summary>`, no por `key`
+// (browser-contract.ts): esa key la genera `src/server/partidas-blocks.ts`
+// (t02), fuera del contrato que este fichero puede asumir.
+async function openRound1Block(page: Page): Promise<Locator | null> {
+  const toggle = page
+    .locator('[data-testid^="block-toggle-"]', { hasText: /^Ronda 1(\s|·)/ })
+    .first();
+  const exists = await toggle.isVisible({ timeout: 5_000 }).catch(() => false);
+  if (!exists) return null;
+
+  const block = toggle.locator(
+    'xpath=ancestor::*[starts-with(@data-testid,"block-") and not(starts-with(@data-testid,"block-toggle-"))][1]'
+  );
+  const isOpen = await block.evaluate((el) => (el as HTMLDetailsElement).open);
+  if (!isOpen) {
+    await toggle.click();
+  }
+  return block;
 }
 
 /** Creates one player from the admin/jugadores form and dismisses the
@@ -248,6 +277,33 @@ test.describe("Recorrido completo", () => {
     await expect(page.locator("body")).toContainText("Ronda 6");
   });
 
+  test("4b. Admin ve las pestañas de /mis-partidas; «Toda la liga» lleva a ?vista=todas y sobrevive a un recargado", async ({
+    page,
+  }) => {
+    // `partidas-por-jornada` §4.4, CA-1 a CA-3. `aria-current` se comprueba
+    // por presencia/ausencia, no por valor literal ("page" vs "true"...):
+    // `VistaTabs.tsx` (t02) todavía no existe en el árbol cuando se escribe
+    // este test.
+    await loginAdmin(page);
+
+    await page.goto("/mis-partidas");
+    const tabMias = page.getByTestId(TEST_IDS.tabMias);
+    const tabTodas = page.getByTestId(TEST_IDS.tabTodas);
+    await expect(tabMias).toBeVisible();
+    await expect(tabTodas).toBeVisible();
+    expect(await tabMias.getAttribute("aria-current")).toBeTruthy();
+    expect(await tabTodas.getAttribute("aria-current")).toBeFalsy();
+
+    await tabTodas.click();
+    await expect(page).toHaveURL(/\/mis-partidas\?vista=todas$/);
+    await expect(page.locator("body")).toContainText("Gestión de partidas");
+    expect(await page.getByTestId(TEST_IDS.tabTodas).getAttribute("aria-current")).toBeTruthy();
+
+    await page.reload();
+    await expect(page).toHaveURL(/\/mis-partidas\?vista=todas$/);
+    expect(await page.getByTestId(TEST_IDS.tabTodas).getAttribute("aria-current")).toBeTruthy();
+  });
+
   test("5. Admin agenda una partida tocando un día de la rejilla", async ({ page }) => {
     // `calendario-de-verdad` §4.5: agendar ya no es "buscar la partida en una
     // lista y abrir su formulario", es **tocar el día** y elegir qué partida se
@@ -338,8 +394,11 @@ test.describe("Recorrido completo", () => {
     // resolved on a second project run against the shared e2e.db.
     await expect(page.locator("body")).toContainText("Pendientes");
 
-    // Rondas-con-fecha Hito 6: matches are grouped by round, closest
-    // deadline first — Ronda 1 (March 2026, the earliest) is always shown.
+    // `partidas-por-jornada` §4.6: bajo el filtro `Pendientes` por defecto,
+    // un bloque sin ninguna partida pendiente no se pinta — en una segunda
+    // corrida sobre el mismo e2e.db, Ronda 1 puede llegar ya resuelta. `Todas`
+    // no oculta ningún bloque, así que la afirmación no depende de esa carrera.
+    await page.getByTestId(statusFilterOptionTestId("TODAS")).click();
     await expect(page.locator("body")).toContainText(/Ronda 1/);
   });
 
@@ -356,16 +415,26 @@ test.describe("Recorrido completo", () => {
 
     await page.goto("/mis-partidas");
 
-    // Find the first "Apuntar resultado" button (new label, Hito 15)
-    const reportBtn = page.getByRole("button", { name: /apuntar resultado/i }).first();
+    // `partidas-por-jornada` §4.1: Ronda 1 solo sale desplegada si es la
+    // jornada actual de la liga. Abrirla explícitamente antes de buscar nada
+    // dentro — un `<details>` cerrado no expone su contenido (§7 de la spec).
+    let round1 = await openRound1Block(page);
+
     // On a second project run against the shared e2e.db, this same league
     // may already be fully resolved (every round closed, playoffs started
     // later in this file) — nothing left for Alfa to report. Skip the write
     // gracefully in that case instead of failing on a button that legitimately
     // doesn't exist anymore.
-    const hasPending = await reportBtn.isVisible({ timeout: 5_000 }).catch(() => false);
+    const hasPending = round1
+      ? await round1
+          .getByRole("button", { name: /apuntar resultado/i })
+          .first()
+          .isVisible({ timeout: 5_000 })
+          .catch(() => false)
+      : false;
 
     if (hasPending) {
+      const reportBtn = round1!.getByRole("button", { name: /apuntar resultado/i }).first();
       // §4.8/criterio 25, en pantalla: mientras la partida no tenga día, el
       // botón de resultado está deshabilitado y la tarjeta explica el porqué.
       // La salida es poner la fecha, y está ahí mismo, en la misma tarjeta.
@@ -375,7 +444,7 @@ test.describe("Recorrido completo", () => {
         // filtrado por "Apuntar resultado" dejaría de apuntar a esta tarjeta en
         // la acción siguiente. Es el mismo motivo por el que el paso 9 usa
         // `nth`. La posición no cambia al desplegar un formulario dentro.
-        const cards = page.locator("div.rounded.border.p-4");
+        const cards = round1!.locator("div.rounded.border.p-4");
         const cardCount = await cards.count();
         let targetIndex = -1;
         for (let i = 0; i < cardCount; i++) {
@@ -416,12 +485,16 @@ test.describe("Recorrido completo", () => {
         // ordena por `scheduledAt`), así que a partir de aquí no vale ninguna
         // referencia tomada antes: se recarga y se busca de nuevo.
         await page.goto("/mis-partidas");
+        // Un `goto` es una carga nueva: vuelve a aplicar §4.1 y puede
+        // replegar Ronda 1 otra vez.
+        round1 = await openRound1Block(page);
+        expect(round1, "Ronda 1 desapareció tras poner la fecha").not.toBeNull();
       }
 
       // La primera partida de Alfa que YA se puede apuntar. Rondas-con-fecha
       // Hito 6 agrupa por ronda, así que quién sale primero no está garantizado
       // y tampoco que Alfa sea el local: se lee del propio naipe.
-      const ready = page
+      const ready = round1!
         .getByRole("button", { name: /apuntar resultado/i })
         .and(page.locator("button:not([disabled])"))
         .first();
@@ -474,13 +547,23 @@ test.describe("Recorrido completo", () => {
 
     await page.goto("/mis-partidas");
 
+    // `partidas-por-jornada` §4.6: esta es una sesión nueva (Beta, no Alfa)
+    // cargando la página desde cero, así que no hereda el set de "recién
+    // resueltas" de quien apuntó el resultado — bajo `Pendientes` (el filtro
+    // por defecto) la partida de Alfa no aparece. Pasar a `Jugadas` antes.
+    await page.getByTestId(statusFilterOptionTestId("JUGADAS")).click();
+
+    // §4.1: la partida de Alfa vive en Ronda 1, que puede seguir plegada.
+    const round1 = await openRound1Block(page);
+    const scope = round1 ?? page.locator("body");
+
     // Beta should see an "Editar resultado" button for the match already reported by Alfa.
     // If the match shows "Editar resultado" button, Beta can edit (both participants allowed).
     //
     // Sólo las **habilitadas**: desde `calendario-de-verdad` §4.8 una partida
     // saldada sin fecha (las que deja `closeRound`) también dice "Editar
     // resultado", pero con el botón muerto — editarla exigiría fecharla antes.
-    const editBtn = page
+    const editBtn = scope
       .getByRole("button", { name: /editar resultado/i })
       .and(page.locator("button:not([disabled])"))
       .first();
@@ -517,12 +600,11 @@ test.describe("Recorrido completo", () => {
 
     await page.goto("/mis-partidas");
 
-    const round1Heading = page.getByText(/^Ronda 1 ·/).first();
-    const hasRound1 = await round1Heading.isVisible({ timeout: 5_000 }).catch(() => false);
+    // §4.1: Ronda 1 puede seguir plegada; abrirla antes de buscar dentro.
+    const round1 = await openRound1Block(page);
 
-    if (hasRound1) {
-      const round1Section = round1Heading.locator("xpath=ancestor::section[1]");
-      const cards = round1Section.locator("div.rounded.border.p-4");
+    if (round1) {
+      const cards = round1.locator("div.rounded.border.p-4");
       const cardCount = await cards.count();
 
       // Find a card that still has "Apuntar resultado" (no Result yet) — never
@@ -562,6 +644,14 @@ test.describe("Recorrido completo", () => {
         );
       }
     }
+
+    // El badge de incomparecencia vive dentro de una tarjeta, no en la
+    // cabecera del bloque (§4.5): a diferencia del paso 6, aquí hace falta
+    // el bloque también ABIERTO, no solo pintado — `Todas` cubre que ya
+    // esté resuelta de una corrida anterior; `openRound1Block` cubre que
+    // Ronda 1 no sea la jornada actual.
+    await page.getByTestId(statusFilterOptionTestId("TODAS")).click();
+    await openRound1Block(page);
 
     // Either declared just now or in a previous project run against the
     // same e2e.db, Gamma's Ronda 1 shows the incomparecencia label.
@@ -731,6 +821,71 @@ test.describe("Mobile viewport — sin scroll horizontal roto", () => {
     await page.goto("/mis-partidas");
     // Wait for the page content to fully settle before measuring layout.
     await expect(page.locator("body")).toContainText(/mis partidas|Mis partidas|Pendientes|Apuntadas/i);
+    const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
+    expect(bodyWidth).toBeLessThanOrEqual(391);
+  });
+
+  test("mis-partidas: buscador y filtro visibles bajo el header tras hacer scroll, sin solape ni overflow (criterio 22)", async ({
+    page,
+  }) => {
+    // Login de admin para que las pestañas (§4.5, no sticky) también entren
+    // en la comprobación de "fuera de vista tras el scroll".
+    await loginAdmin(page);
+    await page.goto("/mis-partidas");
+
+    // §4.5: `type="search"` y sin `autoFocus` — el teclado no se abre solo.
+    const focusedTestId = await page.evaluate(
+      () => document.activeElement?.getAttribute("data-testid") ?? null
+    );
+    expect(focusedTestId).not.toBe(TEST_IDS.searchInput);
+
+    const header = page.locator("header").first();
+    const headerBox = await header.boundingBox();
+    expect(headerBox, "AppHeader sin caja").not.toBeNull();
+
+    // Este test corre tras los pasos 10-12, con todas las rondas cerradas: bajo
+    // `Pendientes` (el filtro por defecto, §4.6) no queda ningún bloque, solo el
+    // aviso de §5. `Todas` los devuelve, y desplegarlos garantiza que la página
+    // es más alta que el viewport, que es lo que se está probando.
+    await page.getByTestId(statusFilterOptionTestId("TODAS")).click();
+    const blocks = page.locator('[data-testid^="block-"]:not([data-testid^="block-toggle-"])');
+    const lastBlock = blocks.last();
+    await expect(lastBlock).toBeVisible({ timeout: 10_000 });
+    const toggles = page.locator('[data-testid^="block-toggle-"]');
+    for (let i = 0; i < (await toggles.count()); i++) {
+      const block = blocks.nth(i);
+      if ((await block.getAttribute("open")) === null) await toggles.nth(i).click();
+    }
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await expect(lastBlock).toBeVisible();
+
+    const search = page.getByTestId(TEST_IDS.searchInput);
+    const filter = page.getByTestId(TEST_IDS.statusFilter);
+    await expect(search).toBeVisible();
+    await expect(filter).toBeVisible();
+
+    const searchBox = await search.boundingBox();
+    const filterBox = await filter.boundingBox();
+    expect(searchBox, "buscador sin caja").not.toBeNull();
+    expect(filterBox, "filtro sin caja").not.toBeNull();
+
+    // Bajo el header, no detrás: su parte superior está a la altura de la
+    // parte inferior del header, o por debajo.
+    const headerBottom = headerBox!.y + headerBox!.height;
+    expect(searchBox!.y).toBeGreaterThanOrEqual(headerBottom);
+    expect(filterBox!.y).toBeGreaterThanOrEqual(headerBottom);
+
+    // Una sola fila: buscador y filtro comparten franja vertical, el
+    // buscador a la izquierda, el filtro a su derecha sin solaparse.
+    expect(Math.abs(searchBox!.y - filterBox!.y)).toBeLessThan(20);
+    expect(searchBox!.x + searchBox!.width).toBeLessThanOrEqual(filterBox!.x + 1);
+
+    // Las pestañas del admin no son sticky (§4.5): tras el scroll quedan por
+    // encima de la franja fija, junto con el resto del contenido que pasó.
+    const tabsBox = await page.getByTestId(TEST_IDS.tabMias).boundingBox();
+    expect(tabsBox, "pestañas sin caja").not.toBeNull();
+    expect(tabsBox!.y + tabsBox!.height).toBeLessThanOrEqual(headerBottom);
+
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
     expect(bodyWidth).toBeLessThanOrEqual(391);
   });
